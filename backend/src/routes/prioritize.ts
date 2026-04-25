@@ -16,17 +16,34 @@ Rules:
 - Respect the user's calendar capacity.
 - Output one-line reasoning per task — concrete and specific.
 
-Respond with strict JSON:
-{ "topThree": [ { "taskId": "...", "tier": 1|2|3|4, "reasoning": "..." } ] }`;
+Respond with strict JSON, no prose, no markdown fences:
+{ "topThree": [ { "taskId": "<id from input>", "tier": 1, "reasoning": "..." } ] }`;
+
+interface InboundTask {
+  id: string;
+  [k: string]: unknown;
+}
 
 interface PrioritizeRequest {
-  tasks: unknown;
+  tasks: InboundTask[];
   prefs?: unknown;
   calendar?: unknown;
 }
 
+interface ClaudeResponse {
+  topThree: Array<{ taskId: string; tier: 1 | 2 | 3 | 4; reasoning: string }>;
+}
+
+function extractJson(text: string): unknown {
+  const trimmed = text.trim();
+  // Tolerate accidental ```json fences.
+  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const body = fence ? fence[1]! : trimmed;
+  return JSON.parse(body);
+}
+
 prioritizeRouter.post("/", async (req, res) => {
-  const { tasks, prefs, calendar } = req.body as PrioritizeRequest;
+  const { tasks, prefs, calendar } = (req.body ?? {}) as PrioritizeRequest;
   const apiKey = process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey) {
@@ -63,13 +80,28 @@ prioritizeRouter.post("/", async (req, res) => {
       ],
     });
 
-    const text =
-      response.content
-        .filter((b): b is Anthropic.TextBlock => b.type === "text")
-        .map((b) => b.text)
-        .join("\n") || "{}";
+    const text = response.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
 
-    res.json({ raw: text });
+    const parsed = extractJson(text) as ClaudeResponse;
+
+    if (!parsed || !Array.isArray(parsed.topThree)) {
+      return res.status(502).json({
+        error: "invalid_model_response",
+        message: "Model did not return the expected shape.",
+        raw: text,
+      });
+    }
+
+    // Drop any taskIds the model invented.
+    const validIds = new Set(tasks.map((t) => t.id));
+    const topThree = parsed.topThree
+      .filter((p) => validIds.has(p.taskId))
+      .slice(0, 3);
+
+    res.json({ topThree, source: "claude" as const });
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown_error";
     res.status(500).json({ error: "anthropic_error", message });
