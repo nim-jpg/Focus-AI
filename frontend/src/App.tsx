@@ -3,6 +3,7 @@ import { TaskForm } from "@/components/TaskForm";
 import { TaskList } from "@/components/TaskList";
 import { TopThree } from "@/components/TopThree";
 import { ModeSwitch } from "@/components/ModeSwitch";
+import { BrainDump } from "@/components/BrainDump";
 import { useTasks } from "@/lib/useTasks";
 import { prioritize } from "@/lib/prioritize";
 import { aiPrioritize, AiUnavailableError } from "@/lib/aiPrioritize";
@@ -120,8 +121,9 @@ export default function App() {
         />
       </section>
 
-      <section>
-        <h2 className="mb-3 text-lg font-semibold">Add a task</h2>
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold">Add tasks</h2>
+        <BrainDump onAdd={addTask} />
         <TaskForm onSubmit={addTask} />
       </section>
 

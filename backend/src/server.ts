@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { prioritizeRouter } from "./routes/prioritize.js";
+import { parseTasksRouter } from "./routes/parseTasks.js";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 8787);
@@ -13,6 +14,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/prioritize", prioritizeRouter);
+app.use("/api/parse-tasks", parseTasksRouter);
 
 app.listen(PORT, () => {
   console.log(`[focus3-backend] listening on http://localhost:${PORT}`);
