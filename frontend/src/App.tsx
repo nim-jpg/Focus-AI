@@ -15,6 +15,7 @@ import { SchedulePicker, type ScheduleChoice } from "@/components/SchedulePicker
 import { PlannerScan, type ResolvedUpdate } from "@/components/PlannerScan";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { checkAndNotify } from "@/lib/notifications";
+import { downloadBackup, readBackupFile } from "@/lib/backup";
 import { useGoals } from "@/lib/useGoals";
 import { useTasks } from "@/lib/useTasks";
 import { prioritize } from "@/lib/prioritize";
@@ -66,8 +67,10 @@ export default function App() {
     incrementCounter,
     markSurfaced,
     setPrefs,
+    replaceAllTasks,
+    replacePrefs,
   } = useTasks();
-  const { goals, addGoal, updateGoal, removeGoal } = useGoals();
+  const { goals, addGoal, updateGoal, removeGoal, replaceAllGoals } = useGoals();
 
   const addTaskAndEnrich = (input: Parameters<typeof addTask>[0]) => {
     const task = addTask(input);
@@ -649,6 +652,13 @@ export default function App() {
           prefs={prefs}
           onChange={setPrefs}
           onClose={() => setShowSettings(false)}
+          onExport={() => downloadBackup(tasks, goals, prefs)}
+          onImport={async (file) => {
+            const bundle = await readBackupFile(file);
+            replaceAllTasks(bundle.tasks);
+            replaceAllGoals(bundle.goals);
+            replacePrefs(bundle.prefs);
+          }}
         />
       )}
 

@@ -37,5 +37,7 @@ export function useGoals() {
     setGoals((prev) => prev.filter((g) => g.id !== id));
   }, []);
 
-  return { goals, addGoal, updateGoal, removeGoal };
+  const replaceAllGoals = useCallback((next: Goal[]) => setGoals(next), []);
+
+  return { goals, addGoal, updateGoal, removeGoal, replaceAllGoals };
 }

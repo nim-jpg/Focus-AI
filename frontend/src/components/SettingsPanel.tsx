@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { UserPrefs } from "@/types/task";
 import { TimeField } from "./TimeField";
 
@@ -6,6 +6,9 @@ interface Props {
   prefs: UserPrefs;
   onChange: (patch: Partial<UserPrefs>) => void;
   onClose: () => void;
+  /** Optional backup hooks; when omitted the section is hidden. */
+  onExport?: () => void;
+  onImport?: (file: File) => Promise<void>;
 }
 
 const DAY_LABELS: Array<{ idx: number; label: string }> = [
@@ -18,10 +21,19 @@ const DAY_LABELS: Array<{ idx: number; label: string }> = [
   { idx: 0, label: "Sun" },
 ];
 
-export function SettingsPanel({ prefs, onChange, onClose }: Props) {
+export function SettingsPanel({
+  prefs,
+  onChange,
+  onClose,
+  onExport,
+  onImport,
+}: Props) {
   const [permState, setPermState] = useState<NotificationPermission | null>(
     typeof Notification !== "undefined" ? Notification.permission : null,
   );
+  const [importBusy, setImportBusy] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -170,6 +182,76 @@ export function SettingsPanel({ prefs, onChange, onClose }: Props) {
               </div>
             )}
           </section>
+
+          {/* Backup / restore */}
+          {(onExport || onImport) && (
+            <section>
+              <h4 className="text-sm font-semibold text-slate-700">
+                Backup & restore
+              </h4>
+              <p className="text-xs text-slate-500">
+                Export everything (tasks, goals, prefs) as a JSON file you
+                can save somewhere safe. Restore overwrites current data.
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {onExport && (
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs"
+                    onClick={onExport}
+                  >
+                    Export backup
+                  </button>
+                )}
+                {onImport && (
+                  <>
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      accept="application/json"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        if (
+                          !confirm(
+                            "Restore will overwrite all current tasks, goals, and prefs. Continue?",
+                          )
+                        ) {
+                          if (fileRef.current) fileRef.current.value = "";
+                          return;
+                        }
+                        setImportBusy(true);
+                        setImportMsg(null);
+                        try {
+                          await onImport(f);
+                          setImportMsg("Restored.");
+                        } catch (err) {
+                          setImportMsg(
+                            err instanceof Error ? err.message : "Restore failed.",
+                          );
+                        } finally {
+                          setImportBusy(false);
+                          if (fileRef.current) fileRef.current.value = "";
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn-secondary text-xs"
+                      onClick={() => fileRef.current?.click()}
+                      disabled={importBusy}
+                    >
+                      {importBusy ? "Restoring…" : "Restore from file"}
+                    </button>
+                  </>
+                )}
+                {importMsg && (
+                  <span className="text-xs text-slate-600">{importMsg}</span>
+                )}
+              </div>
+            </section>
+          )}
         </div>
 
         <div className="mt-5 flex justify-end">

@@ -42,8 +42,31 @@ function cullStaleSessionTimes(tasks: Task[]): Task[] {
   return changed ? next : tasks;
 }
 
+/**
+ * For tasks that pre-date the completionLog field but had a lastCompletedAt
+ * stamp, seed the log with that one date so streaks aren't 0 on first load.
+ */
+function seedCompletionLog(tasks: Task[]): Task[] {
+  let changed = false;
+  const next = tasks.map((t) => {
+    if (t.recurrence === "none") return t;
+    if (t.completionLog && t.completionLog.length > 0) return t;
+    if (!t.lastCompletedAt) return t;
+    const d = new Date(t.lastCompletedAt);
+    if (Number.isNaN(d.getTime())) return t;
+    const seed = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    changed = true;
+    return { ...t, completionLog: [seed] };
+  });
+  return changed ? next : tasks;
+}
+
+function migrate(tasks: Task[]): Task[] {
+  return seedCompletionLog(cullStaleSessionTimes(tasks));
+}
+
 export function useTasks() {
-  const [tasks, setTasks] = useState<Task[]>(() => cullStaleSessionTimes(loadTasks()));
+  const [tasks, setTasks] = useState<Task[]>(() => migrate(loadTasks()));
   const [prefs, setPrefsState] = useState<UserPrefs>(() => loadPrefs());
 
   useEffect(() => {
@@ -186,6 +209,9 @@ export function useTasks() {
     setPrefsState((prev) => ({ ...prev, ...patch }));
   }, []);
 
+  const replaceAllTasks = useCallback((next: Task[]) => setTasks(next), []);
+  const replacePrefs = useCallback((next: UserPrefs) => setPrefsState(next), []);
+
   return {
     tasks,
     prefs,
@@ -196,5 +222,7 @@ export function useTasks() {
     incrementCounter,
     markSurfaced,
     setPrefs,
+    replaceAllTasks,
+    replacePrefs,
   };
 }
