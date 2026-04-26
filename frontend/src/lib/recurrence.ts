@@ -15,6 +15,36 @@ function startOfDay(d: Date): Date {
   return copy;
 }
 
+/**
+ * Walks backwards from today through completionLog, counting consecutive days
+ * the task was marked done. Returns the streak length.
+ *
+ * "Today not done" still returns yesterday-anchored streak (so the user sees
+ * their streak hasn't broken until end of day).
+ */
+export function streakDays(task: Task, now: Date = new Date()): number {
+  const log = new Set(task.completionLog ?? []);
+  if (log.size === 0) return 0;
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  // If today's not done, anchor from yesterday so the streak doesn't visually
+  // collapse to 0 the moment midnight rolls over.
+  let cursor = new Date(start);
+  if (!log.has(toIsoDate(cursor))) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  let count = 0;
+  while (log.has(toIsoDate(cursor))) {
+    count++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return count;
+}
+
+function toIsoDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export function wasCompletedToday(task: Task, now: Date = new Date()): boolean {
   if (!task.lastCompletedAt) return false;
   const last = new Date(task.lastCompletedAt);

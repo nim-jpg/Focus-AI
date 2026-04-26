@@ -12,8 +12,38 @@ import type { Task, UserPrefs } from "@/types/task";
 export type NewTaskInput = Omit<Task, "id" | "createdAt" | "updatedAt" | "status"> &
   Partial<Pick<Task, "status">>;
 
+function startOfWeek(d: Date): Date {
+  const c = new Date(d);
+  c.setHours(0, 0, 0, 0);
+  c.setDate(c.getDate() - ((c.getDay() + 6) % 7));
+  return c;
+}
+
+/**
+ * One-time cull: drop sessionTimes that aren't in the current or upcoming week.
+ * Old session entries pile up otherwise and confuse the auto-scheduler.
+ */
+function cullStaleSessionTimes(tasks: Task[]): Task[] {
+  const wkStart = startOfWeek(new Date()).getTime();
+  const wkEnd = wkStart + 14 * 24 * 60 * 60 * 1000; // include next week
+  let changed = false;
+  const next = tasks.map((t) => {
+    if (!t.sessionTimes || t.sessionTimes.length === 0) return t;
+    const filtered = t.sessionTimes.filter((iso) => {
+      const ts = new Date(iso).getTime();
+      return ts >= wkStart && ts < wkEnd;
+    });
+    if (filtered.length !== t.sessionTimes.length) {
+      changed = true;
+      return { ...t, sessionTimes: filtered };
+    }
+    return t;
+  });
+  return changed ? next : tasks;
+}
+
 export function useTasks() {
-  const [tasks, setTasks] = useState<Task[]>(() => loadTasks());
+  const [tasks, setTasks] = useState<Task[]>(() => cullStaleSessionTimes(loadTasks()));
   const [prefs, setPrefsState] = useState<UserPrefs>(() => loadPrefs());
 
   useEffect(() => {
@@ -63,9 +93,14 @@ export function useTasks() {
         // un-tick a basic they hit by accident.
         if (t.recurrence !== "none") {
           const doneToday = wasCompletedToday(t);
+          const todayKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
+          const log = new Set(t.completionLog ?? []);
+          if (doneToday) log.delete(todayKey);
+          else log.add(todayKey);
           return {
             ...t,
             lastCompletedAt: doneToday ? undefined : now,
+            completionLog: Array.from(log).sort(),
             status: "pending",
             updatedAt: now,
           };
@@ -129,16 +164,18 @@ export function useTasks() {
     setTasks((prev) =>
       prev.map((t) => {
         if (t.id !== id || !t.counter) return t;
-        // If the stored count is from a previous day, reset before applying delta.
         const baseCount = t.counter.date === todayStr ? t.counter.count : 0;
         const next = Math.max(0, baseCount + delta);
         const now = new Date().toISOString();
         const reachedTarget = next >= t.counter.target;
+        const log = new Set(t.completionLog ?? []);
+        if (reachedTarget) log.add(todayStr);
+        else log.delete(todayStr);
         return {
           ...t,
           counter: { ...t.counter, date: todayStr, count: next },
-          // Stamp lastCompletedAt when target is hit so isDueNow / wasCompletedToday agree.
           lastCompletedAt: reachedTarget ? now : t.lastCompletedAt,
+          completionLog: Array.from(log).sort(),
           updatedAt: now,
         };
       }),

@@ -74,6 +74,8 @@ export interface Task {
   avoidanceWeeks?: number;
   /** ISO timestamp the task was last marked done. For recurring tasks this drives next-due calculation. */
   lastCompletedAt?: string;
+  /** YYYY-MM-DD strings of every day this task was marked done. Used for habit streaks. Only relevant for recurring tasks. */
+  completionLog?: string[];
   /** When in the day this task wants to be done. Defaults to "anytime". */
   timeOfDay?: TimeOfDay;
   /** Optional specific time-of-day override (HH:MM, 24-hour). Useful for daily habits like "8:30 tablets". */

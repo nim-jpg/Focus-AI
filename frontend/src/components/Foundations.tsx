@@ -3,6 +3,7 @@ import {
   counterCountToday,
   isCounter,
   isOverdueToday,
+  streakDays,
   wasCompletedToday,
 } from "@/lib/recurrence";
 import { ThemeBadge } from "./ThemeBadge";
@@ -67,6 +68,15 @@ export function Foundations({ tasks, onComplete, onIncrement, onEdit }: Props) {
               const counter = isCounter(task);
               const count = counter ? counterCountToday(task, now) : 0;
               const target = task.counter?.target ?? 0;
+              const streak = streakDays(task, now);
+              const streakBadge = streak >= 2 ? (
+                <span
+                  className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-medium text-orange-800"
+                  title={`${streak}-day streak`}
+                >
+                  🔥 {streak}d
+                </span>
+              ) : null;
 
               if (counter) {
                 return (
@@ -90,6 +100,7 @@ export function Foundations({ tasks, onComplete, onIncrement, onEdit }: Props) {
                       {task.title}
                     </span>
                     <ThemeBadge theme={task.theme} />
+                    {streakBadge}
                     <button
                       type="button"
                       onClick={() => onIncrement(task.id, 1)}
@@ -139,6 +150,7 @@ export function Foundations({ tasks, onComplete, onIncrement, onEdit }: Props) {
                     </span>
                     <ThemeBadge theme={task.theme} />
                   </button>
+                  {streakBadge}
                   {onEdit && (
                     <button
                       type="button"
