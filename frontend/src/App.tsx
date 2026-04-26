@@ -4,11 +4,11 @@ import { TaskList } from "@/components/TaskList";
 import { TopThree } from "@/components/TopThree";
 import { ModeSwitch } from "@/components/ModeSwitch";
 import { BrainDump } from "@/components/BrainDump";
-import { Basics } from "@/components/Basics";
+import { Foundations } from "@/components/Foundations";
 import { useTasks } from "@/lib/useTasks";
 import { prioritize } from "@/lib/prioritize";
 import { aiPrioritize, AiUnavailableError } from "@/lib/aiPrioritize";
-import { isBasic, wasCompletedToday } from "@/lib/recurrence";
+import { isFoundation, wasCompletedToday } from "@/lib/recurrence";
 import type { PrioritizedTask } from "@/types/task";
 
 type Source = "local" | "claude";
@@ -22,8 +22,8 @@ export default function App() {
     [tasks, prefs],
   );
 
-  const basics = useMemo(
-    () => tasks.filter((t) => isBasic(t) && t.status !== "completed"),
+  const foundations = useMemo(
+    () => tasks.filter((t) => isFoundation(t) && t.status !== "completed"),
     [tasks],
   );
 
@@ -95,7 +95,7 @@ export default function App() {
         <ModeSwitch mode={prefs.mode} onChange={(mode) => setPrefs({ mode })} />
       </header>
 
-      <Basics tasks={basics} onComplete={toggleComplete} />
+      <Foundations tasks={foundations} onComplete={toggleComplete} />
 
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

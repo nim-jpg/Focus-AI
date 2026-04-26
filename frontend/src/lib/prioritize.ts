@@ -4,7 +4,7 @@ import type {
   Theme,
   UserPrefs,
 } from "@/types/task";
-import { isBasic, isDueNow } from "./recurrence";
+import { isFoundation, isDueNow } from "./recurrence";
 
 const HOURS = 60 * 60 * 1000;
 
@@ -151,8 +151,8 @@ export function prioritize(
     if (t.status === "completed") return false;
     if (mode === "work" && !t.isWork) return false;
     if (mode === "personal" && t.isWork) return false;
-    // Daily foundational habits live in the Basics rail, never in Top Three.
-    if (isBasic(t)) return false;
+    // Daily foundational habits live in the Foundations rail, never in Top Three.
+    if (isFoundation(t)) return false;
     // Recurring tasks only compete when they're actually due.
     if (t.recurrence !== "none" && !isDueNow(t, now)) return false;
     return true;

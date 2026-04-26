@@ -7,7 +7,7 @@ interface Props {
   onComplete: (id: string) => void;
 }
 
-export function Basics({ tasks, onComplete }: Props) {
+export function Foundations({ tasks, onComplete }: Props) {
   if (tasks.length === 0) return null;
 
   const now = new Date();
@@ -23,14 +23,7 @@ export function Basics({ tasks, onComplete }: Props) {
   return (
     <section>
       <div className="mb-2 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-slate-700">
-            Today&apos;s Basics
-          </h2>
-          <span className="text-xs text-slate-500">
-            foundation — keep the streak quietly
-          </span>
-        </div>
+        <h2 className="text-sm font-semibold text-slate-700">Foundations</h2>
         <span className="text-xs text-slate-500">
           {doneCount}/{sorted.length} done
         </span>

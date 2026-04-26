@@ -52,13 +52,14 @@ export function nextDueAt(task: Task, now: Date = new Date()): Date | null {
   return new Date(last.getTime() + INTERVAL_DAYS[task.recurrence] * DAY);
 }
 
-const BASIC_THEMES = new Set(["medication", "fitness", "diet"]);
+const FOUNDATION_THEMES = new Set(["medication", "fitness", "diet"]);
 
 /**
- * A "basic" is a daily-recurring foundational habit (meds, daily movement, daily nutrition).
- * Basics are surfaced in their own rail and never crowd the Top Three — Top Three is
- * reserved for meaningful, often-avoided work that drives long-term goals.
+ * A "foundation" is a daily-recurring foundational habit (meds, daily movement,
+ * daily nutrition). Foundations live in their own rail and never crowd the Top
+ * Three — Top Three is reserved for meaningful, often-avoided work that drives
+ * long-term goals.
  */
-export function isBasic(task: Task): boolean {
-  return task.recurrence === "daily" && BASIC_THEMES.has(task.theme);
+export function isFoundation(task: Task): boolean {
+  return task.recurrence === "daily" && FOUNDATION_THEMES.has(task.theme);
 }
