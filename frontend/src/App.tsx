@@ -266,7 +266,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       return;
     }
     try {
-      const { eventId, htmlLink } = await scheduleTask(task, choice.start, choice.end);
+      const { eventId } = await scheduleTask(task, choice.start, choice.end);
       // Pushed to Google — store the real event id so we can delete it later.
       // Clear scheduledFor so it doesn't show twice (Google fetch will surface it).
       updateTask(task.id, {
@@ -274,11 +274,8 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         scheduledFor: undefined,
       });
       setCalendarMsg(
-        htmlLink
-          ? `Pushed "${task.title}" to Google — opening Calendar`
-          : `Pushed "${task.title}" to Google Calendar.`,
+        `"${task.title}" added to your personal calendar.`,
       );
-      if (htmlLink) window.open(htmlLink, "_blank", "noopener,noreferrer");
     } catch (err) {
       const reason =
         err instanceof CalendarError ? err.message : "unexpected error";
@@ -808,16 +805,14 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
                 // Clear the stale id first so we don't pretend to keep the
                 // dead reference if the create call fails.
                 updateTask(taskId, { calendarEventId: undefined });
-                const { eventId, htmlLink } = await scheduleTask(t, start, end);
+                const { eventId } = await scheduleTask(t, start, end);
                 updateTask(taskId, {
                   calendarEventId: eventId,
                   scheduledFor: undefined,
                 });
                 setCalendarMsg(
-                  `Re-created "${t.title}" in Google Calendar.`,
+                  `"${t.title}" re-added to your personal calendar.`,
                 );
-                if (htmlLink)
-                  window.open(htmlLink, "_blank", "noopener,noreferrer");
               } catch (err) {
                 setCalendarMsg(
                   `Re-create failed — ${err instanceof Error ? err.message : String(err)}`,

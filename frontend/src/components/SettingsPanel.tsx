@@ -140,15 +140,40 @@ export function SettingsPanel({
             </p>
           </section>
 
+          {/* Day shape — wake-up + bedtime define the auto-schedule window */}
+          <section>
+            <h4 className="text-sm font-semibold text-slate-700">
+              Day shape
+            </h4>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <div>
+                <label className="text-xs text-slate-600">Wake up</label>
+                <TimeField
+                  value={prefs.wakeUpTime ?? "07:00"}
+                  onChange={(v) => v && onChange({ wakeUpTime: v })}
+                  minuteStep={15}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-600">Bedtime</label>
+                <TimeField
+                  value={prefs.bedTime ?? "23:00"}
+                  onChange={(v) => v && onChange({ bedTime: v })}
+                  minuteStep={15}
+                />
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              Auto-schedule places sessions between wake-up + 30 min and
+              bedtime − 1 hour.
+            </p>
+          </section>
+
           {/* Working hours */}
           <section>
             <h4 className="text-sm font-semibold text-slate-700">
               Working hours
             </h4>
-            <p className="text-xs text-slate-500">
-              Used by auto-schedule to avoid placing sessions during work,
-              and to tint the week grid.
-            </p>
             <div className="mt-2 flex items-center gap-3">
               <div>
                 <label className="text-xs text-slate-600">Start</label>
@@ -167,6 +192,10 @@ export function SettingsPanel({
                 />
               </div>
             </div>
+            <p className="mt-2 text-xs text-slate-500">
+              Used by auto-schedule to avoid placing sessions during work,
+              and to tint the week grid.
+            </p>
           </section>
 
           {/* Working days */}
@@ -236,20 +265,42 @@ export function SettingsPanel({
                 );
               })}
             </div>
-            <div className="mt-2 flex items-center gap-2 text-xs">
-              <label className="text-slate-700">Commute (one way, minutes)</label>
-              <input
-                type="number"
-                min={0}
-                max={300}
-                step={5}
-                className="input h-7 w-20 text-xs"
-                value={prefs.commuteMinutes ?? 0}
-                onChange={(e) =>
-                  onChange({ commuteMinutes: Number(e.target.value) || 0 })
-                }
-              />
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+              <label className="flex items-center gap-2 text-slate-700">
+                Commute (one way, minutes)
+                <input
+                  type="number"
+                  min={0}
+                  max={300}
+                  step={5}
+                  className="input h-7 w-20 text-xs"
+                  value={prefs.commuteMinutes ?? 0}
+                  onChange={(e) =>
+                    onChange({ commuteMinutes: Number(e.target.value) || 0 })
+                  }
+                />
+              </label>
+              <label className="flex items-center gap-2 text-slate-700">
+                Buffer either side (min)
+                <input
+                  type="number"
+                  min={0}
+                  max={120}
+                  step={5}
+                  className="input h-7 w-20 text-xs"
+                  value={prefs.commuteBufferMinutes ?? 30}
+                  onChange={(e) =>
+                    onChange({
+                      commuteBufferMinutes: Number(e.target.value) || 0,
+                    })
+                  }
+                />
+              </label>
             </div>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Auto-schedule keeps the buffer free either side of commute on
+              office days.
+            </p>
           </section>
 
           {/* PDF privacy */}
