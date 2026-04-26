@@ -2,6 +2,7 @@ import { Router } from "express";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { google, type Auth } from "googleapis";
+import { getSupabase, isMultiUser } from "../db.js";
 
 const TOKENS_FILE = path.resolve(process.cwd(), ".google-tokens.json");
 
@@ -20,7 +21,31 @@ function makeClient(): Auth.OAuth2Client | null {
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
-async function loadTokens(): Promise<StoredTokens | null> {
+/**
+ * Read tokens for the current user. In multi-user mode tokens are keyed by
+ * userId in the public.google_tokens table; in single-user mode they live in
+ * a single .google-tokens.json file at cwd.
+ */
+async function loadTokens(userId?: string): Promise<StoredTokens | null> {
+  if (isMultiUser()) {
+    if (!userId) return null;
+    const supabase = getSupabase();
+    if (!supabase) return null;
+    const { data } = await supabase
+      .from("google_tokens")
+      .select("access_token, refresh_token, expiry_date, scope, token_type, email")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!data) return null;
+    return {
+      access_token: data.access_token ?? undefined,
+      refresh_token: data.refresh_token ?? undefined,
+      expiry_date: data.expiry_date ?? undefined,
+      scope: data.scope ?? undefined,
+      token_type: data.token_type ?? undefined,
+      email: data.email ?? undefined,
+    };
+  }
   try {
     const raw = await fs.readFile(TOKENS_FILE, "utf8");
     return JSON.parse(raw) as StoredTokens;
@@ -29,14 +54,48 @@ async function loadTokens(): Promise<StoredTokens | null> {
   }
 }
 
-async function saveTokens(tokens: StoredTokens): Promise<void> {
+async function saveTokens(tokens: StoredTokens, userId?: string): Promise<void> {
+  if (isMultiUser()) {
+    if (!userId) return;
+    const supabase = getSupabase();
+    if (!supabase) return;
+    await supabase.from("google_tokens").upsert(
+      {
+        user_id: userId,
+        access_token: tokens.access_token ?? null,
+        refresh_token: tokens.refresh_token ?? null,
+        expiry_date: tokens.expiry_date ?? null,
+        scope: tokens.scope ?? null,
+        token_type: tokens.token_type ?? null,
+        email: tokens.email ?? null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    );
+    return;
+  }
   await fs.writeFile(TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf8");
 }
 
-async function getAuthorizedClient(): Promise<Auth.OAuth2Client | null> {
+async function deleteTokens(userId?: string): Promise<void> {
+  if (isMultiUser()) {
+    if (!userId) return;
+    const supabase = getSupabase();
+    if (!supabase) return;
+    await supabase.from("google_tokens").delete().eq("user_id", userId);
+    return;
+  }
+  try {
+    await fs.unlink(TOKENS_FILE);
+  } catch {
+    /* already gone */
+  }
+}
+
+async function getAuthorizedClient(userId?: string): Promise<Auth.OAuth2Client | null> {
   const client = makeClient();
   if (!client) return null;
-  const tokens = await loadTokens();
+  const tokens = await loadTokens(userId);
   if (!tokens) return null;
   client.setCredentials(tokens);
   return client;
@@ -44,13 +103,13 @@ async function getAuthorizedClient(): Promise<Auth.OAuth2Client | null> {
 
 export const googleRouter = Router();
 
-googleRouter.get("/status", async (_req, res) => {
+googleRouter.get("/status", async (req, res) => {
   const client = makeClient();
   if (!client) {
     res.json({ configured: false, connected: false });
     return;
   }
-  const tokens = await loadTokens();
+  const tokens = await loadTokens(req.userId);
   res.json({
     configured: true,
     connected: Boolean(tokens?.access_token || tokens?.refresh_token),
@@ -58,7 +117,7 @@ googleRouter.get("/status", async (_req, res) => {
   });
 });
 
-googleRouter.get("/auth-url", (_req, res) => {
+googleRouter.get("/auth-url", (req, res) => {
   const client = makeClient();
   if (!client) {
     res
@@ -66,10 +125,13 @@ googleRouter.get("/auth-url", (_req, res) => {
       .json({ error: "google_not_configured", message: "GOOGLE_CLIENT_ID/SECRET missing" });
     return;
   }
+  // In multi-user mode we need to know who came back from Google. Stash userId
+  // in the OAuth `state` parameter (signed by Google's CSRF token mechanism).
   const url = client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
     scope: SCOPES,
+    state: req.userId ?? "single-user",
   });
   res.json({ url });
 });
@@ -85,9 +147,13 @@ googleRouter.get("/callback", async (req, res) => {
     res.status(400).send("Missing ?code= from Google.");
     return;
   }
+  // Recover the userId we stashed in `state` (multi-user mode only).
+  const stateUserId =
+    typeof req.query.state === "string" && req.query.state !== "single-user"
+      ? req.query.state
+      : undefined;
   try {
     const { tokens } = await client.getToken(code);
-    // Optionally fetch the user's email so we can show it on the connected UI.
     let email: string | undefined;
     try {
       client.setCredentials(tokens);
@@ -95,10 +161,9 @@ googleRouter.get("/callback", async (req, res) => {
       const me = await oauth2.userinfo.get();
       email = me.data.email ?? undefined;
     } catch {
-      // non-fatal — we proceed without the email label
+      // non-fatal
     }
-    await saveTokens({ ...tokens, email });
-    // Redirect back to the frontend dev server.
+    await saveTokens({ ...tokens, email }, stateUserId);
     const frontend = process.env.FRONTEND_URL ?? "http://localhost:5173";
     res.redirect(`${frontend}/?google=connected`);
   } catch (err) {
@@ -109,7 +174,7 @@ googleRouter.get("/callback", async (req, res) => {
 });
 
 googleRouter.post("/events", async (req, res) => {
-  const client = await getAuthorizedClient();
+  const client = await getAuthorizedClient(req.userId);
   if (!client) {
     res
       .status(401)
@@ -139,9 +204,9 @@ googleRouter.post("/events", async (req, res) => {
     });
     // Persist refreshed tokens if Google rotated them.
     const fresh = client.credentials;
-    const stored = await loadTokens();
+    const stored = await loadTokens(req.userId);
     if (stored && fresh.access_token && fresh.access_token !== stored.access_token) {
-      await saveTokens({ ...stored, ...fresh });
+      await saveTokens({ ...stored, ...fresh }, req.userId);
     }
     res.json({ eventId: result.data.id, htmlLink: result.data.htmlLink });
   } catch (err) {
@@ -153,7 +218,7 @@ googleRouter.post("/events", async (req, res) => {
 });
 
 googleRouter.get("/events", async (req, res) => {
-  const client = await getAuthorizedClient();
+  const client = await getAuthorizedClient(req.userId);
   if (!client) {
     res.status(401).json({ error: "not_connected" });
     return;
@@ -191,7 +256,7 @@ googleRouter.get("/events", async (req, res) => {
 });
 
 googleRouter.delete("/events/:id", async (req, res) => {
-  const client = await getAuthorizedClient();
+  const client = await getAuthorizedClient(req.userId);
   if (!client) {
     res.status(401).json({ error: "not_connected" });
     return;
@@ -213,11 +278,7 @@ googleRouter.delete("/events/:id", async (req, res) => {
   }
 });
 
-googleRouter.delete("/disconnect", async (_req, res) => {
-  try {
-    await fs.unlink(TOKENS_FILE);
-  } catch {
-    // already gone
-  }
+googleRouter.delete("/disconnect", async (req, res) => {
+  await deleteTokens(req.userId);
   res.json({ ok: true });
 });

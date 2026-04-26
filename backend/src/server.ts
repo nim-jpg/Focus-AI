@@ -7,27 +7,58 @@ import { googleRouter } from "./routes/google.js";
 import { suggestDueDatesRouter } from "./routes/suggestDueDates.js";
 import { companiesHouseRouter } from "./routes/companiesHouse.js";
 import { scanPlannerRouter } from "./routes/scanPlanner.js";
+import { storeRouter } from "./routes/store.js";
+import { authMiddleware } from "./middleware/auth.js";
+import { aiRateLimit } from "./middleware/aiRateLimit.js";
+import { isMultiUser } from "./db.js";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 8787);
 
-app.use(cors());
+// CORS — wide open in dev, locked down to ALLOWED_ORIGINS (comma-separated) in prod.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin: allowedOrigins.length > 0 ? allowedOrigins : true,
+    credentials: true,
+  }),
+);
 app.use(express.json({ limit: "1mb" }));
 
+// Public health check — no auth.
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", service: "focus3-backend" });
+  res.json({
+    status: "ok",
+    service: "focus3-backend",
+    multiUser: isMultiUser(),
+  });
 });
 
-app.use("/api/prioritize", prioritizeRouter);
-app.use("/api/parse-tasks", parseTasksRouter);
+// Google router gates its own auth: /callback is public (Google bounces back
+// without an Authorization header), all other paths require a Supabase JWT.
+googleRouter.use((req, res, next) => {
+  if (req.path === "/callback") return next();
+  return authMiddleware(req, res, next);
+});
+
 app.use("/api/google", googleRouter);
 // Legacy alias — early .env.example used /auth/google/callback as the redirect URI.
-// Keep the alias so existing Google Cloud "Authorized redirect URI" entries keep working.
 app.use("/auth/google", googleRouter);
-app.use("/api/suggest-due-dates", suggestDueDatesRouter);
-app.use("/api/companies-house", companiesHouseRouter);
-app.use("/api/scan-planner", scanPlannerRouter);
+
+// Auth-gated routes
+app.use("/api/prioritize", authMiddleware, aiRateLimit, prioritizeRouter);
+app.use("/api/parse-tasks", authMiddleware, aiRateLimit, parseTasksRouter);
+app.use("/api/suggest-due-dates", authMiddleware, aiRateLimit, suggestDueDatesRouter);
+app.use("/api/scan-planner", authMiddleware, aiRateLimit, scanPlannerRouter);
+app.use("/api/companies-house", authMiddleware, companiesHouseRouter);
+app.use("/api/store", authMiddleware, storeRouter);
 
 app.listen(PORT, () => {
-  console.log(`[focus3-backend] listening on http://localhost:${PORT}`);
+  console.log(
+    `[focus3-backend] listening on http://localhost:${PORT}  ·  multiUser=${isMultiUser()}`,
+  );
 });
