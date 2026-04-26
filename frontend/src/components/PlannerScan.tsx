@@ -3,9 +3,11 @@ import {
   findTaskByShortId,
   scanPlanner,
   ScanError,
+  shortIdFor,
   type ScanUpdate,
 } from "@/lib/scanPlanner";
 import { ocrImage } from "@/lib/ocr";
+import { decodeFocus3QRs } from "@/lib/qrDecode";
 import type { Task } from "@/types/task";
 
 interface Props {
@@ -47,16 +49,37 @@ export function PlannerScan({ tasks, onApply }: Props) {
     setResolved(null);
     setAccepted(new Set());
     try {
-      setBusy("loading OCR worker…");
-      const text = await ocrImage(file, (status, progress) => {
-        setBusy(`${status} ${Math.round(progress * 100)}%`);
-      });
-      if (!text) {
-        setError("OCR didn't find any text in that image.");
+      // Run OCR and QR detection in parallel — they read the same image.
+      setBusy("scanning image (text + QR)…");
+      const [ocrText, qrIds] = await Promise.all([
+        ocrImage(file, (status, progress) => {
+          setBusy(`${status} ${Math.round(progress * 100)}%`);
+        }),
+        decodeFocus3QRs(file).catch(() => [] as string[]),
+      ]);
+
+      if (!ocrText && qrIds.length === 0) {
+        setError("Couldn't find any readable text or QR codes in that image.");
         return;
       }
+
+      // Map QR-decoded full task IDs to short IDs that match what's printed.
+      const qrShortIds = qrIds
+        .map((id) => {
+          const task = tasks.find((t) => t.id === id);
+          return task ? shortIdFor(task.id) : null;
+        })
+        .filter((s): s is string => Boolean(s));
+
+      // Stitch QR-confirmed IDs into the text so Claude knows they're definitely
+      // present, even if OCR couldn't read the printed shortId text.
+      const enrichedText =
+        qrShortIds.length > 0
+          ? `${ocrText}\n\nQR codes confirmed on this page: ${qrShortIds.join(", ")}`
+          : ocrText;
+
       setBusy("asking Claude what changed…");
-      const updates = await scanPlanner(text, tasks);
+      const updates = await scanPlanner(enrichedText, tasks);
       const mapped: ResolvedUpdate[] = updates
         .map((u) => {
           const task = findTaskByShortId(tasks, u.shortId);
@@ -132,9 +155,9 @@ export function PlannerScan({ tasks, onApply }: Props) {
       {!resolved && (
         <>
           <p className="text-xs text-slate-600">
-            Take a photo of the marked-up planner. Tesseract reads the text;
-            Claude extracts the changes by matching the printed #ID stamps and
-            tells you what to update.
+            Take a photo of the marked-up planner. The QR codes pin down which
+            tasks were on the page; OCR reads the handwritten ticks / DEFER /
+            BLOCKED notes; Claude tells you what to update.
           </p>
           <input
             ref={fileRef}

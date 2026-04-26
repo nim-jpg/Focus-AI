@@ -146,33 +146,62 @@ export async function exportWeeklyPlanner(
     doc.rect(x, y - size + 1, size, size);
   };
 
-  // ── Wave code (Spotify-style horizontal bars) ───────────────────────────
-  // Long, thin, deterministic. Right-aligned in lists for a clean column.
-  // The OCR-readable shortId is printed underneath so existing scan-back works.
+  // ── Code stamp ───────────────────────────────────────────────────────────
+  // Each task gets a small QR (machine-readable) + a Spotify-style wave bar
+  // (visual brand) + the shortId text (OCR fallback). Right-aligned in lists.
+  const QR_SIZE = 14;
   const WAVE_W = 70;
   const WAVE_H = 12;
   const WAVE_BARS = 20;
+  const GAP = 4;
+  // Combined bounding box: QR | gap | wave
+  const CODE_W = QR_SIZE + GAP + WAVE_W;
 
-  const drawWaveCode = (taskId: string, x: number, y: number) => {
+  // Generate a small QR for the task id encoded as `focus3:<id>`. Cached so
+  // we don't regenerate the same image when a task appears in multiple lists.
+  const qrCache = new Map<string, string>();
+  const qrFor = async (taskId: string): Promise<string | null> => {
+    if (qrCache.has(taskId)) return qrCache.get(taskId)!;
+    try {
+      const QR = await import("qrcode");
+      const dataUri = await QR.toDataURL(`focus3:${taskId}`, {
+        margin: 0,
+        width: 100,
+        errorCorrectionLevel: "M",
+      });
+      qrCache.set(taskId, dataUri);
+      return dataUri;
+    } catch {
+      return null;
+    }
+  };
+
+  const drawCodes = async (taskId: string, x: number, y: number) => {
+    // QR on the left
+    const qrData = await qrFor(taskId);
+    if (qrData) doc.addImage(qrData, "PNG", x, y, QR_SIZE, QR_SIZE);
+
+    // Wave to the right of the QR
+    const waveX = x + QR_SIZE + GAP;
+    const waveY = y + (QR_SIZE - WAVE_H) / 2; // vertically centre against the QR
     const seq = hashSeq(taskId, WAVE_BARS);
-    // small filled dot as a "logo" to anchor the eye
     doc.setFillColor(60, 60, 60);
-    doc.circle(x + 3, y + WAVE_H / 2, 1.6, "F");
-    // bars area starts after the dot
-    const barAreaX = x + 8;
+    doc.circle(waveX + 3, waveY + WAVE_H / 2, 1.6, "F");
+    const barAreaX = waveX + 8;
     const barAreaW = WAVE_W - 8;
     const barW = (barAreaW - (WAVE_BARS - 1) * 1) / WAVE_BARS;
     for (let i = 0; i < WAVE_BARS; i++) {
-      const tier = seq[i] % 3; // 0,1,2 → short, medium, tall
+      const tier = seq[i] % 3;
       const bh = WAVE_H * (0.35 + tier * 0.32);
       const bx = barAreaX + i * (barW + 1);
-      const by = y + (WAVE_H - bh);
+      const by = waveY + (WAVE_H - bh);
       doc.rect(bx, by, barW, bh, "F");
     }
-    // tiny scan-back fallback ID
+
+    // shortId text under the whole stamp (OCR scan-back fallback)
     doc.setFontSize(5.5);
     doc.setTextColor(170);
-    doc.text(shortId(taskId), x, y + WAVE_H + 6);
+    doc.text(shortId(taskId), x, y + QR_SIZE + 6);
     doc.setTextColor(0);
   };
 
@@ -223,7 +252,7 @@ export async function exportWeeklyPlanner(
   leftY += 14;
 
   // Wave codes line up on the right edge for a clean column.
-  const leftCodeX = leftX + colW - WAVE_W;
+  const leftCodeX = leftX + colW - CODE_W;
 
   if (keyTasks.length === 0) {
     doc.setFontSize(9);
@@ -247,7 +276,7 @@ export async function exportWeeklyPlanner(
       doc.setTextColor(0);
 
       // Wave code, right-aligned
-      drawWaveCode(t.id, leftCodeX, leftY - 4);
+      await drawCodes(t.id, leftCodeX, leftY - 4);
 
       // Time/defer/notes line — kept short so it doesn't overlap the code
       doc.setDrawColor(220);
@@ -295,7 +324,7 @@ export async function exportWeeklyPlanner(
         leftY,
       );
       doc.setTextColor(0);
-      drawWaveCode(t.id, leftCodeX, leftY - 4);
+      await drawCodes(t.id, leftCodeX, leftY - 4);
       doc.setFontSize(9);
       leftY += 22;
     }
