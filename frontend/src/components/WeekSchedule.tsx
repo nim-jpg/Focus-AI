@@ -20,6 +20,9 @@ interface Props {
   /** Persist a UserPrefs change (used to remember view-day selection and to
    *  push event-ignore / colour-override updates). */
   onUpdatePrefs?: (patch: Partial<UserPrefs>) => void;
+  /** Re-push a task whose Google event has gone missing — clears the stale
+   *  calendarEventId and creates a fresh event at the same scheduled time. */
+  onRepushToGoogle?: (taskId: string) => Promise<void> | void;
   /** Optional: hour grid bounds (defaults to 6-23 if not passed). */
   gridStartHour?: number;
   gridEndHour?: number;
@@ -51,6 +54,8 @@ function fmtTime(iso: string | null, allDay = false): string {
 
 interface Block {
   kind: "event" | "task" | "session";
+  /** Set on task blocks where the linked Google event has gone missing. */
+  brokenLink?: boolean;
   dayIdx: number;
   startMin: number; // minutes from midnight
   endMin: number;
@@ -129,6 +134,7 @@ export function WeekSchedule({
   onMoveSession,
   onShadowEvent,
   onUpdatePrefs,
+  onRepushToGoogle,
   gridStartHour = 6,
   gridEndHour = 23,
 }: Props) {
@@ -279,6 +285,7 @@ export function WeekSchedule({
           startMin: start,
           endMin: start + dur,
           task: { ...t, title: `⚠ ${t.title} (removed from Google)` },
+          brokenLink: true,
         });
         continue;
       }
@@ -343,8 +350,23 @@ export function WeekSchedule({
   today.setHours(0, 0, 0, 0);
   const todayIdx = Math.floor((today.getTime() - weekStart.getTime()) / DAY_MS);
 
+  /**
+   * Sessions count for the rolling 7-day window starting now.
+   * "X / Y this week" = X sessions falling between now and now + 7d.
+   * Past sessions and sessions more than 7 days out don't count, so the
+   * counter naturally re-asks the user as the rolling window advances.
+   */
+  const sessionsInRolling7d = (t: Task, now: Date): number => {
+    const start = now.getTime();
+    const end = start + 7 * DAY_MS;
+    return (t.sessionTimes ?? []).filter((iso) => {
+      const ms = new Date(iso).getTime();
+      return ms >= start && ms < end;
+    }).length;
+  };
+
   // Tasks that should be slotted into the week schedule but aren't:
-  //   - multi-session tasks missing slots
+  //   - multi-session tasks missing slots in the next rolling 7 days
   //   - weekly+ recurring tasks that are due this week and not yet scheduled
   const pendingMultiSession = useMemo(() => {
     const now = new Date();
@@ -352,7 +374,7 @@ export function WeekSchedule({
       if (t.status === "completed") return false;
       if (t.recurrence === "daily") return false;
       if ((t.sessionsPerWeek ?? 0) > 0) {
-        return (t.sessionTimes?.length ?? 0) < (t.sessionsPerWeek ?? 0);
+        return sessionsInRolling7d(t, now) < (t.sessionsPerWeek ?? 0);
       }
       if (
         (t.recurrence === "weekly" ||
@@ -379,7 +401,10 @@ export function WeekSchedule({
 
   const sessionCountFor = (t: Task): number =>
     (t.sessionsPerWeek ?? 0) > 0
-      ? Math.max(0, (t.sessionsPerWeek ?? 0) - (t.sessionTimes?.length ?? 0))
+      ? Math.max(
+          0,
+          (t.sessionsPerWeek ?? 0) - sessionsInRolling7d(t, new Date()),
+        )
       : 1;
 
   const autoScheduleSessionsFor = (taskId: string) => {
@@ -387,9 +412,14 @@ export function WeekSchedule({
     if (!task) return;
     const need = sessionCountFor(task);
     if (need <= 0) return;
+    // Rolling 7-day window starting from today, NOT the visible weekStart
+    // (which can be any day if the user is browsing prev/next). Sessions
+    // get spread across the next 7 days from now.
+    const rollStart = startOfDay(new Date());
+    const rollEnd = new Date(rollStart.getTime() + 7 * DAY_MS);
     const busy = busyWindowsForWeek(
-      weekStart,
-      weekEnd,
+      rollStart,
+      rollEnd,
       tasks,
       events,
       taskId,
@@ -402,7 +432,7 @@ export function WeekSchedule({
     const slots = suggestSessionTimes(
       need,
       task.estimatedMinutes ?? 60,
-      weekStart,
+      rollStart,
       busy,
       prefs,
     );
@@ -659,9 +689,9 @@ export function WeekSchedule({
             {pendingMultiSession.map((t) => {
               const need = sessionCountFor(t);
               const isMulti = (t.sessionsPerWeek ?? 0) > 0;
-              const have = t.sessionTimes?.length ?? 0;
+              const have = sessionsInRolling7d(t, new Date());
               const label = isMulti
-                ? `(${have}/${t.sessionsPerWeek} scheduled)`
+                ? `(${have}/${t.sessionsPerWeek} in next 7d)`
                 : `(${t.recurrence}, due)`;
               return (
                 <li key={t.id} className="flex items-center justify-between gap-2">
@@ -1064,6 +1094,16 @@ export function WeekSchedule({
                             onClick={() => onScheduleClick(b.task!.id)}
                           >
                             re-time
+                          </button>
+                        )}
+                        {b.brokenLink && onRepushToGoogle && (
+                          <button
+                            type="button"
+                            className="font-medium text-emerald-700 hover:underline"
+                            onClick={() => void onRepushToGoogle(b.task!.id)}
+                            title="Create a fresh Google Calendar event at this task's scheduled time and re-link it"
+                          >
+                            ↻ recreate in Google
                           </button>
                         )}
                       </div>

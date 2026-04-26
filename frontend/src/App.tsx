@@ -779,6 +779,46 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               );
               updateTask(id, { sessionTimes: next });
             }}
+            onRepushToGoogle={async (taskId) => {
+              const t = tasks.find((x) => x.id === taskId);
+              if (!t) return;
+              if (!googleStatus?.connected) {
+                setCalendarMsg(
+                  "Connect Google Calendar first (header → Connect Calendar).",
+                );
+                return;
+              }
+              const startIso = t.scheduledFor ?? t.dueDate;
+              if (!startIso) {
+                setCalendarMsg(
+                  `"${t.title}" has no scheduled time — re-time it first.`,
+                );
+                return;
+              }
+              const start = new Date(startIso);
+              const end = new Date(
+                start.getTime() + (t.estimatedMinutes ?? 60) * 60_000,
+              );
+              try {
+                // Clear the stale id first so we don't pretend to keep the
+                // dead reference if the create call fails.
+                updateTask(taskId, { calendarEventId: undefined });
+                const { eventId, htmlLink } = await scheduleTask(t, start, end);
+                updateTask(taskId, {
+                  calendarEventId: eventId,
+                  scheduledFor: undefined,
+                });
+                setCalendarMsg(
+                  `Re-created "${t.title}" in Google Calendar.`,
+                );
+                if (htmlLink)
+                  window.open(htmlLink, "_blank", "noopener,noreferrer");
+              } catch (err) {
+                setCalendarMsg(
+                  `Re-create failed — ${err instanceof Error ? err.message : String(err)}`,
+                );
+              }
+            }}
             onShadowEvent={(ev) => {
               if (!ev.start) return;
               const start = new Date(ev.start);
