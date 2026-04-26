@@ -59,6 +59,8 @@ interface Block {
   kind: "event" | "task" | "session";
   /** Set on task blocks where the linked Google event has gone missing. */
   brokenLink?: boolean;
+  /** True for shadow events (per-event, per-series, or per-calendar). */
+  shadow?: boolean;
   dayIdx: number;
   startMin: number; // minutes from midnight
   endMin: number;
@@ -274,6 +276,7 @@ export function WeekSchedule({
         task: linkedTask,
         ignored: isIgnored,
         ignoredVia: seriesIgnored ? "series" : instanceIgnored ? "event" : undefined,
+        shadow: isShadow,
       });
     }
 
@@ -793,83 +796,123 @@ export function WeekSchedule({
         </div>
       )}
 
-      {viewMode === "stacked" && (
-        <div className="rounded-md border border-slate-200 bg-white">
-          {stackedBlocks.length === 0 ? (
-            <p className="p-3 text-xs italic text-slate-500">
-              Nothing on the schedule for this window.
-            </p>
-          ) : (
-            <ul className="divide-y divide-slate-100">
-              {stackedBlocks.map((b, i) => {
+      {viewMode === "stacked" && (() => {
+        // Group chronologically by day so the agenda reads day-by-day.
+        const byDay = new Map<number, Block[]>();
+        for (const b of stackedBlocks) {
+          const arr = byDay.get(b.dayIdx) ?? [];
+          arr.push(b);
+          byDay.set(b.dayIdx, arr);
+        }
+        const dayKeys = [...byDay.keys()].sort((a, b) => a - b);
+        return (
+          <div className="rounded-md border border-slate-200 bg-white">
+            {stackedBlocks.length === 0 ? (
+              <p className="p-3 text-xs italic text-slate-500">
+                Nothing on the schedule for this window.
+              </p>
+            ) : (
+              dayKeys.map((dayIdx) => {
                 const dayDate = new Date(
-                  weekStart.getTime() + b.dayIdx * DAY_MS,
+                  weekStart.getTime() + dayIdx * DAY_MS,
                 );
-                const startIso = b.allDay
-                  ? null
-                  : new Date(
-                      weekStart.getTime() +
-                        b.dayIdx * DAY_MS +
-                        b.startMin * 60_000,
-                    ).toISOString();
-                const endIso = b.allDay
-                  ? null
-                  : new Date(
-                      weekStart.getTime() +
-                        b.dayIdx * DAY_MS +
-                        b.endMin * 60_000,
-                    ).toISOString();
-                const title =
-                  b.event?.summary ??
-                  (b.task?.title
-                    ? `${b.task.title}${b.kind === "session" ? ` (${b.sessionIdx}/${b.sessionTotal})` : ""}`
-                    : "");
-                const swatch =
-                  b.kind === "event"
-                    ? b.event?.calendarColor ?? "#cbd5e1"
-                    : b.kind === "session"
-                    ? "#a78bfa"
-                    : "#34d399";
+                const items = byDay.get(dayIdx) ?? [];
+                const isToday = dayIdx === todayIdx;
                 return (
-                  <li key={i} className="flex items-start gap-3 px-3 py-2 text-xs">
-                    <span
-                      className="mt-1 inline-block h-3 w-3 flex-none rounded-sm"
-                      style={{ backgroundColor: swatch }}
-                    />
-                    <div className="w-32 flex-none text-slate-500">
-                      {dayDate.toLocaleDateString(undefined, {
-                        weekday: "short",
-                        day: "numeric",
-                        month: "short",
+                  <div
+                    key={dayIdx}
+                    className="border-b border-slate-100 last:border-b-0"
+                  >
+                    <div
+                      className={`flex items-center justify-between px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide ${
+                        isToday
+                          ? "bg-emerald-50 text-emerald-800"
+                          : "bg-slate-50 text-slate-600"
+                      }`}
+                    >
+                      <span>
+                        {dayDate.toLocaleDateString(undefined, {
+                          weekday: "long",
+                          day: "numeric",
+                          month: "short",
+                        })}
+                      </span>
+                      <span className="font-normal lowercase tracking-normal text-slate-500">
+                        {items.length} item{items.length === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                    <ul className="divide-y divide-slate-100">
+                      {items.map((b, i) => {
+                        const startIso = b.allDay
+                          ? null
+                          : new Date(
+                              weekStart.getTime() +
+                                b.dayIdx * DAY_MS +
+                                b.startMin * 60_000,
+                            ).toISOString();
+                        const endIso = b.allDay
+                          ? null
+                          : new Date(
+                              weekStart.getTime() +
+                                b.dayIdx * DAY_MS +
+                                b.endMin * 60_000,
+                            ).toISOString();
+                        const title =
+                          b.event?.summary ??
+                          (b.task?.title
+                            ? `${b.task.title}${b.kind === "session" ? ` (${b.sessionIdx}/${b.sessionTotal})` : ""}`
+                            : "");
+                        const swatch = b.shadow
+                          ? "#cbd5e1"
+                          : b.kind === "event"
+                          ? b.event?.calendarColor ?? "#cbd5e1"
+                          : b.kind === "session"
+                          ? "#a78bfa"
+                          : "#34d399";
+                        return (
+                          <li
+                            key={i}
+                            className={`flex items-start gap-3 px-3 py-2 text-xs ${
+                              b.shadow
+                                ? "bg-slate-50 text-slate-500 hover:text-slate-900"
+                                : "text-slate-700"
+                            }`}
+                          >
+                            <span
+                              className="mt-1 inline-block h-3 w-3 flex-none rounded-sm"
+                              style={{ backgroundColor: swatch }}
+                            />
+                            <div className="w-24 flex-none font-mono text-[10px] opacity-70">
+                              {b.allDay
+                                ? "all day"
+                                : `${fmtTime(startIso)} – ${fmtTime(endIso)}`}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium">
+                                {title}
+                                {b.brokenLink && (
+                                  <span className="ml-1 text-amber-700">
+                                    (removed from Google)
+                                  </span>
+                                )}
+                              </p>
+                              {b.event?.calendarName && (
+                                <p className="text-[10px] opacity-70">
+                                  {b.event.calendarName}
+                                </p>
+                              )}
+                            </div>
+                          </li>
+                        );
                       })}
-                      <div className="font-mono text-[10px] opacity-70">
-                        {b.allDay
-                          ? "all day"
-                          : `${fmtTime(startIso)} – ${fmtTime(endIso)}`}
-                      </div>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-slate-700">
-                        {title}
-                        {b.brokenLink && (
-                          <span className="ml-1 text-amber-700">
-                            (removed from Google)
-                          </span>
-                        )}
-                      </p>
-                      {b.event?.calendarName && (
-                        <p className="text-[10px] text-slate-500">
-                          {b.event.calendarName}
-                        </p>
-                      )}
-                    </div>
-                  </li>
+                    </ul>
+                  </div>
                 );
-              })}
-            </ul>
-          )}
-        </div>
-      )}
+              })
+            )}
+          </div>
+        );
+      })()}
 
       {viewMode !== "stacked" && (
       <div className="relative overflow-x-auto">
@@ -1134,25 +1177,23 @@ export function WeekSchedule({
                   16,
                   minToY(b.endMin) - minToY(b.startMin),
                 );
-                // Shadow calendars are rendered as outlined faint blocks
-                // (no fill) so they're visible but visually de-emphasised.
-                const isShadow = b.event && b.event.calendarId
-                  ? (prefs.shadowCalendarIds ?? []).includes(b.event.calendarId)
-                  : false;
+                // Shadow blocks: light grey solid background, medium grey
+                // text. Hover deepens the text so it's readable on demand.
+                // Non-shadow events use the calendar's solid colour.
+                // Sessions / tasks keep their themed solid fill.
+                const isShadow = b.shadow ?? false;
                 const eventBg = b.event?.calendarColor ?? "#dbeafe";
                 const colour =
                   b.kind === "event"
                     ? isShadow
-                      ? "border-2 border-dashed bg-transparent text-slate-600"
+                      ? "bg-slate-100 text-slate-500 border-slate-200 hover:text-slate-900"
                       : "border text-slate-900"
                     : b.kind === "session"
-                    ? "border-violet-300 bg-violet-100/90 text-violet-900"
-                    : "border-emerald-300 bg-emerald-100/90 text-emerald-900";
+                    ? "border-violet-300 bg-violet-100 text-violet-900"
+                    : "border-emerald-300 bg-emerald-100 text-emerald-900";
                 const inlineBg =
                   b.kind === "event" && !isShadow
                     ? { backgroundColor: eventBg, borderColor: eventBg }
-                    : b.kind === "event" && isShadow
-                    ? { borderColor: eventBg }
                     : undefined;
                 const title =
                   b.event?.summary ??
