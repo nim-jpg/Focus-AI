@@ -756,6 +756,11 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               onSnooze={(id, until) => updateTask(id, { snoozedUntil: until })}
               goals={goals}
               calendarConnected={googleStatus?.connected ?? false}
+              onOpenGoal={(_goalId) => {
+                // Switch to the Goals tab. The goal id is captured in the
+                // closure for future "scroll-to" support if we add it.
+                setView("goals");
+              }}
             />
           </section>
 

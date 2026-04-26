@@ -152,6 +152,11 @@ export function WeekSchedule({
     prefs.homeViewDays ?? 7,
   );
   const [showIgnored, setShowIgnored] = useState(false);
+  // Cursor focus: when the user hovers a time slot in a day column, blocks
+  // overlapping that slot stay sharp; everything else fades. Cleared on leave.
+  const [hoverFocus, setHoverFocus] = useState<
+    { dayIdx: number; minute: number } | null
+  >(null);
   // Three view modes:
   //   "all"     — current grid: every visible event in the chosen calendars
   //   "focus"   — grid filtered to primary calendar + Focus3 tasks/sessions/broken-links
@@ -1029,6 +1034,22 @@ export function WeekSchedule({
                 }
               }}
               onDrop={handleColumnDrop(dayIdx)}
+              onMouseMove={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const yPx = e.clientY - rect.top;
+                const minute =
+                  gridStartHour * 60 + (yPx / HOUR_HEIGHT) * 60;
+                // Snap to 15-min granularity to limit re-renders.
+                const snapped = Math.round(minute / 15) * 15;
+                if (
+                  !hoverFocus ||
+                  hoverFocus.dayIdx !== dayIdx ||
+                  hoverFocus.minute !== snapped
+                ) {
+                  setHoverFocus({ dayIdx, minute: snapped });
+                }
+              }}
+              onMouseLeave={() => setHoverFocus(null)}
             >
               {/* Working-hours zone — diagonal grey stripes (matches the
                   commute treatment) so it reads as background context, not
@@ -1184,7 +1205,16 @@ export function WeekSchedule({
                     key={i}
                     className={`group absolute overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight transition-all hover:!left-0 hover:!right-0 hover:!w-auto hover:overflow-visible hover:!min-h-fit hover:shadow-lg ${colour} ${
                       draggable ? "cursor-move" : ""
-                    } ${b.ignored ? "opacity-40 border-dashed" : ""}`}
+                    } ${b.ignored ? "opacity-40 border-dashed" : ""} ${(() => {
+                      // Cursor focus: when hovering a different day/slot,
+                      // fade non-matching blocks to ~20% so the relevant
+                      // ones stand out.
+                      if (!hoverFocus) return "";
+                      if (hoverFocus.dayIdx !== b.dayIdx) return "opacity-20";
+                      const m = hoverFocus.minute;
+                      const inSlot = m >= b.startMin && m < b.endMin;
+                      return inSlot ? "" : "opacity-20";
+                    })()}`}
                     style={{
                       top: `${top}px`,
                       minHeight: `${minHeight}px`,
