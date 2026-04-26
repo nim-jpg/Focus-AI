@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TaskFormModal } from "@/components/TaskFormModal";
 import { TaskList } from "@/components/TaskList";
 import { TopThree } from "@/components/TopThree";
@@ -266,7 +266,9 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       return;
     }
     try {
-      const { eventId } = await scheduleTask(task, choice.start, choice.end);
+      const { eventId } = await scheduleTask(task, choice.start, choice.end, {
+        weeklyRecurring: choice.weeklyRecurring,
+      });
       // Pushed to Google — store the real event id so we can delete it later.
       // Clear scheduledFor so it doesn't show twice (Google fetch will surface it).
       updateTask(task.id, {
@@ -282,7 +284,53 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       setCalendarMsg(`Couldn't push to Google — ${reason}`);
     }
   };
+  // Scan-back undo: captures the BEFORE-state of each task that the
+  // current scan session touches. Committed to localStorage on
+  // PlannerScan close, so the user can revert the whole session in one
+  // click from Settings.
+  const SCAN_UNDO_KEY = "focus3:lastScanUndo:v1";
+  type ScanUndoEntry = {
+    taskId: string;
+    fields: Partial<Task>;
+  };
+  const scanBufferRef = useRef<ScanUndoEntry[]>([]);
+  const [lastScanUndo, setLastScanUndo] = useState<{
+    ts: number;
+    items: ScanUndoEntry[];
+  } | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = localStorage.getItem(SCAN_UNDO_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+  const persistScanUndo = (
+    next: { ts: number; items: ScanUndoEntry[] } | null,
+  ) => {
+    setLastScanUndo(next);
+    try {
+      if (next) localStorage.setItem(SCAN_UNDO_KEY, JSON.stringify(next));
+      else localStorage.removeItem(SCAN_UNDO_KEY);
+    } catch {
+      /* ignore */
+    }
+  };
+
   const applyScanUpdate = (u: ResolvedUpdate) => {
+    // Snapshot the relevant fields BEFORE applying so we can revert.
+    const t = tasks.find((x) => x.id === u.taskId);
+    if (t) {
+      const snapshot: Partial<Task> = {
+        status: t.status,
+        snoozedUntil: t.snoozedUntil,
+        estimatedMinutes: t.estimatedMinutes,
+        title: t.title,
+        lastCompletedAt: t.lastCompletedAt,
+      };
+      scanBufferRef.current.push({ taskId: u.taskId, fields: snapshot });
+    }
     switch (u.action) {
       case "complete":
         toggleComplete(u.taskId);
@@ -314,6 +362,26 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         break;
       }
     }
+  };
+
+  const commitScanSession = () => {
+    if (scanBufferRef.current.length === 0) return;
+    persistScanUndo({
+      ts: Date.now(),
+      items: scanBufferRef.current.slice(),
+    });
+    scanBufferRef.current = [];
+  };
+
+  const undoLastScan = () => {
+    if (!lastScanUndo) return;
+    for (const entry of lastScanUndo.items) {
+      updateTask(entry.taskId, entry.fields);
+    }
+    persistScanUndo(null);
+    setCalendarMsg(
+      `Undid ${lastScanUndo.items.length} scan-back change${lastScanUndo.items.length === 1 ? "" : "s"}.`,
+    );
   };
 
   const startEdit = (id: string) => {
@@ -369,12 +437,47 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     /** Hash of fields that influence ranking. Mismatch ⇒ re-rank. */
     hash: string;
   };
-  const [aiCache, setAiCache] = useState<Map<string, CachedRank>>(
-    () => new Map(),
+  // aiCache survives page reloads — it's the user's last paid AI run, so
+  // we don't want to throw it away. Stored as { ranks: [[id, entry]...] }.
+  const AI_CACHE_KEY = "focus3:aiCache:v1";
+  const [aiCache, setAiCache] = useState<Map<string, CachedRank>>(() => {
+    if (typeof window === "undefined") return new Map();
+    try {
+      const raw = localStorage.getItem(AI_CACHE_KEY);
+      if (!raw) return new Map();
+      const parsed = JSON.parse(raw) as { ranks: Array<[string, CachedRank]> };
+      return new Map(parsed.ranks);
+    } catch {
+      return new Map();
+    }
+  });
+  // Persist on every change. The cache is small (one entry per task) so a
+  // synchronous write is fine.
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        AI_CACHE_KEY,
+        JSON.stringify({ ranks: [...aiCache.entries()] }),
+      );
+    } catch {
+      /* ignore — quota or private-mode */
+    }
+  }, [aiCache]);
+  // Source tracks whether we're currently DISPLAYING the AI ranking. We
+  // restore source=claude on mount if there's a non-empty cache, so the
+  // user lands back on their AI-ranked Top Three after a reload.
+  const [source, setSource] = useState<Source>(() =>
+    typeof window === "undefined"
+      ? "local"
+      : localStorage.getItem(AI_CACHE_KEY)
+        ? "claude"
+        : "local",
   );
-  const [source, setSource] = useState<Source>("local");
   const [loading, setLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  // Bumped each time an AI refresh completes — TaskList watches this to
+  // auto-switch its sort to AI rank when fresh ranks land.
+  const [aiRefreshTick, setAiRefreshTick] = useState(0);
 
   const hashTaskForRanking = (t: Task): string =>
     [
@@ -529,6 +632,8 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         return next;
       });
       setSource("claude");
+      // Notify any listeners (e.g. TaskList) to switch their sort to AI rank.
+      setAiRefreshTick((t) => t + 1);
     } catch (err) {
       const reason =
         err instanceof AiUnavailableError ? err.message : "unexpected error";
@@ -851,6 +956,9 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             }}
             onUpdatePrefs={setPrefs}
             onMessage={setCalendarMsg}
+            onUnlinkTaskFromGoogle={(taskId) =>
+              updateTask(taskId, { calendarEventId: undefined })
+            }
           />
 
           <TomorrowPreview
@@ -875,6 +983,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             userType={prefs.userType}
             onRefreshAi={handleAiRefresh}
             aiBusy={loading}
+            aiRefreshTick={aiRefreshTick}
           />
         </section>
       )}
@@ -989,7 +1098,12 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               defaultOpen
               tasks={tasks}
               onApply={applyScanUpdate}
-              onClose={() => setShowPlannerScan(false)}
+              onClose={() => {
+                // Commit the scan-session buffer as the new "last scan
+                // undo" entry so the user can revert from Settings.
+                commitScanSession();
+                setShowPlannerScan(false);
+              }}
             />
           </div>
         </div>
@@ -1007,6 +1121,15 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             replaceAllGoals(bundle.goals);
             replacePrefs(bundle.prefs);
           }}
+          lastScanUndo={
+            lastScanUndo
+              ? {
+                  ts: lastScanUndo.ts,
+                  count: lastScanUndo.items.length,
+                  onUndo: undoLastScan,
+                }
+              : undefined
+          }
           calendar={{
             // Default to "configured + not connected" until the status
             // fetch comes back, so the Connect Calendar button is always

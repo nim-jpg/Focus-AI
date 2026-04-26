@@ -142,6 +142,9 @@ export type UserType = (typeof USER_TYPES)[number];
 
 /** App-wide user preferences. */
 export interface UserPrefs {
+  /** Display name for the user. When set, prints on the PDF header as
+   *  "Focus3 - <name> - Weekly Planner". */
+  displayName?: string;
   /** What's the user's primary occupation context? Used to shape defaults
    *  (working hours flexibility, theme suggestions, etc.). */
   userType: UserType;

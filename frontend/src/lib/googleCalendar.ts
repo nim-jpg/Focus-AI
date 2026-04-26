@@ -105,6 +105,7 @@ export async function scheduleTask(
   task: Task,
   start: Date,
   end: Date,
+  options: { weeklyRecurring?: boolean } = {},
 ): Promise<{ eventId: string; htmlLink?: string }> {
   const res = await apiFetch("/api/google/events", {
     method: "POST",
@@ -114,6 +115,9 @@ export async function scheduleTask(
       description: task.description ?? "",
       start: start.toISOString(),
       end: end.toISOString(),
+      ...(options.weeklyRecurring
+        ? { recurrence: ["RRULE:FREQ=WEEKLY"] }
+        : {}),
     }),
   });
   if (!res.ok) {

@@ -192,11 +192,13 @@ googleRouter.post("/events", async (req, res) => {
       .json({ error: "not_connected", message: "Connect Google Calendar first" });
     return;
   }
-  const { summary, description, start, end } = req.body as {
+  const { summary, description, start, end, recurrence } = req.body as {
     summary?: string;
     description?: string;
     start?: string;
     end?: string;
+    /** Optional RRULE strings — e.g. ["RRULE:FREQ=WEEKLY"]. */
+    recurrence?: string[];
   };
   if (!summary || !start || !end) {
     res.status(400).json({ error: "missing_fields" });
@@ -211,6 +213,9 @@ googleRouter.post("/events", async (req, res) => {
         description,
         start: { dateTime: start },
         end: { dateTime: end },
+        ...(Array.isArray(recurrence) && recurrence.length > 0
+          ? { recurrence }
+          : {}),
       },
     });
     // Persist refreshed tokens if Google rotated them.
