@@ -142,3 +142,22 @@ In the Google Cloud Console (Credentials → your OAuth client):
 
 See `/Users/nim/.claude/plans/on-the-longer-list-humble-hippo.md` for the full
 plan and tradeoffs.
+
+### What multi-user mode currently does (and doesn't)
+
+Once the Supabase + Fly + Vercel setup above is complete:
+
+**Does:**
+- Each tester signs in with their own email (magic link).
+- AI calls (prioritize, parse, suggest dates, scan-back) gated by a per-user
+  daily budget (50 calls/day default).
+- Google Calendar tokens stored per-user in Postgres — each tester connects
+  and uses their own calendar.
+- CORS locked down to your Vercel domain.
+
+**Doesn't yet (follow-up work):**
+- Tasks, goals, and prefs still live in each tester's browser localStorage.
+  Two browsers = two data sets per tester. Use the in-app **Backup / Restore**
+  feature to move data between machines.
+- The backend `/api/store/{tasks,goals,prefs}` routes already exist; the
+  frontend storage hooks need swapping over (planned next).
