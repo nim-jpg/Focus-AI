@@ -44,12 +44,22 @@ export async function lookupCompany(
 
 /**
  * Pull a likely UK company name out of free text. Looks for "X Ltd", "X Limited",
- * "X PLC", "X LLP" — captures up to 5 preceding words. Conservative — only matches
- * when the suffix is clearly present.
+ * "X PLC", "X LLP". Only walks backwards through *contiguous capitalised words*
+ * — stops at a lowercase filler ("for", "of", "from") so it doesn't grab the
+ * whole phrase "File confirmation statement for Elyxir Ltd" as the name.
  */
 export function extractCompanyName(text: string): string | null {
-  const re = /\b([A-Z][A-Za-z0-9&'.\- ]{2,60}?\s+(?:Ltd|Limited|PLC|LLP))\b/;
+  // Allow very small connector words inside the name (e.g. "Marks and Spencer plc")
+  // by lowercasing only "and", "of", "&" between Capitalised tokens.
+  const tokenChars = "[A-Za-z0-9&'.\\-]+";
+  const cap = `[A-Z]${tokenChars.slice(1)}`;
+  const connector = "(?:and|of|&)";
+  const namePart = `${cap}(?:\\s+(?:${cap}|${connector}))*`;
+  const suffix = "(?:Ltd|Limited|PLC|LLP)";
+  const re = new RegExp(`\\b(${namePart})\\s+${suffix}\\b`);
   const match = text.match(re);
   if (!match) return null;
-  return match[1].trim();
+  // Re-attach the suffix from the original match so the caller gets "Foo Ltd".
+  const fullMatch = match[0];
+  return fullMatch.trim();
 }

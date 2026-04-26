@@ -52,6 +52,8 @@ function fromTask(task: Task): NewTaskInput {
     blockedBy: task.blockedBy ?? [],
     recurrence: task.recurrence,
     timeOfDay: task.timeOfDay ?? "anytime",
+    specificTime: task.specificTime,
+    sessionsPerWeek: task.sessionsPerWeek,
     counter: task.counter,
     goalIds: task.goalIds ?? [],
     treatAsFoundation: task.treatAsFoundation,
@@ -192,7 +194,7 @@ export function TaskForm({ onSubmit, initialTask, onCancel, goals = [] }: Props)
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <div>
           <label className="text-xs font-medium text-slate-700">Time of day</label>
           <select
@@ -206,6 +208,20 @@ export function TaskForm({ onSubmit, initialTask, onCancel, goals = [] }: Props)
               </option>
             ))}
           </select>
+        </div>
+        <div>
+          <label
+            className="text-xs font-medium text-slate-700"
+            title="Optional exact time, e.g. 08:30 for morning tablets. Overrides the time-of-day bucket."
+          >
+            Specific time <span className="text-slate-400">(optional)</span>
+          </label>
+          <input
+            type="time"
+            className="input mt-1"
+            value={form.specificTime ?? ""}
+            onChange={(e) => update("specificTime", e.target.value || undefined)}
+          />
         </div>
         <div>
           <label className="text-xs font-medium text-slate-700">Due date</label>
@@ -250,6 +266,32 @@ export function TaskForm({ onSubmit, initialTask, onCancel, goals = [] }: Props)
             value={counterTarget}
             onChange={(e) =>
               setCounterTarget(e.target.value === "" ? "" : Number(e.target.value))
+            }
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div>
+          <label
+            className="text-xs font-medium text-slate-700"
+            title="For habits like weight training that need multiple sessions per week. The week schedule will track how many slots you've booked."
+          >
+            Sessions per week <span className="text-slate-400">(optional)</span>
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={14}
+            step={1}
+            className="input mt-1"
+            placeholder="e.g. 3"
+            value={form.sessionsPerWeek ?? ""}
+            onChange={(e) =>
+              update(
+                "sessionsPerWeek",
+                e.target.value === "" ? undefined : Number(e.target.value),
+              )
             }
           />
         </div>

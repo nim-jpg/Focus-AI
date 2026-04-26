@@ -91,6 +91,9 @@ export function WeekSchedule({
     }
     for (const t of tasks) {
       if (t.status === "completed") continue;
+      // Daily-recurring habits live in the Foundations rail and the planner's
+      // "Daily habits" grid — they don't need to clutter the week schedule.
+      if (t.recurrence === "daily") continue;
       const iso = t.scheduledFor ?? t.dueDate;
       if (!iso) continue;
       const d = new Date(iso);

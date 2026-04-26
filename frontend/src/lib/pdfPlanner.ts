@@ -25,18 +25,23 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
-/** Generate a small QR data URI encoding the task id for camera scan-back. */
-async function qrFor(taskId: string): Promise<string | null> {
-  try {
-    const QR = await import("qrcode");
-    return await QR.toDataURL(`focus3:${taskId}`, {
-      margin: 0,
-      width: 120,
-      errorCorrectionLevel: "M",
-    });
-  } catch {
-    return null;
+/**
+ * Deterministic FNV-style hash → array of n integers. Same task id always
+ * produces the same wave code, so a printed planner stays scannable.
+ */
+function hashSeq(s: string, n: number): number[] {
+  const out: number[] = [];
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
   }
+  for (let i = 0; i < n; i++) {
+    h = (h ^ Math.imul(i + 1, 0x9e3779b9)) >>> 0;
+    h = Math.imul(h, 16777619) >>> 0;
+    out.push(h);
+  }
+  return out;
 }
 
 /**
@@ -45,17 +50,43 @@ async function qrFor(taskId: string): Promise<string | null> {
  *  2. If fewer than 3, top up from prioritize() (excluding daily-recurring)
  * Returns up to 3.
  */
+/**
+ * Eligible for Key / Stretch lists: significant items that move things forward.
+ * - one-off (recurrence: none) is always eligible
+ * - yearly + quarterly are eligible (annual filings, VAT)
+ * - monthly is eligible only when urgency is critical
+ * - weekly + daily are excluded (those live in the Daily habits grid)
+ * - foundations and snoozed tasks are excluded
+ */
+function isSignificantWorkItem(t: Task): boolean {
+  if (t.status === "completed") return false;
+  if (isFoundation(t)) return false;
+  if (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now()) return false;
+  switch (t.recurrence) {
+    case "none":
+    case "yearly":
+    case "quarterly":
+      return true;
+    case "monthly":
+      return t.urgency === "critical";
+    case "weekly":
+    case "daily":
+      return false;
+    default:
+      return false;
+  }
+}
+
 function pickKeyTasks(
   tasks: Task[],
   prefs: UserPrefs,
   weekStart: Date,
   weekEnd: Date,
 ): Task[] {
-  const inWeek = tasks
+  const eligible = tasks.filter(isSignificantWorkItem);
+
+  const inWeek = eligible
     .filter((t) => {
-      if (t.status === "completed") return false;
-      if (isFoundation(t)) return false;
-      if (t.recurrence === "daily") return false;
       if (!t.dueDate) return false;
       const d = new Date(t.dueDate).getTime();
       return d >= weekStart.getTime() && d < weekEnd.getTime();
@@ -65,11 +96,9 @@ function pickKeyTasks(
   const key: Task[] = inWeek.slice(0, 3);
   if (key.length < 3) {
     const seen = new Set(key.map((t) => t.id));
-    const filler = prioritize(tasks, { prefs, limit: 8, now: weekStart })
+    const filler = prioritize(tasks, { prefs, limit: 16, now: weekStart })
       .map((p) => p.task)
-      .filter(
-        (t) => !seen.has(t.id) && t.recurrence !== "daily" && !isFoundation(t),
-      );
+      .filter((t) => !seen.has(t.id) && isSignificantWorkItem(t));
     for (const t of filler) {
       key.push(t);
       if (key.length >= 3) break;
@@ -84,14 +113,9 @@ function pickStretchTasks(
   weekStart: Date,
   excludeIds: Set<string>,
 ): Task[] {
-  const candidates = prioritize(tasks, { prefs, limit: 16, now: weekStart })
+  const candidates = prioritize(tasks, { prefs, limit: 24, now: weekStart })
     .map((p) => p.task)
-    .filter(
-      (t) =>
-        !excludeIds.has(t.id) &&
-        t.recurrence !== "daily" &&
-        !isFoundation(t),
-    );
+    .filter((t) => !excludeIds.has(t.id) && isSignificantWorkItem(t));
   return candidates.slice(0, 5);
 }
 
@@ -122,14 +146,33 @@ export async function exportWeeklyPlanner(
     doc.rect(x, y - size + 1, size, size);
   };
 
-  // Embed a small QR for camera-friendly scan-back. Always print the short
-  // text ID below it as a fallback for the OCR-based scan path.
-  const drawQR = async (taskId: string, x: number, y: number, size = 24) => {
-    const data = await qrFor(taskId);
-    if (data) doc.addImage(data, "PNG", x, y, size, size);
-    doc.setFontSize(6);
-    doc.setTextColor(160);
-    doc.text(shortId(taskId), x, y + size + 6);
+  // ── Wave code (Spotify-style horizontal bars) ───────────────────────────
+  // Long, thin, deterministic. Right-aligned in lists for a clean column.
+  // The OCR-readable shortId is printed underneath so existing scan-back works.
+  const WAVE_W = 70;
+  const WAVE_H = 12;
+  const WAVE_BARS = 20;
+
+  const drawWaveCode = (taskId: string, x: number, y: number) => {
+    const seq = hashSeq(taskId, WAVE_BARS);
+    // small filled dot as a "logo" to anchor the eye
+    doc.setFillColor(60, 60, 60);
+    doc.circle(x + 3, y + WAVE_H / 2, 1.6, "F");
+    // bars area starts after the dot
+    const barAreaX = x + 8;
+    const barAreaW = WAVE_W - 8;
+    const barW = (barAreaW - (WAVE_BARS - 1) * 1) / WAVE_BARS;
+    for (let i = 0; i < WAVE_BARS; i++) {
+      const tier = seq[i] % 3; // 0,1,2 → short, medium, tall
+      const bh = WAVE_H * (0.35 + tier * 0.32);
+      const bx = barAreaX + i * (barW + 1);
+      const by = y + (WAVE_H - bh);
+      doc.rect(bx, by, barW, bh, "F");
+    }
+    // tiny scan-back fallback ID
+    doc.setFontSize(5.5);
+    doc.setTextColor(170);
+    doc.text(shortId(taskId), x, y + WAVE_H + 6);
     doc.setTextColor(0);
   };
 
@@ -179,6 +222,9 @@ export async function exportWeeklyPlanner(
   doc.line(leftX, leftY, leftX + colW, leftY);
   leftY += 14;
 
+  // Wave codes line up on the right edge for a clean column.
+  const leftCodeX = leftX + colW - WAVE_W;
+
   if (keyTasks.length === 0) {
     doc.setFontSize(9);
     doc.setTextColor(160);
@@ -189,7 +235,7 @@ export async function exportWeeklyPlanner(
     for (const t of keyTasks) {
       checkbox(leftX, leftY);
       doc.setFontSize(10);
-      doc.text(truncate(t.title, 60), leftX + 16, leftY);
+      doc.text(truncate(t.title, 50), leftX + 16, leftY);
 
       doc.setFontSize(7);
       doc.setTextColor(120);
@@ -200,12 +246,12 @@ export async function exportWeeklyPlanner(
       );
       doc.setTextColor(0);
 
-      // QR on the right edge
-      await drawQR(t.id, leftX + colW - 30, leftY - 8, 26);
+      // Wave code, right-aligned
+      drawWaveCode(t.id, leftCodeX, leftY - 4);
 
-      // Time/defer/notes line
+      // Time/defer/notes line — kept short so it doesn't overlap the code
       doc.setDrawColor(220);
-      doc.line(leftX + 16, leftY + 22, leftX + colW - 36, leftY + 22);
+      doc.line(leftX + 16, leftY + 22, leftCodeX - 8, leftY + 22);
       doc.setFontSize(7);
       doc.setTextColor(150);
       doc.text(
@@ -240,18 +286,18 @@ export async function exportWeeklyPlanner(
   } else {
     for (const t of stretchTasks) {
       checkbox(leftX, leftY, 9);
-      doc.text(truncate(t.title, 50), leftX + 14, leftY);
+      doc.text(truncate(t.title, 42), leftX + 14, leftY);
       doc.setFontSize(7);
       doc.setTextColor(120);
       doc.text(
         `${dueLabel(t.dueDate)}  ·  ${t.theme}`,
-        leftX + colW - 130,
+        leftCodeX - 80,
         leftY,
       );
       doc.setTextColor(0);
-      await drawQR(t.id, leftX + colW - 24, leftY - 8, 18);
+      drawWaveCode(t.id, leftCodeX, leftY - 4);
       doc.setFontSize(9);
-      leftY += 18;
+      leftY += 22;
     }
   }
 
@@ -313,10 +359,15 @@ export async function exportWeeklyPlanner(
   // ── RIGHT COLUMN ──────────────────────────────────────────────────────────
   let rightY = y;
 
-  // Section: Daily habits — ALL daily-recurring tasks (not just isFoundation)
-  const dailyTasks = tasks.filter(
-    (t) => t.recurrence === "daily" && t.status !== "completed",
-  );
+  // Section: Daily habits — ALL daily-recurring tasks (not just isFoundation).
+  // Sort: timed habits first (chronologically), then anytime.
+  const dailyTasks = tasks
+    .filter((t) => t.recurrence === "daily" && t.status !== "completed")
+    .sort((a, b) => {
+      const aT = a.specificTime ?? "99:99";
+      const bT = b.specificTime ?? "99:99";
+      return aT.localeCompare(bT);
+    });
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
@@ -324,7 +375,7 @@ export async function exportWeeklyPlanner(
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(140);
-  doc.text("tick a box for each day done", rightX + 80, rightY);
+  doc.text("tick a box for each day done · counters get N boxes per day", rightX + 80, rightY);
   doc.setTextColor(0);
   rightY += 4;
   doc.setDrawColor(220);
@@ -332,7 +383,7 @@ export async function exportWeeklyPlanner(
   rightY += 14;
 
   // Day-of-week header row
-  const labelW = 130;
+  const labelW = 140;
   const dayColW = (colW - labelW) / 7;
   doc.setFontSize(7);
   doc.setTextColor(120);
@@ -353,14 +404,14 @@ export async function exportWeeklyPlanner(
     for (const t of dailyTasks) {
       const isCounter = Boolean(t.counter && t.counter.target > 0);
       const target = t.counter?.target ?? 1;
-      const rowH = isCounter ? 24 : 18;
+      const rowH = isCounter ? 28 : 20;
 
       doc.setFontSize(9);
-      doc.text(truncate(t.title, 22), rightX, rightY + 9);
+      doc.text(truncate(t.title, 24), rightX, rightY + 9);
       doc.setFontSize(7);
       doc.setTextColor(150);
       const meta = [
-        t.timeOfDay ?? "anytime",
+        t.specificTime ? `⏰ ${t.specificTime}` : (t.timeOfDay ?? "anytime"),
         isCounter ? `target ${target}` : null,
       ]
         .filter(Boolean)
@@ -369,7 +420,7 @@ export async function exportWeeklyPlanner(
       doc.setTextColor(0);
 
       if (isCounter) {
-        // Render N small boxes per day
+        // Render N small boxes per day with a tiny "0/N" hint underneath.
         const perBox = Math.max(4, Math.min(7, Math.floor(dayColW / (target + 1))));
         for (let d = 0; d < 7; d++) {
           for (let n = 0; n < target; n++) {
@@ -379,6 +430,15 @@ export async function exportWeeklyPlanner(
               perBox,
             );
           }
+          // Per-day "0/N" hint
+          doc.setFontSize(5.5);
+          doc.setTextColor(170);
+          doc.text(
+            `0/${target}`,
+            rightX + labelW + d * dayColW + dayColW / 2 - 6,
+            rightY + 22,
+          );
+          doc.setTextColor(0);
         }
       } else {
         for (let d = 0; d < 7; d++) {
@@ -416,7 +476,7 @@ export async function exportWeeklyPlanner(
   doc.setFontSize(7);
   doc.setTextColor(150);
   doc.text(
-    "Mark ✓ to complete · write 'DEFER' or 'BLOCKED' next to a task · keep the QR codes intact for camera-friendly scan-back.",
+    "Mark ✓ to complete · write 'DEFER' or 'BLOCKED' next to a task · keep the wave code + #ID stamps intact for scan-back.",
     margin,
     pageH - 8,
   );

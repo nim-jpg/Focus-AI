@@ -76,6 +76,10 @@ export interface Task {
   lastCompletedAt?: string;
   /** When in the day this task wants to be done. Defaults to "anytime". */
   timeOfDay?: TimeOfDay;
+  /** Optional specific time-of-day override (HH:MM, 24-hour). Useful for daily habits like "8:30 tablets". */
+  specificTime?: string;
+  /** For tasks that need multiple sessions per week (e.g. 3 weight training sessions). The UI / planner can spread these across the week. */
+  sessionsPerWeek?: number;
   /** If present, this task is a counter (e.g. drink 8 glasses). Tap-to-increment instead of tick-once. */
   counter?: DailyCounter;
   /** Goals this task ladders up to. */
