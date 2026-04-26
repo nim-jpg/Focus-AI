@@ -190,6 +190,29 @@ googleRouter.get("/events", async (req, res) => {
   }
 });
 
+googleRouter.delete("/events/:id", async (req, res) => {
+  const client = await getAuthorizedClient();
+  if (!client) {
+    res.status(401).json({ error: "not_connected" });
+    return;
+  }
+  const id = req.params.id;
+  if (!id) {
+    res.status(400).json({ error: "missing_id" });
+    return;
+  }
+  try {
+    const calendar = google.calendar({ version: "v3", auth: client });
+    await calendar.events.delete({ calendarId: "primary", eventId: id });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({
+      error: "delete_event_failed",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
 googleRouter.delete("/disconnect", async (_req, res) => {
   try {
     await fs.unlink(TOKENS_FILE);

@@ -1,10 +1,18 @@
 import type {
+  Goal,
   PrioritizedTask,
   Task,
   Theme,
   UserPrefs,
 } from "@/types/task";
 import { isFoundation, isDueNow } from "./recurrence";
+
+const GOAL_HORIZON_WEIGHT: Record<Goal["horizon"], number> = {
+  "6m": 60,
+  "1y": 90,
+  "5y": 140,
+  "10y": 180,
+};
 
 const HOURS = 60 * 60 * 1000;
 
@@ -30,7 +38,12 @@ interface Scored {
  * Score a single task against the Tier 1-4 rules in the spec.
  * Higher score = more important. Tier is the lowest tier any rule placed it in.
  */
-function scoreTask(task: Task, all: Task[], now: Date): Scored {
+function scoreTask(
+  task: Task,
+  all: Task[],
+  now: Date,
+  goalsById: Map<string, Goal>,
+): Scored {
   const reasons: string[] = [];
   let score = 0;
   let tier: 1 | 2 | 3 | 4 = 4;
@@ -121,6 +134,30 @@ function scoreTask(task: Task, all: Task[], now: Date): Scored {
     reasons.push("dodged 2 weeks — surfacing before it grows");
   }
 
+  // Goal-pull: tasks laddered to a goal get a bump scaled by the longest
+  // horizon among them. Long-horizon goals depend on consistent small
+  // forward steps, so each ladder-up task is worth surfacing.
+  const linkedGoals = (task.goalIds ?? [])
+    .map((id) => goalsById.get(id))
+    .filter((g): g is Goal => Boolean(g));
+  if (linkedGoals.length > 0) {
+    const maxWeight = Math.max(
+      ...linkedGoals.map((g) => GOAL_HORIZON_WEIGHT[g.horizon] ?? 50),
+    );
+    // Scale slightly by goal count but cap so a task with 5 goals doesn't dominate
+    score += maxWeight + Math.min(linkedGoals.length - 1, 2) * 20;
+    promote(2);
+    const longestHorizon = linkedGoals.reduce((a, b) =>
+      (GOAL_HORIZON_WEIGHT[b.horizon] ?? 0) >
+      (GOAL_HORIZON_WEIGHT[a.horizon] ?? 0)
+        ? b
+        : a,
+    );
+    reasons.push(
+      `ladders up to "${longestHorizon.title}" (${longestHorizon.horizon} goal)`,
+    );
+  }
+
   // Tier 4 baseline (household etc.) — if nothing else fired, leave as tier 4.
   if (reasons.length === 0) {
     reasons.push("background task");
@@ -135,6 +172,8 @@ interface PrioritizeOptions {
   limit?: number;
   /** Override "now" (mostly for tests). */
   now?: Date;
+  /** Goals the task list might ladder up to. Used for goal-pull bonus. */
+  goals?: Goal[];
 }
 
 /**
@@ -144,8 +183,9 @@ export function prioritize(
   tasks: Task[],
   options: PrioritizeOptions = {},
 ): PrioritizedTask[] {
-  const { limit = 3, now = new Date() } = options;
+  const { limit = 3, now = new Date(), goals = [] } = options;
   const mode = options.prefs?.mode ?? "both";
+  const goalsById = new Map(goals.map((g) => [g.id, g]));
 
   const candidates = tasks.filter((t) => {
     if (t.status === "completed") return false;
@@ -163,7 +203,7 @@ export function prioritize(
   });
 
   const scored = candidates
-    .map((t) => scoreTask(t, candidates, now))
+    .map((t) => scoreTask(t, candidates, now, goalsById))
     .sort((a, b) => a.tier - b.tier || b.score - a.score);
 
   const selected: Scored[] = [];

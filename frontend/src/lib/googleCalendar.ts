@@ -45,6 +45,17 @@ export interface CalendarEvent {
   htmlLink: string | null;
 }
 
+export async function deleteEvent(eventId: string): Promise<void> {
+  const res = await fetch(
+    `/api/google/events/${encodeURIComponent(eventId)}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new CalendarError(body.message ?? `HTTP ${res.status}`, res.status);
+  }
+}
+
 export async function fetchEvents(from: Date, to: Date): Promise<CalendarEvent[]> {
   const params = new URLSearchParams({
     from: from.toISOString(),

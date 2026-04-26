@@ -14,6 +14,7 @@ import { WeekSchedule } from "@/components/WeekSchedule";
 import { SchedulePicker, type ScheduleChoice } from "@/components/SchedulePicker";
 import { PlannerScan, type ResolvedUpdate } from "@/components/PlannerScan";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { checkAndNotify } from "@/lib/notifications";
 import { useGoals } from "@/lib/useGoals";
 import { useTasks } from "@/lib/useTasks";
 import { prioritize } from "@/lib/prioritize";
@@ -131,6 +132,17 @@ export default function App() {
     }
   };
 
+  // Notification ticker — runs every minute when the user has opted in.
+  useEffect(() => {
+    if (!prefs.notificationsEnabled) return;
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission !== "granted") return;
+    const id = setInterval(() => checkAndNotify(tasks), 60 * 1000);
+    // Also check immediately on mount / when tasks change.
+    checkAndNotify(tasks);
+    return () => clearInterval(id);
+  }, [tasks, prefs.notificationsEnabled]);
+
   useEffect(() => {
     fetchGoogleStatus().then(setGoogleStatus).catch(() => setGoogleStatus(null));
     // If we just returned from the OAuth round-trip, surface a confirmation.
@@ -240,8 +252,8 @@ export default function App() {
   };
 
   const local = useMemo(
-    () => prioritize(tasks, { prefs, limit: 3 }),
-    [tasks, prefs],
+    () => prioritize(tasks, { prefs, limit: 3, goals }),
+    [tasks, prefs, goals],
   );
 
   const foundations = useMemo(
@@ -257,10 +269,10 @@ export default function App() {
 
   const tomorrowPreview = useMemo(() => {
     const todaysIds = new Set(local.map((p) => p.task.id));
-    return prioritize(tasks, { prefs, limit: 3, now: tomorrow }).filter(
+    return prioritize(tasks, { prefs, limit: 3, now: tomorrow, goals }).filter(
       (p) => !todaysIds.has(p.task.id),
     );
-  }, [tasks, prefs, tomorrow, local]);
+  }, [tasks, prefs, tomorrow, local, goals]);
 
   const [aiResult, setAiResult] = useState<PrioritizedTask[] | null>(null);
   const [source, setSource] = useState<Source>("local");

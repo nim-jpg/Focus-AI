@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Task, UserPrefs } from "@/types/task";
-import { fetchEvents, type CalendarEvent } from "@/lib/googleCalendar";
+import { deleteEvent, fetchEvents, type CalendarEvent } from "@/lib/googleCalendar";
 import { busyWindowsForWeek, suggestSessionTimes } from "@/lib/autoSchedule";
 import { ThemeBadge } from "./ThemeBadge";
 
@@ -514,6 +514,37 @@ export function WeekSchedule({
                             re-time
                           </button>
                         )}
+                      </div>
+                    )}
+                    {b.event && height >= 28 && (
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[9px]">
+                        {b.event.htmlLink && (
+                          <a
+                            href={b.event.htmlLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hover:underline"
+                          >
+                            open
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          className="hover:underline"
+                          onClick={async () => {
+                            if (!b.event?.id) return;
+                            if (!confirm(`Delete "${b.event.summary}" from Google Calendar?`))
+                              return;
+                            try {
+                              await deleteEvent(b.event.id);
+                              await refresh();
+                            } catch {
+                              // surface error in next refresh; silent here
+                            }
+                          }}
+                        >
+                          delete
+                        </button>
                       </div>
                     )}
                   </div>
