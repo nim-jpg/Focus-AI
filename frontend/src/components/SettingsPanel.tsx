@@ -16,6 +16,8 @@ interface Props {
   /** Optional backup hooks; when omitted the section is hidden. */
   onExport?: () => void;
   onImport?: (file: File) => Promise<void>;
+  /** Last PDF-scan session — when set, Settings shows an Undo button. */
+  lastScanUndo?: { ts: number; count: number; onUndo: () => void };
   /** Calendar status + connect/disconnect actions. When undefined the section is hidden. */
   calendar?: {
     configured: boolean;
@@ -42,6 +44,7 @@ export function SettingsPanel({
   onClose,
   onExport,
   onImport,
+  lastScanUndo,
   calendar,
 }: Props) {
   const [permState, setPermState] = useState<NotificationPermission | null>(
@@ -108,6 +111,25 @@ export function SettingsPanel({
         <div className="overflow-y-auto px-5 py-4">
 
         <div className="space-y-5">
+          {/* Name — used on the printed PDF header */}
+          <section>
+            <h4 className="text-sm font-semibold text-slate-700">
+              I am…
+            </h4>
+            <input
+              type="text"
+              className="input mt-2"
+              placeholder="Your name (used on the printed planner)"
+              value={prefs.displayName ?? ""}
+              onChange={(e) => onChange({ displayName: e.target.value })}
+              maxLength={60}
+            />
+            <p className="mt-2 text-xs text-slate-500">
+              When set, the PDF planner header reads "Focus3 — &lt;name&gt;
+              — Weekly Planner". Leave blank for the default header.
+            </p>
+          </section>
+
           {/* User type — shapes how Focus3 reads your day */}
           <section>
             <h4 className="text-sm font-semibold text-slate-700">
@@ -683,6 +705,45 @@ export function SettingsPanel({
                   </li>
                 ))}
               </ul>
+            </section>
+          )}
+
+          {/* Last PDF scan — undo */}
+          {lastScanUndo && (
+            <section>
+              <h4 className="text-sm font-semibold text-slate-700">
+                Last PDF scan
+              </h4>
+              <p className="text-xs text-slate-500">
+                Revert the {lastScanUndo.count} change
+                {lastScanUndo.count === 1 ? "" : "s"} applied by your most
+                recent planner scan
+                {" "}
+                ({new Date(lastScanUndo.ts).toLocaleString(undefined, {
+                  day: "numeric",
+                  month: "short",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+                ). Each task is restored to its state before the scan.
+              </p>
+              <div className="mt-2">
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  onClick={() => {
+                    if (
+                      confirm(
+                        `Undo ${lastScanUndo.count} scan-back change${lastScanUndo.count === 1 ? "" : "s"}? Tasks will be restored to their pre-scan state.`,
+                      )
+                    ) {
+                      lastScanUndo.onUndo();
+                    }
+                  }}
+                >
+                  Undo last scan
+                </button>
+              </div>
             </section>
           )}
 

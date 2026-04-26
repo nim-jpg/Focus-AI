@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TaskFormModal } from "@/components/TaskFormModal";
 import { TaskList } from "@/components/TaskList";
 import { TopThree } from "@/components/TopThree";
@@ -284,7 +284,53 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       setCalendarMsg(`Couldn't push to Google — ${reason}`);
     }
   };
+  // Scan-back undo: captures the BEFORE-state of each task that the
+  // current scan session touches. Committed to localStorage on
+  // PlannerScan close, so the user can revert the whole session in one
+  // click from Settings.
+  const SCAN_UNDO_KEY = "focus3:lastScanUndo:v1";
+  type ScanUndoEntry = {
+    taskId: string;
+    fields: Partial<Task>;
+  };
+  const scanBufferRef = useRef<ScanUndoEntry[]>([]);
+  const [lastScanUndo, setLastScanUndo] = useState<{
+    ts: number;
+    items: ScanUndoEntry[];
+  } | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = localStorage.getItem(SCAN_UNDO_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+  const persistScanUndo = (
+    next: { ts: number; items: ScanUndoEntry[] } | null,
+  ) => {
+    setLastScanUndo(next);
+    try {
+      if (next) localStorage.setItem(SCAN_UNDO_KEY, JSON.stringify(next));
+      else localStorage.removeItem(SCAN_UNDO_KEY);
+    } catch {
+      /* ignore */
+    }
+  };
+
   const applyScanUpdate = (u: ResolvedUpdate) => {
+    // Snapshot the relevant fields BEFORE applying so we can revert.
+    const t = tasks.find((x) => x.id === u.taskId);
+    if (t) {
+      const snapshot: Partial<Task> = {
+        status: t.status,
+        snoozedUntil: t.snoozedUntil,
+        estimatedMinutes: t.estimatedMinutes,
+        title: t.title,
+        lastCompletedAt: t.lastCompletedAt,
+      };
+      scanBufferRef.current.push({ taskId: u.taskId, fields: snapshot });
+    }
     switch (u.action) {
       case "complete":
         toggleComplete(u.taskId);
@@ -316,6 +362,26 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         break;
       }
     }
+  };
+
+  const commitScanSession = () => {
+    if (scanBufferRef.current.length === 0) return;
+    persistScanUndo({
+      ts: Date.now(),
+      items: scanBufferRef.current.slice(),
+    });
+    scanBufferRef.current = [];
+  };
+
+  const undoLastScan = () => {
+    if (!lastScanUndo) return;
+    for (const entry of lastScanUndo.items) {
+      updateTask(entry.taskId, entry.fields);
+    }
+    persistScanUndo(null);
+    setCalendarMsg(
+      `Undid ${lastScanUndo.items.length} scan-back change${lastScanUndo.items.length === 1 ? "" : "s"}.`,
+    );
   };
 
   const startEdit = (id: string) => {
@@ -1032,7 +1098,12 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               defaultOpen
               tasks={tasks}
               onApply={applyScanUpdate}
-              onClose={() => setShowPlannerScan(false)}
+              onClose={() => {
+                // Commit the scan-session buffer as the new "last scan
+                // undo" entry so the user can revert from Settings.
+                commitScanSession();
+                setShowPlannerScan(false);
+              }}
             />
           </div>
         </div>
@@ -1050,6 +1121,15 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             replaceAllGoals(bundle.goals);
             replacePrefs(bundle.prefs);
           }}
+          lastScanUndo={
+            lastScanUndo
+              ? {
+                  ts: lastScanUndo.ts,
+                  count: lastScanUndo.items.length,
+                  onUndo: undoLastScan,
+                }
+              : undefined
+          }
           calendar={{
             // Default to "configured + not connected" until the status
             // fetch comes back, so the Connect Calendar button is always

@@ -325,7 +325,13 @@ export async function exportWeeklyPlanner(
   let y = margin + 6;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
-  doc.text("Focus3 — Weekly Planner", margin, y + 6);
+  // Header: include the user's display name when set.
+  // "Focus3 — <Name> — Weekly Planner" (em-dash separators).
+  const displayName = prefs.displayName?.trim();
+  const headerTitle = displayName
+    ? `Focus3 — ${displayName} — Weekly Planner`
+    : "Focus3 — Weekly Planner";
+  doc.text(headerTitle, margin, y + 6);
 
   // Date range
   doc.setFont("helvetica", "normal");
@@ -460,16 +466,29 @@ export async function exportWeeklyPlanner(
 
       doc.setTextColor(0);
 
-      // Notes line on a fresh row underneath
-      const notesY = leftY + 32;
+      // Notes lines on fresh rows underneath. Two writing lines spaced
+      // ~14pt apart (~5mm) so a pen actually fits without crowding.
+      const notesLabelY = leftY + 32;
       doc.setFontSize(7);
       doc.setTextColor(120);
-      doc.text("notes:", leftX + 16, notesY);
+      doc.text("notes:", leftX + 16, notesLabelY);
       doc.setDrawColor(220);
-      doc.line(leftX + 16 + 22, notesY + 1, leftCodeX - 8, notesY + 1);
+      doc.setLineWidth(0.4);
+      const NOTES_LINE_GAP = 14;
+      const notesLineXStart = leftX + 16 + 22;
+      const notesLineXEnd = leftCodeX - 8;
+      // Line 1 sits aligned with the "notes:" label baseline; line 2 sits
+      // ~14pt below for the second written line.
+      doc.line(notesLineXStart, notesLabelY + 1, notesLineXEnd, notesLabelY + 1);
+      doc.line(
+        notesLineXStart,
+        notesLabelY + 1 + NOTES_LINE_GAP,
+        notesLineXEnd,
+        notesLabelY + 1 + NOTES_LINE_GAP,
+      );
       doc.setTextColor(0);
 
-      leftY += 50; // taller row to accommodate the new fields
+      leftY += 64; // taller row so the second notes line has breathing room
     }
   }
 
@@ -727,14 +746,8 @@ export async function exportWeeklyPlanner(
   doc.setDrawColor(210);
   doc.setLineWidth(0.5);
   doc.rect(rightX, notesTop, colW, notesH);
-  // Horizontal writing lines — spaced wide enough (~22pt ≈ 7.7mm) so a
-  // pen actually fits on the line without crowding adjacent rows.
-  const NOTES_LINE_GAP = 22;
-  doc.setDrawColor(220);
-  doc.setLineWidth(0.4);
-  for (let gy = notesTop + NOTES_LINE_GAP; gy < notesTop + notesH - 4; gy += NOTES_LINE_GAP) {
-    doc.line(rightX + 6, gy, rightX + colW - 6, gy);
-  }
+  // Notes / doodles area is intentionally blank — pure scratch space for
+  // the user. No lines, no dots, no grid.
 
   // ── Footer ────────────────────────────────────────────────────────────────
   doc.setFontSize(7);
