@@ -353,6 +353,14 @@ export function WeekSchedule({
         !t.calendarEventId &&
         isDueNow(t, now)
       ) {
+        // Long-cycle filings (yearly accounts, quarterly VAT) often have a
+        // dueDate months out — don't nag the user to schedule them now.
+        // Only surface when the deadline is actually within the next ~14 days.
+        if (t.dueDate) {
+          const daysToDue =
+            (new Date(t.dueDate).getTime() - now.getTime()) / 86400000;
+          if (daysToDue > 14) return false;
+        }
         return true;
       }
       return false;
