@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Task } from "@/types/task";
+import { TimeField } from "./TimeField";
 
 export interface ScheduleChoice {
   start: Date;
@@ -105,12 +106,7 @@ export function SchedulePicker({
           </div>
           <div>
             <label className="text-xs font-medium text-slate-700">Start time</label>
-            <input
-              type="time"
-              className="input mt-1"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-            />
+            <TimeField value={time} onChange={setTime} />
           </div>
           <div className="col-span-2">
             <label className="text-xs font-medium text-slate-700">

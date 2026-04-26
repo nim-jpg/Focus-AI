@@ -14,6 +14,7 @@ import {
   type Urgency,
 } from "@/types/task";
 import type { NewTaskInput } from "@/lib/useTasks";
+import { TimeField } from "./TimeField";
 
 interface Props {
   onSubmit: (input: NewTaskInput) => void;
@@ -216,11 +217,10 @@ export function TaskForm({ onSubmit, initialTask, onCancel, goals = [] }: Props)
           >
             Specific time <span className="text-slate-400">(optional)</span>
           </label>
-          <input
-            type="time"
-            className="input mt-1"
+          <TimeField
             value={form.specificTime ?? ""}
-            onChange={(e) => update("specificTime", e.target.value || undefined)}
+            onChange={(v) => update("specificTime", v || undefined)}
+            allowEmpty
           />
         </div>
         <div>
