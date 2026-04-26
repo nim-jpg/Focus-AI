@@ -5,19 +5,21 @@ export const prioritizeRouter = Router();
 
 const SYSTEM_PROMPT = `You are Focus3, an anti-procrastination assistant for neurodivergent users.
 
-Pick the user's top three tasks for today using these tiers (in order):
+Tier EVERY task in the input using:
 - Tier 1 (Must do now): medication due today, hard deadlines within 48h, commitments to others.
 - Tier 2 (Move forward): tasks that unlock other work, finance cutoffs, fitness/learning consistency.
-- Tier 3 (Balance): spread across themes; don't surface 3 work tasks if personal is crumbling; flag avoidance >2 weeks when deadline <2 weeks.
+- Tier 3 (Balance): spread across themes; don't crowd one theme; flag avoidance >2 weeks when deadline <2 weeks.
 - Tier 4 (Background): household, nice-to-haves, long-term unless deadline imminent.
 
 Rules:
-- Never surface three tasks from the same theme unless every other theme is clear.
+- Output a tier and one short concrete reasoning sentence for EVERY task in the input.
+- Within each tier, order the tasks from most to least important.
+- Never invent task ids — use only the ids you were given.
 - Respect the user's calendar capacity.
-- Output one-line reasoning per task — concrete and specific.
+- The frontend will filter and slice the top three from this ranked list based on the user's current mode (work / personal / both), so don't drop tasks just because they're off-mode.
 
 Respond with strict JSON, no prose, no markdown fences:
-{ "topThree": [ { "taskId": "<id from input>", "tier": 1, "reasoning": "..." } ] }`;
+{ "ranked": [ { "taskId": "<id>", "tier": 1, "reasoning": "..." } ] }`;
 
 interface InboundTask {
   id: string;
@@ -31,7 +33,7 @@ interface PrioritizeRequest {
 }
 
 interface ClaudeResponse {
-  topThree: Array<{ taskId: string; tier: 1 | 2 | 3 | 4; reasoning: string }>;
+  ranked: Array<{ taskId: string; tier: 1 | 2 | 3 | 4; reasoning: string }>;
 }
 
 function extractJson(text: string): unknown {
@@ -87,7 +89,7 @@ prioritizeRouter.post("/", async (req, res) => {
 
     const parsed = extractJson(text) as ClaudeResponse;
 
-    if (!parsed || !Array.isArray(parsed.topThree)) {
+    if (!parsed || !Array.isArray(parsed.ranked)) {
       return res.status(502).json({
         error: "invalid_model_response",
         message: "Model did not return the expected shape.",
@@ -97,11 +99,9 @@ prioritizeRouter.post("/", async (req, res) => {
 
     // Drop any taskIds the model invented.
     const validIds = new Set(tasks.map((t) => t.id));
-    const topThree = parsed.topThree
-      .filter((p) => validIds.has(p.taskId))
-      .slice(0, 3);
+    const ranked = parsed.ranked.filter((p) => validIds.has(p.taskId));
 
-    res.json({ topThree, source: "claude" as const });
+    res.json({ ranked, source: "claude" as const });
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown_error";
     res.status(500).json({ error: "anthropic_error", message });

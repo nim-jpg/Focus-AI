@@ -3,7 +3,7 @@ import { isFoundation, isDueNow } from "./recurrence";
 import { apiFetch } from "./api";
 
 interface AiResponse {
-  topThree: Array<{ taskId: string; tier: 1 | 2 | 3 | 4; reasoning: string }>;
+  ranked: Array<{ taskId: string; tier: 1 | 2 | 3 | 4; reasoning: string }>;
   source: "claude";
 }
 
@@ -64,7 +64,10 @@ export async function aiPrioritize(
   const data = (await res.json()) as AiResponse;
   const byId = new Map(candidates.map((t) => [t.id, t]));
 
-  return data.topThree
+  // Returns the full ranked list (every candidate). Callers slice to the
+  // top N for the visible Top Three; this lets us cache one AI run and
+  // re-filter on mode toggles without re-asking Claude.
+  return data.ranked
     .map(({ taskId, tier, reasoning }) => {
       const task = byId.get(taskId);
       if (!task) return null;

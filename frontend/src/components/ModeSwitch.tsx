@@ -1,20 +1,26 @@
-import type { UserPrefs } from "@/types/task";
+import type { UserPrefs, UserType } from "@/types/task";
+import { workLabelFor } from "@/lib/modeFilter";
 
 interface Props {
   mode: UserPrefs["mode"];
+  userType?: UserType;
   onChange: (mode: UserPrefs["mode"]) => void;
 }
 
-const OPTIONS: Array<{ value: UserPrefs["mode"]; label: string }> = [
-  { value: "both", label: "Both" },
-  { value: "work", label: "Work" },
-  { value: "personal", label: "Personal" },
-];
-
-export function ModeSwitch({ mode, onChange }: Props) {
+export function ModeSwitch({ mode, userType, onChange }: Props) {
+  // The "work-bucket" label adapts to who the user is — employees see
+  // "Projects" (Focus3 covers their side ventures + life, not the day job);
+  // self-employed see "Work"; students see "School". The underlying mode
+  // value stays "work" so persisted prefs and filter logic stay consistent.
+  const workLabel = workLabelFor(userType);
+  const options: Array<{ value: UserPrefs["mode"]; label: string }> = [
+    { value: "both", label: "Both" },
+    { value: "work", label: workLabel },
+    { value: "personal", label: "Personal" },
+  ];
   return (
     <div className="inline-flex rounded-md border border-slate-300 bg-white p-0.5 text-sm shadow-sm">
-      {OPTIONS.map((opt) => (
+      {options.map((opt) => (
         <button
           key={opt.value}
           type="button"

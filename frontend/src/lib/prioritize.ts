@@ -6,6 +6,7 @@ import type {
   UserPrefs,
 } from "@/types/task";
 import { isFoundation, isDueNow } from "./recurrence";
+import { isInWorkMode } from "./modeFilter";
 
 const GOAL_HORIZON_WEIGHT: Record<Goal["horizon"], number> = {
   "6m": 60,
@@ -189,10 +190,11 @@ export function prioritize(
 
   const FAR_FUTURE_HOURS = 90 * 24; // 3 months
 
+  const userType = options.prefs?.userType;
   const candidates = tasks.filter((t) => {
     if (t.status === "completed") return false;
-    if (mode === "work" && !t.isWork) return false;
-    if (mode === "personal" && t.isWork) return false;
+    if (mode === "work" && !isInWorkMode(t, userType)) return false;
+    if (mode === "personal" && isInWorkMode(t, userType)) return false;
     // Daily foundational habits live in the Foundations rail, never in Top Three.
     if (isFoundation(t)) return false;
     // Recurring tasks only compete when they're actually due.
