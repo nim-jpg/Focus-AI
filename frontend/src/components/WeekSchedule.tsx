@@ -57,6 +57,65 @@ interface Block {
   allDay?: boolean;
   /** ISO of the specific session/task instance, used for "remove" actions. */
   instanceIso?: string;
+  /** Layout column index within its overlap cluster (0-based). */
+  layoutCol?: number;
+  /** Total columns in this block's overlap cluster. */
+  layoutCols?: number;
+}
+
+/**
+ * Greedy column-assignment for overlapping blocks. Returns the same blocks
+ * with `layoutCol` and `layoutCols` set. Matches the standard Google-Calendar
+ * approach: events that overlap split the day-column width N ways.
+ */
+function layoutOverlappingBlocks(blocks: Block[]): { blocks: Block[] } {
+  if (blocks.length === 0) return { blocks: [] };
+  const sorted = [...blocks].sort((a, b) => {
+    if (a.startMin !== b.startMin) return a.startMin - b.startMin;
+    return b.endMin - a.endMin;
+  });
+  const out: Block[] = [];
+  let cluster: Block[] = [];
+  let clusterEnd = -1;
+
+  const finalize = () => {
+    if (cluster.length === 0) return;
+    const cols: Block[][] = [];
+    for (const b of cluster) {
+      let placed = false;
+      for (let ci = 0; ci < cols.length; ci++) {
+        const last = cols[ci]![cols[ci]!.length - 1]!;
+        if (last.endMin <= b.startMin) {
+          cols[ci]!.push(b);
+          b.layoutCol = ci;
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        b.layoutCol = cols.length;
+        cols.push([b]);
+      }
+    }
+    const total = cols.length;
+    for (const b of cluster) b.layoutCols = total;
+    out.push(...cluster);
+    cluster = [];
+    clusterEnd = -1;
+  };
+
+  for (const b of sorted) {
+    if (cluster.length > 0 && b.startMin < clusterEnd) {
+      cluster.push(b);
+      clusterEnd = Math.max(clusterEnd, b.endMin);
+    } else {
+      finalize();
+      cluster.push(b);
+      clusterEnd = b.endMin;
+    }
+  }
+  finalize();
+  return { blocks: out };
 }
 
 export function WeekSchedule({
@@ -623,7 +682,11 @@ export function WeekSchedule({
         {/* Day columns */}
         {Array.from({ length: 7 }).map((_, dayIdx) => {
           const isToday = dayIdx === todayIdx;
-          const dayBlocks = timedBlocks.filter((b) => b.dayIdx === dayIdx);
+          const rawDayBlocks = timedBlocks.filter((b) => b.dayIdx === dayIdx);
+          // Side-by-side layout for overlapping blocks (Google Calendar style):
+          // assign each block a column index within its overlap cluster.
+          const layout = layoutOverlappingBlocks(rawDayBlocks);
+          const dayBlocks = layout.blocks;
           return (
             <div
               key={dayIdx}
@@ -745,15 +808,24 @@ export function WeekSchedule({
                       onDragEnd: handleDragEnd,
                     }
                   : {};
+                // Side-by-side layout when overlapping. layoutCols defaults
+                // to 1 so non-overlapping blocks fill the column width.
+                const cols = b.layoutCols ?? 1;
+                const col = b.layoutCol ?? 0;
+                const widthPct = 100 / cols;
+                const leftPct = (col / cols) * 100;
+
                 return (
                   <div
                     key={i}
-                    className={`group absolute left-0.5 right-0.5 z-10 overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight transition-all hover:z-40 hover:overflow-visible hover:!h-auto hover:min-h-fit hover:shadow-lg ${colour} ${
+                    className={`group absolute z-10 overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight transition-all hover:z-40 hover:!left-0 hover:!right-0 hover:!w-auto hover:overflow-visible hover:!h-auto hover:min-h-fit hover:shadow-lg ${colour} ${
                       draggable ? "cursor-move" : ""
                     }`}
                     style={{
                       top: `${top}px`,
                       height: `${height}px`,
+                      left: `calc(${leftPct}% + 1px)`,
+                      width: `calc(${widthPct}% - 2px)`,
                       ...(inlineBg ?? {}),
                     }}
                     title={
