@@ -361,6 +361,45 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         }
         break;
       }
+      case "habitTick": {
+        // value can be { day, count? } from Claude. For counter habits
+        // we increment by count; for non-counter we mark complete today.
+        const t = tasks.find((x) => x.id === u.taskId);
+        if (!t) break;
+        const v = (typeof u.value === "object" && u.value !== null
+          ? u.value
+          : {}) as { day?: string; count?: number };
+        const isCounter = Boolean(t.counter && t.counter.target > 0);
+        if (isCounter) {
+          incrementCounter(u.taskId, Math.max(1, Math.round(v.count ?? 1)));
+        } else {
+          // Non-counter daily habit — toggle done for today.
+          toggleComplete(u.taskId);
+        }
+        break;
+      }
+      case "newNote": {
+        // Append the note to the task's description (or create a fresh
+        // task if no target was matched). For now: if a taskId was
+        // resolved, append; otherwise just surface the note in the
+        // calendar message and let the user copy-paste it where they want.
+        const text =
+          typeof u.value === "string" ? u.value.trim() : "";
+        if (!text) break;
+        if (u.taskId) {
+          const t = tasks.find((x) => x.id === u.taskId);
+          if (t) {
+            updateTask(u.taskId, {
+              description: t.description
+                ? `${t.description}\n\nFrom planner: ${text}`
+                : `From planner: ${text}`,
+            });
+          }
+        } else {
+          setCalendarMsg(`Note from planner: "${text}"`);
+        }
+        break;
+      }
     }
   };
 

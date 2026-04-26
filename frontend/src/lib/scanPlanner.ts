@@ -1,12 +1,24 @@
 import type { Task } from "@/types/task";
 import { apiFetch } from "./api";
 
-export type ScanAction = "complete" | "defer" | "block" | "timeSpent" | "rename";
+export type ScanAction =
+  | "complete"
+  | "defer"
+  | "block"
+  | "timeSpent"
+  | "rename"
+  /** Tick on a daily-habit row for one day. value = { day, count? }. */
+  | "habitTick"
+  /** Free-text handwritten note from the notes box. value = transcribed text. */
+  | "newNote";
 
 export interface ScanUpdate {
-  shortId: string;
+  /** Set when the row had a printed shortId stamp (key + stretch tasks). */
+  shortId?: string;
+  /** Set when the row was matched by title (backlog + daily habits). */
+  taskTitle?: string;
   action: ScanAction;
-  value?: string | number;
+  value?: string | number | { day?: string; count?: number };
   evidence?: string;
 }
 
@@ -26,11 +38,28 @@ export function findTaskByShortId(tasks: Task[], shortId: string): Task | null {
   return tasks.find((t) => shortIdFor(t.id).slice(1).toLowerCase() === target) ?? null;
 }
 
+/** Find a task by title — exact match first, then case-insensitive
+ *  prefix match (Claude may transcribe with slight variations). */
+export function findTaskByTitle(tasks: Task[], title: string): Task | null {
+  const t = title.trim();
+  if (!t) return null;
+  const exact = tasks.find((x) => x.title === t);
+  if (exact) return exact;
+  const lower = t.toLowerCase();
+  const prefix = tasks.find((x) => x.title.toLowerCase().startsWith(lower));
+  if (prefix) return prefix;
+  const contains = tasks.find((x) => x.title.toLowerCase().includes(lower));
+  return contains ?? null;
+}
+
 export async function scanPlanner(
   input: { text?: string; image?: { base64: string; mediaType: string } },
   tasks: Task[],
 ): Promise<ScanUpdate[]> {
   const shortIds = tasks.map((t) => shortIdFor(t.id));
+  const taskTitles = tasks
+    .filter((t) => t.status !== "completed")
+    .map((t) => t.title);
   const res = await apiFetch("/api/scan-planner", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -39,6 +68,7 @@ export async function scanPlanner(
       imageBase64: input.image?.base64,
       mediaType: input.image?.mediaType,
       shortIds,
+      taskTitles,
     }),
   });
   if (!res.ok) {
