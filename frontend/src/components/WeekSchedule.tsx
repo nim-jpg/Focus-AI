@@ -17,6 +17,9 @@ interface Props {
   onMoveSession: (taskId: string, oldIso: string, newIso: string) => void;
   /** "Block my time too": import a Google event as a local Focus3 task. */
   onShadowEvent: (event: CalendarEvent) => void;
+  /** Persist a UserPrefs change (used to remember view-day selection and to
+   *  push event-ignore / colour-override updates). */
+  onUpdatePrefs?: (patch: Partial<UserPrefs>) => void;
   /** Optional: hour grid bounds (defaults to 6-23 if not passed). */
   gridStartHour?: number;
   gridEndHour?: number;
@@ -120,6 +123,7 @@ export function WeekSchedule({
   onMoveTask,
   onMoveSession,
   onShadowEvent,
+  onUpdatePrefs,
   gridStartHour = 6,
   gridEndHour = 23,
 }: Props) {
@@ -129,11 +133,14 @@ export function WeekSchedule({
   const [weekStartDate, setWeekStartDate] = useState<Date>(() =>
     startOfDay(new Date()),
   );
+  const [viewDays, setViewDays] = useState<1 | 3 | 7>(
+    prefs.homeViewDays ?? 7,
+  );
 
   const weekStart = weekStartDate;
   const weekEnd = useMemo(
-    () => new Date(weekStart.getTime() + 7 * DAY_MS),
-    [weekStart],
+    () => new Date(weekStart.getTime() + viewDays * DAY_MS),
+    [weekStart, viewDays],
   );
 
   const refresh = async () => {
@@ -156,7 +163,7 @@ export function WeekSchedule({
   useEffect(() => {
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [calendarConnected, weekStart.getTime()]);
+  }, [calendarConnected, weekStart.getTime(), viewDays]);
 
   // Convert events + tasks + sessions into positioned Blocks.
   const blocks: Block[] = useMemo(() => {
@@ -168,6 +175,8 @@ export function WeekSchedule({
       ...(prefs.excludedCalendarIds ?? []),
       ...(prefs.privateCalendarIds ?? []),
     ]);
+    const ignoredEventIds = new Set(prefs.ignoredEventIds ?? []);
+    const colorOverrides = prefs.calendarColorOverrides ?? {};
 
     // Tasks linked to Google events (calendarEventId set) — we'll skip rendering
     // them as task blocks because the event itself will appear via the events
@@ -187,13 +196,19 @@ export function WeekSchedule({
       if (!ev.start) continue;
       // Excluded calendars: don't render at all.
       if (ev.calendarId && excludedIds.has(ev.calendarId)) continue;
+      // Per-event ignore: user has muted this specific event from Focus3.
+      if (ev.id && ignoredEventIds.has(ev.id)) continue;
       const sd = new Date(ev.start);
       const ed = ev.end ? new Date(ev.end) : new Date(sd.getTime() + 60 * 60 * 1000);
       const dayIdx = dayIdxFor(sd);
-      if (dayIdx < 0 || dayIdx > 6) continue;
+      if (dayIdx < 0 || dayIdx >= viewDays) continue;
 
       const isShadow = ev.calendarId ? shadowIds.has(ev.calendarId) : false;
       const linkedTask = ev.id ? tasksByEventId.get(ev.id) : undefined;
+      // User colour override beats Google's calendar colour.
+      const overriddenColor = ev.calendarId
+        ? colorOverrides[ev.calendarId]
+        : undefined;
 
       const renderedEvent: CalendarEvent = isShadow
         ? {
@@ -201,6 +216,8 @@ export function WeekSchedule({
             // Faint colour so shadow events read as background context.
             calendarColor: "#cbd5e1", // slate-300
           }
+        : overriddenColor
+        ? { ...ev, calendarColor: overriddenColor }
         : ev;
 
       out.push({
@@ -230,7 +247,7 @@ export function WeekSchedule({
         if (!iso) continue;
         const d = new Date(iso);
         const dayIdx = dayIdxFor(d);
-        if (dayIdx < 0 || dayIdx > 6) continue;
+        if (dayIdx < 0 || dayIdx >= viewDays) continue;
         const start = minutesOf(d);
         const dur = t.estimatedMinutes ?? 60;
         out.push({
@@ -251,7 +268,7 @@ export function WeekSchedule({
           .sort((a, b) => a.d.getTime() - b.d.getTime());
         sorted.forEach((entry, sIdx) => {
           const dayIdx = dayIdxFor(entry.d);
-          if (dayIdx < 0 || dayIdx > 6) return;
+          if (dayIdx < 0 || dayIdx >= viewDays) return;
           const start = minutesOf(entry.d);
           out.push({
             kind: "session",
@@ -271,7 +288,7 @@ export function WeekSchedule({
       if (!iso) continue;
       const d = new Date(iso);
       const dayIdx = dayIdxFor(d);
-      if (dayIdx < 0 || dayIdx > 6) continue;
+      if (dayIdx < 0 || dayIdx >= viewDays) continue;
       const start = minutesOf(d);
       out.push({
         kind: "task",
@@ -287,9 +304,12 @@ export function WeekSchedule({
     events,
     tasks,
     weekStart,
+    viewDays,
     prefs.shadowCalendarIds,
     prefs.excludedCalendarIds,
     prefs.privateCalendarIds,
+    prefs.ignoredEventIds,
+    prefs.calendarColorOverrides,
   ]);
 
   const today = new Date();
@@ -365,9 +385,9 @@ export function WeekSchedule({
   };
 
   const goPrev = () =>
-    setWeekStartDate(new Date(weekStart.getTime() - 7 * DAY_MS));
+    setWeekStartDate(new Date(weekStart.getTime() - viewDays * DAY_MS));
   const goNext = () =>
-    setWeekStartDate(new Date(weekStart.getTime() + 7 * DAY_MS));
+    setWeekStartDate(new Date(weekStart.getTime() + viewDays * DAY_MS));
   const goToday = () => setWeekStartDate(startOfDay(new Date()));
 
   const totalHours = gridEndHour - gridStartHour;
@@ -449,13 +469,29 @@ export function WeekSchedule({
     parseFloat(prefs.workingHoursEnd.split(":")[1] ?? "0") / 60;
   const workTopY = minToY(workStartH * 60);
   const workBottomY = minToY(workEndH * 60);
+  const dateIsoFor = (idx: number) =>
+    new Date(weekStart.getTime() + idx * DAY_MS).toISOString().slice(0, 10);
+  const holidaySet = new Set(prefs.holidayDates ?? []);
+  const isHolidayIdx = (idx: number) => holidaySet.has(dateIsoFor(idx));
   const isWorkingDayIdx = (idx: number) => {
     const dayDate = new Date(weekStart.getTime() + idx * DAY_MS);
+    if (isHolidayIdx(idx)) return false;
     return prefs.workingDays.includes(dayDate.getDay());
   };
   const isOfficeDayIdx = (idx: number) => {
     const dayDate = new Date(weekStart.getTime() + idx * DAY_MS);
+    if (isHolidayIdx(idx)) return false;
     return (prefs.officeDays ?? []).includes(dayDate.getDay());
+  };
+  const toggleHoliday = (idx: number) => {
+    if (!onUpdatePrefs) return;
+    const iso = dateIsoFor(idx);
+    const cur = prefs.holidayDates ?? [];
+    onUpdatePrefs({
+      holidayDates: cur.includes(iso)
+        ? cur.filter((d) => d !== iso)
+        : [...cur, iso],
+    });
   };
   const commuteMin = prefs.commuteMinutes ?? 0;
   const commuteBeforeTopY = minToY(workStartH * 60 - commuteMin);
@@ -465,7 +501,7 @@ export function WeekSchedule({
   // Current-time indicator (only on today's column)
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
   const showNowLine =
-    todayIdx >= 0 && todayIdx < 7 && nowMin >= gridStartHour * 60 && nowMin <= gridEndHour * 60;
+    todayIdx >= 0 && todayIdx < viewDays && nowMin >= gridStartHour * 60 && nowMin <= gridEndHour * 60;
 
   const allDayBlocks = blocks.filter((b) => b.allDay);
   const timedBlocks = blocks.filter((b) => !b.allDay);
@@ -510,6 +546,26 @@ export function WeekSchedule({
           </div>
         </div>
         <div className="flex items-center gap-2 text-xs">
+          {/* 1 / 3 / 7 day view selector. Persists choice via prefs. */}
+          <div className="inline-flex overflow-hidden rounded border border-slate-200">
+            {([1, 3, 7] as const).map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => {
+                  setViewDays(d);
+                  onUpdatePrefs?.({ homeViewDays: d });
+                }}
+                className={`px-2 py-1 ${
+                  viewDays === d
+                    ? "bg-slate-900 text-white"
+                    : "bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             className="rounded border border-slate-200 px-2 py-1 hover:border-slate-400"
@@ -522,7 +578,7 @@ export function WeekSchedule({
             className="rounded border border-slate-200 px-2 py-1 hover:border-slate-400"
             onClick={goToday}
           >
-            this week
+            today
           </button>
           <button
             type="button"
@@ -608,14 +664,15 @@ export function WeekSchedule({
       <div
         className="grid border-b border-slate-200 text-xs"
         style={{
-          gridTemplateColumns: `48px repeat(7, minmax(110px, 1fr))`,
+          gridTemplateColumns: `48px repeat(${viewDays}, minmax(110px, 1fr))`,
           minWidth: "820px",
         }}
       >
         <div />
-        {Array.from({ length: 7 }).map((_, idx) => {
+        {Array.from({ length: viewDays }).map((_, idx) => {
           const dayDate = new Date(weekStart.getTime() + idx * DAY_MS);
           const isToday = idx === todayIdx;
+          const isHoliday = isHolidayIdx(idx);
           const label = SHORT_DAYS[dayDate.getDay()];
           return (
             <div
@@ -624,12 +681,34 @@ export function WeekSchedule({
                 isToday ? "bg-emerald-50/50" : ""
               }`}
             >
-              <div className="font-semibold text-slate-700">{label}</div>
-              <div className="text-[10px] text-slate-500">
-                {dayDate.toLocaleDateString(undefined, {
-                  day: "numeric",
-                  month: "short",
-                })}
+              <div className="flex items-center justify-between gap-1">
+                <div>
+                  <div className="font-semibold text-slate-700">{label}</div>
+                  <div className="text-[10px] text-slate-500">
+                    {dayDate.toLocaleDateString(undefined, {
+                      day: "numeric",
+                      month: "short",
+                    })}
+                  </div>
+                </div>
+                {onUpdatePrefs && (
+                  <button
+                    type="button"
+                    onClick={() => toggleHoliday(idx)}
+                    className={`rounded-full border px-1.5 py-0.5 text-[9px] ${
+                      isHoliday
+                        ? "border-amber-400 bg-amber-100 text-amber-800"
+                        : "border-slate-200 text-slate-400 hover:border-amber-300 hover:text-amber-700"
+                    }`}
+                    title={
+                      isHoliday
+                        ? "Marked as a holiday — click to unmark"
+                        : "Mark as a holiday (skip working-hours shading)"
+                    }
+                  >
+                    {isHoliday ? "✕ holiday" : "+ holiday"}
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -641,12 +720,12 @@ export function WeekSchedule({
         <div
           className="grid border-b border-slate-200 text-[10px]"
           style={{
-            gridTemplateColumns: `48px repeat(7, minmax(110px, 1fr))`,
+            gridTemplateColumns: `48px repeat(${viewDays}, minmax(110px, 1fr))`,
             minWidth: "820px",
           }}
         >
           <div className="px-1 py-1 text-right text-slate-400">all-day</div>
-          {Array.from({ length: 7 }).map((_, idx) => {
+          {Array.from({ length: viewDays }).map((_, idx) => {
             const dayBlocks = allDayBlocks.filter((b) => b.dayIdx === idx);
             return (
               <div
@@ -674,7 +753,7 @@ export function WeekSchedule({
       <div
         className="relative grid"
         style={{
-          gridTemplateColumns: `48px repeat(7, minmax(110px, 1fr))`,
+          gridTemplateColumns: `48px repeat(${viewDays}, minmax(110px, 1fr))`,
           minWidth: "820px",
           height: `${gridHeight}px`,
         }}
@@ -696,7 +775,7 @@ export function WeekSchedule({
         </div>
 
         {/* Day columns */}
-        {Array.from({ length: 7 }).map((_, dayIdx) => {
+        {Array.from({ length: viewDays }).map((_, dayIdx) => {
           const isToday = dayIdx === todayIdx;
           const rawDayBlocks = timedBlocks.filter((b) => b.dayIdx === dayIdx);
           // Side-by-side layout for overlapping blocks (Google Calendar style):
@@ -717,19 +796,31 @@ export function WeekSchedule({
               }}
               onDrop={handleColumnDrop(dayIdx)}
             >
-              {/* Working-hours tint — bolder so it's visible */}
+              {/* Working-hours zone — diagonal grey stripes (matches the
+                  commute treatment) so it reads as background context, not
+                  a solid block. Suppressed on holidays. */}
               {isWorkingDayIdx(dayIdx) &&
                 workTopY < gridHeight &&
                 workBottomY > 0 && (
                   <div
-                    className="absolute left-0 right-0 bg-slate-200"
+                    className="absolute left-0 right-0"
                     style={{
                       top: `${Math.max(0, workTopY)}px`,
                       height: `${Math.max(0, Math.min(gridHeight, workBottomY) - Math.max(0, workTopY))}px`,
+                      backgroundImage:
+                        "repeating-linear-gradient(45deg, transparent 0 6px, rgba(100,116,139,0.18) 6px 8px)",
                     }}
                     title="Working hours"
                   />
                 )}
+              {isHolidayIdx(dayIdx) && (
+                <div
+                  className="pointer-events-none absolute left-1 top-1 z-30 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-800"
+                  title="Holiday — working-hours shading is off for this day"
+                >
+                  holiday
+                </div>
+              )}
               {/* Commute zones on office days — striped amber so it's distinct */}
               {isOfficeDayIdx(dayIdx) && commuteMin > 0 && (
                 <>
@@ -956,6 +1047,26 @@ export function WeekSchedule({
                             title="Create a Focus3 block at this time so it counts as busy and shows on the planner"
                           >
                             📌 block my time
+                          </button>
+                        )}
+                        {/* Local ignore — hides this event from the Focus3
+                            schedule only. The Google event is unchanged.
+                            Undo from Settings → Ignored events. */}
+                        {b.event.id && onUpdatePrefs && (
+                          <button
+                            type="button"
+                            className="hover:underline"
+                            onClick={() => {
+                              const id = b.event!.id!;
+                              const cur = prefs.ignoredEventIds ?? [];
+                              if (cur.includes(id)) return;
+                              onUpdatePrefs({
+                                ignoredEventIds: [...cur, id],
+                              });
+                            }}
+                            title="Hide this single event from Focus3. Undo from Settings → Ignored events."
+                          >
+                            🚫 ignore
                           </button>
                         )}
                         <button
