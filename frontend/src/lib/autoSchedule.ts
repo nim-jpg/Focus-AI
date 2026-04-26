@@ -47,12 +47,33 @@ function overlaps(start: number, end: number, busy: BusyBlock[]): boolean {
 }
 
 /**
- * Suggest N session start times for the given week, avoiding clashes with
- * existing busy blocks (other tasks' scheduledFor / sessionTimes / Google
- * events), avoiding default work hours, and biased to weekend mornings +
- * weekday evenings.
+ * Pre-computed even-spread day patterns indexed by N. Each value is a list of
+ * day offsets from week start (0=Mon..6=Sun). Patterns chosen for:
+ *   - max gap between consecutive days (no back-to-back when avoidable)
+ *   - at least one weekend day for sanity
+ */
+const SPREAD_PATTERNS: Record<number, number[]> = {
+  1: [5],                    // Sat
+  2: [2, 5],                 // Wed, Sat
+  3: [1, 3, 5],              // Tue, Thu, Sat
+  4: [0, 2, 4, 6],           // Mon, Wed, Fri, Sun
+  5: [0, 2, 3, 5, 6],        // Mon, Wed, Thu, Sat, Sun
+  6: [0, 1, 3, 4, 5, 6],     // Mon, Tue, Thu, Fri, Sat, Sun
+  7: [0, 1, 2, 3, 4, 5, 6],
+};
+
+const MIN_GAP_HOURS = 16; // hard floor between consecutive sessions
+
+/**
+ * Suggest N session start times for the given week.
  *
- * Spreads across distinct days first (one session per day) before doubling up.
+ * Strategy:
+ *  1. Pick N days using SPREAD_PATTERNS so sessions are spread out (no
+ *     back-to-back days when avoidable).
+ *  2. For each day, try its preferred slots (weekend mornings, weekday evenings).
+ *  3. If a day has no free slot, fall back to neighbouring days.
+ *  4. Reject any candidate that lands within MIN_GAP_HOURS of an already-
+ *     placed session, or clashes with existing busy blocks.
  */
 export function suggestSessionTimes(
   count: number,
@@ -61,53 +82,94 @@ export function suggestSessionTimes(
   busy: BusyBlock[],
 ): Date[] {
   if (count <= 0) return [];
+  const n = Math.min(count, 7);
 
   const placed: Date[] = [];
   const localBusy = [...busy];
 
-  // Score days: weekend > evening-weekday > anything else
-  const dayOrder: number[] = [];
-  // First pass: weekends, then weekdays
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(weekStart.getTime() + i * DAY_MS);
-    const dow = d.getDay();
-    if (dow === 0 || dow === 6) dayOrder.unshift(i);
-    else dayOrder.push(i);
-  }
-
-  const tryDay = (dayOffset: number): Date | null => {
+  const tryDayWithSlot = (dayOffset: number): Date | null => {
     const date = new Date(weekStart.getTime() + dayOffset * DAY_MS);
     const dow = date.getDay();
     const slots = preferredSlotsFor(dow);
     for (const slot of slots) {
       const candidate = new Date(date);
       candidate.setHours(slot.hour, slot.minute, 0, 0);
-      // Don't propose past times
       if (candidate.getTime() < Date.now()) continue;
       if (isWorkHours(candidate)) continue;
       const start = candidate.getTime();
       const end = start + durationMinutes * 60 * 1000;
       if (overlaps(start, end, localBusy)) continue;
-      // Block this slot to avoid double-booking with later sessions
+      // Enforce minimum rest gap from any already-placed session
+      const tooClose = placed.some(
+        (p) => Math.abs(p.getTime() - start) < MIN_GAP_HOURS * 60 * 60 * 1000,
+      );
+      if (tooClose) continue;
       localBusy.push({ start, end });
       return candidate;
     }
     return null;
   };
 
-  // Pass 1: one session per distinct day, in priority order
-  for (const dayIdx of dayOrder) {
-    if (placed.length >= count) break;
-    const slot = tryDay(dayIdx);
-    if (slot) placed.push(slot);
+  // Build the day search order: ideal pattern first, then nearby neighbours
+  // for anything that can't be placed on its ideal day.
+  const ideal = SPREAD_PATTERNS[n] ?? [];
+  const remaining = ideal.slice();
+
+  // Pass 1: place each ideal day in order
+  for (const day of ideal) {
+    if (placed.length >= n) break;
+    const slot = tryDayWithSlot(day);
+    if (slot) {
+      placed.push(slot);
+      const idx = remaining.indexOf(day);
+      if (idx >= 0) remaining.splice(idx, 1);
+    }
   }
 
-  // Pass 2: if still under count, allow second slot per day (any remaining slot)
-  if (placed.length < count) {
-    for (const dayIdx of dayOrder) {
-      if (placed.length >= count) break;
-      const slot = tryDay(dayIdx);
-      if (slot) placed.push(slot);
+  // Pass 2: for each missing slot, try every other day in the week, picking
+  // the one that maximises the minimum gap to already-placed sessions.
+  const allDays = [0, 1, 2, 3, 4, 5, 6];
+  while (placed.length < n) {
+    let bestDay = -1;
+    let bestGap = -1;
+    for (const day of allDays) {
+      // Skip days whose date is already used by a placed session.
+      const dayDate = new Date(weekStart.getTime() + day * DAY_MS);
+      const used = placed.some(
+        (p) => p.toDateString() === dayDate.toDateString(),
+      );
+      if (used) continue;
+      // Compute the min gap (in days) this day would have to placed days.
+      const minDayGap = placed.length === 0
+        ? Infinity
+        : Math.min(
+            ...placed.map((p) => {
+              const pIdx = Math.floor((p.getTime() - weekStart.getTime()) / DAY_MS);
+              return Math.abs(pIdx - day);
+            }),
+          );
+      if (minDayGap > bestGap) {
+        bestGap = minDayGap;
+        bestDay = day;
+      }
+    }
+    if (bestDay < 0) break;
+    const slot = tryDayWithSlot(bestDay);
+    if (slot) placed.push(slot);
+    else {
+      // No slot available on the best day; remove it from consideration
+      // by adjusting allDays. Simple bail-out: try any remaining day greedily.
+      let fallbackPlaced = false;
+      for (const day of allDays) {
+        if (day === bestDay) continue;
+        const slot2 = tryDayWithSlot(day);
+        if (slot2) {
+          placed.push(slot2);
+          fallbackPlaced = true;
+          break;
+        }
+      }
+      if (!fallbackPlaced) break;
     }
   }
 
