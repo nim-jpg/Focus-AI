@@ -10,7 +10,8 @@ import { Goals } from "@/components/Goals";
 import { PriorityMatrix } from "@/components/PriorityMatrix";
 import { SuggestDates } from "@/components/SuggestDates";
 import { CompanyAssist } from "@/components/CompanyAssist";
-import { DaySchedule } from "@/components/DaySchedule";
+import { WeekSchedule } from "@/components/WeekSchedule";
+import { SchedulePicker, type ScheduleChoice } from "@/components/SchedulePicker";
 import { PlannerScan, type ResolvedUpdate } from "@/components/PlannerScan";
 import { useGoals } from "@/lib/useGoals";
 import { useTasks } from "@/lib/useTasks";
@@ -100,6 +101,10 @@ export default function App() {
     title: string;
     intendedIso: string;
   } | null>(null);
+  const [pickerForTaskId, setPickerForTaskId] = useState<string | null>(null);
+  const taskBeingScheduled = pickerForTaskId
+    ? tasks.find((t) => t.id === pickerForTaskId)
+    : undefined;
 
   const handleTopThreeComplete = (id: string) => {
     const task = tasks.find((t) => t.id === id);
@@ -134,33 +139,52 @@ export default function App() {
     }
   }, []);
 
-  const handleScheduleTask = async (taskId: string) => {
-    if (!googleStatus?.connected) {
-      if (!googleStatus?.configured) {
-        setCalendarMsg(
-          "Calendar isn't set up yet — see the README for the Google Cloud OAuth steps.",
-        );
-      } else {
-        setCalendarMsg("Connect Google Calendar first (header → Connect Calendar).");
-      }
+  const openSchedulePicker = (taskId: string) => {
+    setCalendarMsg(null);
+    setPickerForTaskId(taskId);
+  };
+
+  const confirmSchedule = async (choice: ScheduleChoice) => {
+    if (!taskBeingScheduled) {
+      setPickerForTaskId(null);
       return;
     }
-    const task = tasks.find((t) => t.id === taskId);
-    if (!task) return;
-    setCalendarMsg(null);
+    const task = taskBeingScheduled;
+    setPickerForTaskId(null);
+
+    if (choice.destination === "local") {
+      updateTask(task.id, { scheduledFor: choice.start.toISOString() });
+      setCalendarMsg(
+        `"${task.title}" scheduled locally for ${choice.start.toLocaleString()}.`,
+      );
+      return;
+    }
+
+    if (!googleStatus?.connected) {
+      setCalendarMsg(
+        googleStatus?.configured
+          ? "Connect Google Calendar first (header → Connect Calendar)."
+          : "Calendar isn't set up yet — see the README for Google Cloud OAuth steps.",
+      );
+      return;
+    }
     try {
-      const { htmlLink } = await scheduleTask(task);
-      updateTask(taskId, { calendarEventId: "set" });
+      const { htmlLink } = await scheduleTask(task, choice.start, choice.end);
+      // Mirror the chosen time locally too so the week view shows it without a refetch.
+      updateTask(task.id, {
+        calendarEventId: "set",
+        scheduledFor: choice.start.toISOString(),
+      });
       setCalendarMsg(
         htmlLink
-          ? `Scheduled "${task.title}" — opening Calendar`
-          : `Scheduled "${task.title}".`,
+          ? `Pushed "${task.title}" to Google — opening Calendar`
+          : `Pushed "${task.title}" to Google Calendar.`,
       );
       if (htmlLink) window.open(htmlLink, "_blank", "noopener,noreferrer");
     } catch (err) {
       const reason =
         err instanceof CalendarError ? err.message : "unexpected error";
-      setCalendarMsg(`Couldn't schedule — ${reason}`);
+      setCalendarMsg(`Couldn't push to Google — ${reason}`);
     }
   };
   const applyScanUpdate = (u: ResolvedUpdate) => {
@@ -445,20 +469,17 @@ export default function App() {
             <TopThree
               prioritized={prioritized}
               onComplete={handleTopThreeComplete}
-              onSchedule={handleScheduleTask}
+              onSchedule={openSchedulePicker}
               onSnooze={(id, until) => updateTask(id, { snoozedUntil: until })}
               goals={goals}
               calendarConnected={googleStatus?.connected ?? false}
             />
           </section>
 
-          <DaySchedule
+          <WeekSchedule
             tasks={tasks}
             calendarConnected={googleStatus?.connected ?? false}
-            onPushToCalendar={handleScheduleTask}
-            onScheduleLocal={(id, isoTime) =>
-              updateTask(id, { scheduledFor: isoTime })
-            }
+            onScheduleClick={openSchedulePicker}
             onUnschedule={(id) => updateTask(id, { scheduledFor: undefined })}
           />
 
@@ -536,6 +557,15 @@ export default function App() {
       <footer className="pt-4 text-center text-xs text-slate-400">
         Local MVP · Calendar via Google · OCR via Tesseract · PDF planner
       </footer>
+
+      {taskBeingScheduled && (
+        <SchedulePicker
+          task={taskBeingScheduled}
+          calendarConnected={googleStatus?.connected ?? false}
+          onConfirm={confirmSchedule}
+          onCancel={() => setPickerForTaskId(null)}
+        />
+      )}
 
       {scheduleConfirm && (
         <div className="fixed bottom-4 right-4 z-50 max-w-sm rounded-lg border border-slate-200 bg-white p-4 shadow-lg">

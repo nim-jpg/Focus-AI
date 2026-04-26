@@ -60,12 +60,13 @@ export async function fetchEvents(from: Date, to: Date): Promise<CalendarEvent[]
 }
 
 /**
- * Schedule a task as a calendar event today. We block its estimated minutes
- * starting in 30 minutes from now (a sensible "next available slot" default).
+ * Push a task to Google Calendar at an explicit start/end time chosen by the user.
  */
-export async function scheduleTask(task: Task): Promise<{ eventId: string; htmlLink?: string }> {
-  const start = new Date(Date.now() + 30 * 60 * 1000);
-  const end = new Date(start.getTime() + (task.estimatedMinutes ?? 30) * 60 * 1000);
+export async function scheduleTask(
+  task: Task,
+  start: Date,
+  end: Date,
+): Promise<{ eventId: string; htmlLink?: string }> {
   const res = await fetch("/api/google/events", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

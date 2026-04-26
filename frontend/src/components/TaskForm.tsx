@@ -54,6 +54,7 @@ function fromTask(task: Task): NewTaskInput {
     timeOfDay: task.timeOfDay ?? "anytime",
     counter: task.counter,
     goalIds: task.goalIds ?? [],
+    treatAsFoundation: task.treatAsFoundation,
   };
 }
 
@@ -215,7 +216,11 @@ export function TaskForm({ onSubmit, initialTask, onCancel, goals = [] }: Props)
             onChange={(e) =>
               update(
                 "dueDate",
-                e.target.value ? new Date(e.target.value).toISOString() : undefined,
+                // Parse as local midnight so the saved ISO doesn't drift by
+                // one timezone offset (otherwise BST renders it as 01:00).
+                e.target.value
+                  ? new Date(`${e.target.value}T00:00:00`).toISOString()
+                  : undefined,
               )
             }
           />
@@ -305,6 +310,17 @@ export function TaskForm({ onSubmit, initialTask, onCancel, goals = [] }: Props)
               onChange={(e) => update("isBlocker", e.target.checked)}
             />
             Blocker
+          </label>
+          <label
+            className="inline-flex items-center gap-2"
+            title="Treat as a Foundation: shows in the Foundations rail and never crowds Top Three (use for routine personal habits like 'apply peptides')."
+          >
+            <input
+              type="checkbox"
+              checked={Boolean(form.treatAsFoundation)}
+              onChange={(e) => update("treatAsFoundation", e.target.checked)}
+            />
+            Foundation
           </label>
         </div>
         <div className="flex gap-2">

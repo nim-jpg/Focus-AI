@@ -83,6 +83,8 @@ export interface Task {
   snoozedUntil?: string;
   /** ISO timestamp this task is locally scheduled for (e.g. drag onto a time slot in the day overlay). Independent of Google Calendar. */
   scheduledFor?: string;
+  /** When true, this task is treated as a Foundation regardless of theme/recurrence. Keeps it out of Top Three. */
+  treatAsFoundation?: boolean;
   /** Optional Google Calendar event id once scheduled. */
   calendarEventId?: string;
 }

@@ -61,6 +61,7 @@ const FOUNDATION_THEMES = new Set(["medication", "fitness", "diet"]);
  * long-term goals.
  */
 export function isFoundation(task: Task): boolean {
+  if (task.treatAsFoundation) return true;
   return task.recurrence === "daily" && FOUNDATION_THEMES.has(task.theme);
 }
 
@@ -76,12 +77,19 @@ export function counterCountToday(task: Task, now: Date = new Date()): number {
   return task.counter.date === todayStr ? task.counter.count : 0;
 }
 
-/** End-of-slot hour (24h). evening + anytime never go overdue same day. */
+/**
+ * End-of-slot hour (24h). Aligned with normal-day expectations:
+ *  - morning ≈ 7-11am (overdue at 11)
+ *  - midday ≈ 11am-2pm (overdue at 14)
+ *  - afternoon ≈ 2-6pm (overdue at 18)
+ *  - evening ≈ 6-10pm (overdue at 22)
+ *  - anytime never goes overdue same day.
+ */
 const SLOT_END_HOUR: Record<TimeOfDay, number> = {
-  morning: 12,
+  morning: 11,
   midday: 14,
   afternoon: 18,
-  evening: 24,
+  evening: 22,
   anytime: 24,
 };
 
