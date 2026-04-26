@@ -455,13 +455,39 @@ export function WeekSchedule({
         ...(prefs.privateCalendarIds ?? []),
       ],
     );
-    const result = suggestSessionTimesDetailed(
+    let result = suggestSessionTimesDetailed(
       need,
       task.estimatedMinutes ?? 60,
       rollStart,
       busy,
       prefs,
     );
+    // Fallback: if EVERY non-past attempt was rejected as outside-waking,
+    // the user's day-shape window is too narrow. Try a wide-open day
+    // (06:00–23:00) so the user gets *some* placements rather than none,
+    // and explain in the message that the window was widened.
+    let widenedFallback = false;
+    if (
+      result.slots.length === 0 &&
+      result.attempts.length > 0 &&
+      result.attempts.every(
+        (a) => a.reason === "outside-waking" || a.reason === "past",
+      )
+    ) {
+      const widePrefs = {
+        ...prefs,
+        wakeUpTime: "05:30",
+        bedTime: "23:30",
+      };
+      result = suggestSessionTimesDetailed(
+        need,
+        task.estimatedMinutes ?? 60,
+        rollStart,
+        busy,
+        widePrefs,
+      );
+      widenedFallback = result.slots.length > 0;
+    }
     const slots = result.slots;
     if (slots.length === 0) {
       // Build a useful diagnostic from the per-slot attempts.
@@ -478,7 +504,7 @@ export function WeekSchedule({
         parts.push(`${reasonCounts["work-hours"]} during your working hours`);
       if (reasonCounts["outside-waking"])
         parts.push(
-          `${reasonCounts["outside-waking"]} outside your wake-up / bedtime range`,
+          `${reasonCounts["outside-waking"]} outside your day window (${result.windowStart}–${result.windowEnd})`,
         );
       if (reasonCounts["busy"])
         parts.push(`${reasonCounts["busy"]} clash with calendar/tasks`);
@@ -493,8 +519,11 @@ export function WeekSchedule({
         conflictTitles.size > 0
           ? ` Conflicts include: ${[...conflictTitles].slice(0, 3).join(", ")}.`
           : "";
+      const advice = reasonCounts["outside-waking"]
+        ? " Widen Wake up / Bedtime in Settings → Day shape to open more slots."
+        : " Adjust working hours, mark calendars as Shadow/Exclude, or schedule manually.";
       onMessage?.(
-        `Auto-schedule for "${task.title}" found no free slots in the next 7 days.${suffix}${conflictList} Adjust working hours, mark calendars as Shadow/Exclude, or schedule manually.`,
+        `Auto-schedule for "${task.title}" found no free slots in the next 7 days.${suffix}${conflictList}${advice}`,
       );
       return;
     }
@@ -504,20 +533,26 @@ export function WeekSchedule({
         ...slots.map((d) => d.toISOString()),
       ];
       onSetSessionTimes(taskId, next);
+      const widenedNote = widenedFallback
+        ? " (widened your day window to find slots — adjust Settings → Day shape if you want narrower hours.)"
+        : "";
       if (slots.length < need) {
         onMessage?.(
-          `Auto-schedule placed ${slots.length} of ${need} sessions for "${task.title}". Run again later or schedule the rest manually.`,
+          `Auto-schedule placed ${slots.length} of ${need} sessions for "${task.title}".${widenedNote} Run again later or schedule the rest manually.`,
         );
       } else {
         onMessage?.(
-          `Auto-schedule placed ${slots.length} session${slots.length === 1 ? "" : "s"} for "${task.title}".`,
+          `Auto-schedule placed ${slots.length} session${slots.length === 1 ? "" : "s"} for "${task.title}".${widenedNote}`,
         );
       }
     } else {
       // Single weekly+ task — set scheduledFor instead of using the sessions array.
       onMoveTask(taskId, slots[0]!.toISOString());
+      const widenedNote = widenedFallback
+        ? " (widened your day window to find a slot.)"
+        : "";
       onMessage?.(
-        `Scheduled "${task.title}" for ${slots[0]!.toLocaleString()}.`,
+        `Scheduled "${task.title}" for ${slots[0]!.toLocaleString()}.${widenedNote}`,
       );
     }
   };
@@ -878,10 +913,14 @@ export function WeekSchedule({
       <div
         className="grid border-b border-slate-200 text-xs"
         style={{
-          gridTemplateColumns: viewMode === "stacked" ? `repeat(${viewDays}, minmax(160px, 1fr))` : `48px repeat(${viewDays}, minmax(110px, 1fr))`,
+          // Same template in both modes so day columns line up identically
+          // when toggling between All / Focus / Stacked.
+          gridTemplateColumns: `48px repeat(${viewDays}, minmax(110px, 1fr))`,
           minWidth: "820px",
         }}
       >
+        {/* Empty placeholder for the hour gutter — kept in both modes so
+            day columns line up across views. */}
         <div />
         {Array.from({ length: viewDays }).map((_, idx) => {
           const dayDate = new Date(weekStart.getTime() + idx * DAY_MS);
@@ -934,7 +973,9 @@ export function WeekSchedule({
         <div
           className="grid border-b border-slate-200 text-[10px]"
           style={{
-            gridTemplateColumns: viewMode === "stacked" ? `repeat(${viewDays}, minmax(160px, 1fr))` : `48px repeat(${viewDays}, minmax(110px, 1fr))`,
+            // Same template in both modes so day columns line up identically
+          // when toggling between All / Focus / Stacked.
+          gridTemplateColumns: `48px repeat(${viewDays}, minmax(110px, 1fr))`,
             minWidth: "820px",
           }}
         >
@@ -967,15 +1008,20 @@ export function WeekSchedule({
       <div
         className="relative grid"
         style={{
-          gridTemplateColumns: viewMode === "stacked" ? `repeat(${viewDays}, minmax(160px, 1fr))` : `48px repeat(${viewDays}, minmax(110px, 1fr))`,
+          // Same template in both modes so day columns line up identically
+          // when toggling between All / Focus / Stacked.
+          gridTemplateColumns: `48px repeat(${viewDays}, minmax(110px, 1fr))`,
           minWidth: "820px",
           ...(viewMode === "stacked"
             ? { minHeight: "120px" }
             : { height: `${gridHeight}px` }),
         }}
       >
-        {/* Hour labels column — only in grid mode. */}
-        {viewMode !== "stacked" && (
+        {/* Hour labels column — empty placeholder in stacked mode so the
+            day columns line up with the All / Focus views. */}
+        {viewMode === "stacked" ? (
+          <div />
+        ) : (
           <div className="relative">
             {Array.from({ length: totalHours }).map((_, i) => {
               const hour = gridStartHour + i;
