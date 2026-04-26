@@ -310,6 +310,9 @@ googleRouter.get("/events", async (req, res) => {
     const events = perCalendar.flatMap(({ calendar: c, items }) =>
       items.map((ev) => ({
         id: ev.id,
+        // Recurring-series id (Google's `recurringEventId`). Same value for
+        // every instance of a series — used by Focus3 to mute a whole series.
+        recurringEventId: ev.recurringEventId ?? null,
         summary: ev.summary ?? "(no title)",
         start: ev.start?.dateTime ?? ev.start?.date ?? null,
         end: ev.end?.dateTime ?? ev.end?.date ?? null,

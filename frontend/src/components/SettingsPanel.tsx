@@ -547,21 +547,27 @@ export function SettingsPanel({
             </section>
           )}
 
-          {/* Ignored events — local mute list. Each entry is the Google
-              event ID; we don't fetch metadata (titles change, events get
-              re-instanced) so we just show counts and let the user clear. */}
-          {(prefs.ignoredEventIds?.length ?? 0) > 0 && (
+          {/* Ignored events / series — count + emergency wipe. Day-to-day
+              undo lives on the schedule itself: toggle "Show ignored" to
+              see muted events in-place with an unignore action. */}
+          {((prefs.ignoredEventIds?.length ?? 0) > 0 ||
+            (prefs.ignoredSeriesIds?.length ?? 0) > 0) && (
             <section>
               <h4 className="text-sm font-semibold text-slate-700">
                 Ignored events
               </h4>
               <p className="text-xs text-slate-500">
-                Events you've muted from the Focus3 schedule. They still
-                exist in Google Calendar — this is a local hide.
+                Events / series you've muted from Focus3 (Google Calendar
+                unchanged). To undo individually, open the schedule and
+                click <span className="font-medium">Show ignored</span> in
+                the top-right — muted events appear faded with an unignore
+                button. Or wipe everything here.
               </p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className="text-xs text-slate-700">
-                  {prefs.ignoredEventIds!.length} ignored
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-slate-700">
+                  {prefs.ignoredEventIds?.length ?? 0} event
+                  {(prefs.ignoredEventIds?.length ?? 0) === 1 ? "" : "s"} ·{" "}
+                  {prefs.ignoredSeriesIds?.length ?? 0} series
                 </span>
                 <button
                   type="button"
@@ -569,10 +575,13 @@ export function SettingsPanel({
                   onClick={() => {
                     if (
                       confirm(
-                        "Show all ignored events on the schedule again?",
+                        "Restore every ignored event and series to the schedule?",
                       )
                     ) {
-                      onChange({ ignoredEventIds: [] });
+                      onChange({
+                        ignoredEventIds: [],
+                        ignoredSeriesIds: [],
+                      });
                     }
                   }}
                 >

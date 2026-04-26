@@ -44,6 +44,8 @@ export interface CalendarEvent {
   end: string | null;
   allDay: boolean;
   htmlLink: string | null;
+  /** Recurring-series id; same value across every instance of a series. */
+  recurringEventId?: string | null;
   /** Source calendar provenance — set when the backend returns multi-calendar data. */
   calendarId?: string | null;
   calendarName?: string | null;
