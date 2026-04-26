@@ -421,18 +421,50 @@ export function SettingsPanel({
                                 mode === "exclude" ? "opacity-60" : ""
                               }`}
                             >
-                              {c.color && (
-                                <span
-                                  className="inline-block h-3 w-3 rounded-sm"
-                                  style={{ backgroundColor: c.color }}
-                                />
-                              )}
+                              {/* Colour swatch doubles as a native colour
+                                  picker — local override per calendar. */}
+                              <input
+                                type="color"
+                                aria-label={`Override colour for ${c.name}`}
+                                value={
+                                  (prefs.calendarColorOverrides ?? {})[c.id] ??
+                                  c.color ??
+                                  "#94a3b8"
+                                }
+                                onChange={(e) => {
+                                  const next = {
+                                    ...(prefs.calendarColorOverrides ?? {}),
+                                  };
+                                  next[c.id] = e.target.value;
+                                  onChange({ calendarColorOverrides: next });
+                                }}
+                                className="h-4 w-4 cursor-pointer rounded-sm border-0 p-0"
+                                title="Click to override this calendar's colour locally"
+                              />
                               <span className="flex-1 truncate">
                                 {c.name}
                                 {c.primary && (
                                   <span className="ml-1 text-slate-400">
                                     (primary)
                                   </span>
+                                )}
+                                {(prefs.calendarColorOverrides ?? {})[c.id] && (
+                                  <button
+                                    type="button"
+                                    className="ml-1 text-[10px] text-slate-400 hover:text-slate-700"
+                                    onClick={() => {
+                                      const next = {
+                                        ...(prefs.calendarColorOverrides ?? {}),
+                                      };
+                                      delete next[c.id];
+                                      onChange({
+                                        calendarColorOverrides: next,
+                                      });
+                                    }}
+                                    title="Reset to Google's colour"
+                                  >
+                                    reset
+                                  </button>
                                 )}
                               </span>
                               <div className="flex gap-1">
@@ -512,6 +544,85 @@ export function SettingsPanel({
               {connectMsg && (
                 <p className="mt-2 text-xs text-amber-700">{connectMsg}</p>
               )}
+            </section>
+          )}
+
+          {/* Ignored events — local mute list. Each entry is the Google
+              event ID; we don't fetch metadata (titles change, events get
+              re-instanced) so we just show counts and let the user clear. */}
+          {(prefs.ignoredEventIds?.length ?? 0) > 0 && (
+            <section>
+              <h4 className="text-sm font-semibold text-slate-700">
+                Ignored events
+              </h4>
+              <p className="text-xs text-slate-500">
+                Events you've muted from the Focus3 schedule. They still
+                exist in Google Calendar — this is a local hide.
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-slate-700">
+                  {prefs.ignoredEventIds!.length} ignored
+                </span>
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  onClick={() => {
+                    if (
+                      confirm(
+                        "Show all ignored events on the schedule again?",
+                      )
+                    ) {
+                      onChange({ ignoredEventIds: [] });
+                    }
+                  }}
+                >
+                  Clear all
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* Holidays — dates the user has marked off. Working-hours
+              shading is suppressed for these days. */}
+          {(prefs.holidayDates?.length ?? 0) > 0 && (
+            <section>
+              <h4 className="text-sm font-semibold text-slate-700">
+                Holidays
+              </h4>
+              <p className="text-xs text-slate-500">
+                Days you've marked as holiday from the schedule. Working
+                hours and commute shading are off for these dates.
+              </p>
+              <ul className="mt-2 flex flex-wrap gap-1.5">
+                {[...(prefs.holidayDates ?? [])].sort().map((iso) => (
+                  <li key={iso}>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800">
+                      {new Date(`${iso}T00:00:00`).toLocaleDateString(
+                        undefined,
+                        {
+                          day: "numeric",
+                          month: "short",
+                          year: "2-digit",
+                        },
+                      )}
+                      <button
+                        type="button"
+                        className="text-amber-600 hover:text-red-700"
+                        onClick={() => {
+                          onChange({
+                            holidayDates: (prefs.holidayDates ?? []).filter(
+                              (d) => d !== iso,
+                            ),
+                          });
+                        }}
+                        aria-label={`Remove holiday ${iso}`}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </section>
           )}
 

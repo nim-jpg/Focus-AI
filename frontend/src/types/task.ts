@@ -171,6 +171,18 @@ export interface UserPrefs {
   /** Single-leg commute time in minutes. Applied before AND after the working
    *  day on office days, both for visualisation and auto-schedule. */
   commuteMinutes: number;
+  /** Local colour overrides per Google Calendar id (hex `#rrggbb`). When
+   *  present, beats Google's own backgroundColor in the schedule view. */
+  calendarColorOverrides?: Record<string, string>;
+  /** Specific Google event ids the user has chosen to hide from the Focus3
+   *  schedule. The event still exists in Google; this is a local mute. */
+  ignoredEventIds?: string[];
+  /** Default home-page schedule range: 1, 3, or 7 days. */
+  homeViewDays?: 1 | 3 | 7;
+  /** Specific dates the user has marked as holidays — working-hours
+   *  shading is suppressed and the day is treated as non-working. ISO
+   *  date strings ("YYYY-MM-DD"). */
+  holidayDates?: string[];
 }
 
 export const DEFAULT_PREFS: UserPrefs = {
@@ -186,4 +198,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   excludedCalendarIds: [],
   officeDays: [],
   commuteMinutes: 0,
+  calendarColorOverrides: {},
+  ignoredEventIds: [],
+  homeViewDays: 7,
 };

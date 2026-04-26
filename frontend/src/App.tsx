@@ -705,6 +705,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
                 `"${ev.summary || "Calendar block"}" added to your schedule. It won't sync to Google.`,
               );
             }}
+            onUpdatePrefs={setPrefs}
           />
 
           <TomorrowPreview
