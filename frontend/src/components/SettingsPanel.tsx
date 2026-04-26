@@ -9,6 +9,12 @@ interface Props {
   /** Optional backup hooks; when omitted the section is hidden. */
   onExport?: () => void;
   onImport?: (file: File) => Promise<void>;
+  /** Calendar status + disconnect action. When undefined the section is hidden. */
+  calendar?: {
+    connected: boolean;
+    email?: string | null;
+    onDisconnect: () => Promise<void> | void;
+  };
 }
 
 const DAY_LABELS: Array<{ idx: number; label: string }> = [
@@ -27,6 +33,7 @@ export function SettingsPanel({
   onClose,
   onExport,
   onImport,
+  calendar,
 }: Props) {
   const [permState, setPermState] = useState<NotificationPermission | null>(
     typeof Notification !== "undefined" ? Notification.permission : null,
@@ -219,6 +226,37 @@ export function SettingsPanel({
               </div>
             )}
           </section>
+
+          {/* Calendar */}
+          {calendar && (
+            <section>
+              <h4 className="text-sm font-semibold text-slate-700">
+                Google Calendar
+              </h4>
+              <p className="text-xs text-slate-500">
+                {calendar.connected
+                  ? `Connected as ${calendar.email ?? "(unknown)"}.`
+                  : "Not connected."}
+              </p>
+              {calendar.connected && (
+                <button
+                  type="button"
+                  className="mt-2 text-xs text-red-600 hover:text-red-800"
+                  onClick={() => {
+                    if (
+                      confirm(
+                        "Disconnect Google Calendar? Your tasks stay; we'll forget your Google tokens.",
+                      )
+                    ) {
+                      void calendar.onDisconnect();
+                    }
+                  }}
+                >
+                  Disconnect Calendar
+                </button>
+              )}
+            </section>
+          )}
 
           {/* Backup / restore */}
           {(onExport || onImport) && (

@@ -340,14 +340,33 @@ export function WeekSchedule({
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold text-slate-700">Week schedule</h2>
-          <p className="text-xs text-slate-500">
-            {calendarConnected
-              ? "Hour-positioned grid: Google events (blue), scheduled tasks (green), sessions (violet)."
-              : "Connect Calendar (header) to overlay your real events."}
-            {error && (
-              <span className="ml-2 text-amber-700">· error: {error}</span>
+          <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+            {!calendarConnected && (
+              <span>Connect Calendar (Settings) to overlay your real events.</span>
             )}
-          </p>
+            {error && <span className="text-amber-700">error: {error}</span>}
+            {/* Legend chips */}
+            <span className="inline-flex items-center gap-1">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-blue-200" />
+              event
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-200" />
+              task
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-200" />
+              session
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-slate-200" />
+              working hours
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="inline-block h-0.5 w-3 bg-rose-400" />
+              now
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-2 text-xs">
           <button
@@ -553,12 +572,12 @@ export function WeekSchedule({
               }}
               onDrop={handleColumnDrop(dayIdx)}
             >
-              {/* Working-hours tint */}
+              {/* Working-hours tint — bolder so it's visible */}
               {isWorkingDayIdx(dayIdx) &&
                 workTopY < gridHeight &&
                 workBottomY > 0 && (
                   <div
-                    className="absolute left-0 right-0 bg-slate-100/60"
+                    className="absolute left-0 right-0 bg-slate-200"
                     style={{
                       top: `${Math.max(0, workTopY)}px`,
                       height: `${Math.max(0, Math.min(gridHeight, workBottomY) - Math.max(0, workTopY))}px`,
@@ -599,12 +618,19 @@ export function WeekSchedule({
                   16,
                   minToY(b.endMin) - minToY(b.startMin),
                 );
+                // Use the source-calendar colour for events when available;
+                // tasks/sessions keep their semantic colours.
+                const eventBg = b.event?.calendarColor ?? "#dbeafe"; // blue-100 default
                 const colour =
                   b.kind === "event"
-                    ? "border-blue-300 bg-blue-100/90 text-blue-900"
+                    ? "border text-slate-900"
                     : b.kind === "session"
                     ? "border-violet-300 bg-violet-100/90 text-violet-900"
                     : "border-emerald-300 bg-emerald-100/90 text-emerald-900";
+                const inlineBg =
+                  b.kind === "event"
+                    ? { backgroundColor: eventBg, borderColor: eventBg }
+                    : undefined;
                 const title =
                   b.event?.summary ??
                   (b.task?.title
@@ -634,9 +660,15 @@ export function WeekSchedule({
                     className={`absolute left-0.5 right-0.5 z-10 overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight ${colour} ${
                       draggable ? "cursor-move" : ""
                     }`}
-                    style={{ top: `${top}px`, height: `${height}px` }}
+                    style={{
+                      top: `${top}px`,
+                      height: `${height}px`,
+                      ...(inlineBg ?? {}),
+                    }}
                     title={
-                      draggable
+                      b.event?.calendarName
+                        ? `${title} · ${b.event.calendarName}`
+                        : draggable
                         ? `${title} — drag to a new time`
                         : title
                     }
@@ -691,6 +723,11 @@ export function WeekSchedule({
                             re-time
                           </button>
                         )}
+                      </div>
+                    )}
+                    {b.event && b.event.calendarName && height >= 28 && (
+                      <div className="mt-0.5 truncate text-[9px] opacity-80">
+                        {b.event.calendarName}
                       </div>
                     )}
                     {b.event && height >= 28 && (

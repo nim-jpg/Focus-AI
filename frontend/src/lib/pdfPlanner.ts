@@ -120,6 +120,91 @@ function pickStretchTasks(
   return candidates.slice(0, count);
 }
 
+/**
+ * Fluids tracker — a 7-day grid for tallying everything you drink, not just
+ * water. Tick a box per cup; capacity per row chosen to reflect typical daily
+ * intake. Goes in the bottom-left of the planner.
+ */
+function drawFluidsTracker(
+  doc: import("jspdf").jsPDF,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): void {
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("Fluids tracker", x, y - 4);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  doc.setTextColor(140);
+  doc.text("tick a box per cup / glass — aim for variety", x + 92, y - 4);
+  doc.setTextColor(0);
+
+  doc.setDrawColor(210);
+  doc.setLineWidth(0.5);
+  doc.rect(x, y, w, h);
+
+  const rows: Array<{ label: string; capacity: number; tint: [number, number, number] }> = [
+    { label: "WATER",  capacity: 8, tint: [219, 234, 254] },
+    { label: "TEA",    capacity: 5, tint: [254, 226, 226] },
+    { label: "COFFEE", capacity: 4, tint: [231, 207, 184] },
+    { label: "OTHER",  capacity: 5, tint: [233, 213, 255] },
+  ];
+
+  const labelW = 40;
+  const totalsW = 26;
+  const dayColW = (w - labelW - totalsW - 8) / 7;
+  const headerY = y + 12;
+
+  // Day headers
+  doc.setFontSize(7);
+  doc.setTextColor(120);
+  ["M", "T", "W", "T", "F", "S", "S"].forEach((d, i) => {
+    doc.text(d, x + labelW + i * dayColW + dayColW / 2 - 2, headerY);
+  });
+  doc.text("/day", x + w - totalsW + 4, headerY);
+  doc.setTextColor(0);
+
+  const gridTop = headerY + 4;
+  const rowH = (h - 16) / rows.length;
+
+  rows.forEach((row, rIdx) => {
+    const rowY = gridTop + rIdx * rowH;
+    // Subtle row tint matching the drink colour
+    doc.setFillColor(row.tint[0], row.tint[1], row.tint[2]);
+    doc.rect(x + labelW - 2, rowY, w - labelW + 2, rowH - 1, "F");
+
+    // Label
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(80);
+    doc.text(row.label, x + 4, rowY + rowH / 2 + 2);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(0);
+
+    // Per-day boxes — tightly packed to fit the day column width
+    const cap = row.capacity;
+    const boxSize = Math.max(3.5, Math.min(5.5, (dayColW - 6) / cap - 0.5));
+    for (let d = 0; d < 7; d++) {
+      const colX = x + labelW + d * dayColW + 2;
+      for (let n = 0; n < cap; n++) {
+        const bx = colX + n * (boxSize + 0.6);
+        const by = rowY + (rowH - boxSize) / 2;
+        doc.setDrawColor(110);
+        doc.setLineWidth(0.4);
+        doc.rect(bx, by, boxSize, boxSize);
+      }
+    }
+
+    // /day capacity hint on the right
+    doc.setFontSize(6.5);
+    doc.setTextColor(120);
+    doc.text(`/${cap}`, x + w - totalsW + 6, rowY + rowH / 2 + 2);
+    doc.setTextColor(0);
+  });
+}
+
 /** Single-page A4 landscape weekly planner. */
 export async function exportWeeklyPlanner(
   tasks: Task[],
@@ -152,61 +237,31 @@ export async function exportWeeklyPlanner(
   };
 
   // ── Code stamp ───────────────────────────────────────────────────────────
-  // Each task gets a small QR (machine-readable) + a Spotify-style wave bar
-  // (visual brand) + the shortId text (OCR fallback). Right-aligned in lists.
-  const QR_SIZE = 14;
+  // Each task gets a Spotify-style wave bar (visual brand) + the shortId text
+  // underneath (OCR-readable for scan-back). Right-aligned in lists.
   const WAVE_W = 70;
   const WAVE_H = 12;
   const WAVE_BARS = 20;
-  const GAP = 4;
-  // Combined bounding box: QR | gap | wave
-  const CODE_W = QR_SIZE + GAP + WAVE_W;
+  const CODE_W = WAVE_W;
 
-  // Generate a small QR for the task id encoded as `focus3:<id>`. Cached so
-  // we don't regenerate the same image when a task appears in multiple lists.
-  const qrCache = new Map<string, string>();
-  const qrFor = async (taskId: string): Promise<string | null> => {
-    if (qrCache.has(taskId)) return qrCache.get(taskId)!;
-    try {
-      const QR = await import("qrcode");
-      const dataUri = await QR.toDataURL(`focus3:${taskId}`, {
-        margin: 0,
-        width: 100,
-        errorCorrectionLevel: "M",
-      });
-      qrCache.set(taskId, dataUri);
-      return dataUri;
-    } catch {
-      return null;
-    }
-  };
-
-  const drawCodes = async (taskId: string, x: number, y: number) => {
-    // QR on the left
-    const qrData = await qrFor(taskId);
-    if (qrData) doc.addImage(qrData, "PNG", x, y, QR_SIZE, QR_SIZE);
-
-    // Wave to the right of the QR
-    const waveX = x + QR_SIZE + GAP;
-    const waveY = y + (QR_SIZE - WAVE_H) / 2; // vertically centre against the QR
+  const drawCodes = (taskId: string, x: number, y: number) => {
     const seq = hashSeq(taskId, WAVE_BARS);
     doc.setFillColor(60, 60, 60);
-    doc.circle(waveX + 3, waveY + WAVE_H / 2, 1.6, "F");
-    const barAreaX = waveX + 8;
+    doc.circle(x + 3, y + WAVE_H / 2, 1.6, "F");
+    const barAreaX = x + 8;
     const barAreaW = WAVE_W - 8;
     const barW = (barAreaW - (WAVE_BARS - 1) * 1) / WAVE_BARS;
     for (let i = 0; i < WAVE_BARS; i++) {
       const tier = seq[i] % 3;
       const bh = WAVE_H * (0.35 + tier * 0.32);
       const bx = barAreaX + i * (barW + 1);
-      const by = waveY + (WAVE_H - bh);
+      const by = y + (WAVE_H - bh);
       doc.rect(bx, by, barW, bh, "F");
     }
-
-    // shortId text under the whole stamp (OCR scan-back fallback)
+    // shortId text under the wave (OCR scan-back fallback)
     doc.setFontSize(5.5);
     doc.setTextColor(170);
-    doc.text(shortId(taskId), x, y + QR_SIZE + 6);
+    doc.text(shortId(taskId), x, y + WAVE_H + 6);
     doc.setTextColor(0);
   };
 
@@ -221,7 +276,7 @@ export async function exportWeeklyPlanner(
   doc.setFontSize(9);
   doc.setTextColor(120);
   doc.text(
-    `${start.toLocaleDateString()} → ${new Date(end.getTime() - 1).toLocaleDateString()}`,
+    `${start.toLocaleDateString()}  to  ${new Date(end.getTime() - 1).toLocaleDateString()}`,
     margin + 230,
     y + 6,
   );
@@ -304,7 +359,7 @@ export async function exportWeeklyPlanner(
       doc.setTextColor(0);
 
       // Code stamp, right-aligned
-      await drawCodes(t.id, leftCodeX, leftY - 4);
+      drawCodes(t.id, leftCodeX, leftY - 4);
 
       // Action row: tick boxes for defer / blocked, time-spent slot
       const actionY = leftY + 22;
@@ -373,7 +428,7 @@ export async function exportWeeklyPlanner(
         leftY,
       );
       doc.setTextColor(0);
-      await drawCodes(t.id, leftCodeX, leftY - 4);
+      drawCodes(t.id, leftCodeX, leftY - 4);
       doc.setFontSize(9);
       leftY += 26; // was 22 — more breathing room per stretch row
     }
@@ -505,33 +560,29 @@ export async function exportWeeklyPlanner(
 
   rightY += 18; // more breathing room before backlog
 
-  // ── Backlog (moved here) ──────────────────────────────────────────────────
+  // ── Backlog (right column) ────────────────────────────────────────────────
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.text("Backlog — other tasks", rightX, rightY);
-  rightY += 6;
+  rightY += 8;
   doc.setDrawColor(220);
   doc.line(rightX, rightY, rightX + colW, rightY);
-  rightY += 12;
+  rightY += 18; // generous gap before the column header / first row
 
-  // Column header row
+  // Column header row — wider THEME column so words like "development",
+  // "household" don't get truncated.
   doc.setFontSize(6.5);
   doc.setTextColor(140);
-  const colTitleX = rightX + 12;
-  const colDueX = rightX + colW - 130;
-  const colUrgencyX = rightX + colW - 90;
-  const colThemeX = rightX + colW - 50;
+  const colTitleX = rightX + 14; // tickbox→text gap bumped
+  const colDueX = rightX + colW - 168;
+  const colUrgencyX = rightX + colW - 122;
+  const colThemeX = rightX + colW - 78;
   doc.text("TASK", colTitleX, rightY);
   doc.text("DUE", colDueX, rightY);
   doc.text("URG", colUrgencyX, rightY);
   doc.text("THEME", colThemeX, rightY);
   doc.setTextColor(0);
-  rightY += 8;
-
-  // Reserve a fixed-height doodle box at the bottom (smaller than before).
-  const DOODLE_H = 90;
-  const footerH = 16;
-  const backlogMaxY = pageH - margin - DOODLE_H - footerH - 18;
+  rightY += 12; // header→first row gap
 
   // Faint theme-color stripe + alternating-row tint for scannability.
   const themeStripeColour: Record<string, [number, number, number]> = {
@@ -546,6 +597,13 @@ export async function exportWeeklyPlanner(
     household: [100, 116, 139],
   };
 
+  // Reserve a fluids tracker (bottom-LEFT) and a notes box (bottom-RIGHT).
+  // Notes box is dynamic — it fills whatever space backlog leaves.
+  const FLUIDS_H = 110;
+  const NOTES_MIN_H = 80;
+  const footerH = 16;
+  const backlogMaxY = pageH - margin - NOTES_MIN_H - footerH - 26;
+
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   let rowIdx = 0;
@@ -554,46 +612,50 @@ export async function exportWeeklyPlanner(
       doc.setTextColor(150);
       doc.text(
         `+${others.length - others.indexOf(t)} more — see app`,
-        rightX,
+        rightX + 14,
         rightY + 4,
       );
       doc.setTextColor(0);
       break;
     }
-    // Alternating row tint
     if (rowIdx % 2 === 1) {
       doc.setFillColor(248, 250, 252);
       doc.rect(rightX, rightY - 7, colW, 13, "F");
     }
-    // Theme stripe on the left edge of the row
     const stripe = themeStripeColour[t.theme] ?? [148, 163, 184];
     doc.setFillColor(stripe[0], stripe[1], stripe[2]);
     doc.rect(rightX, rightY - 7, 2, 13, "F");
 
-    checkbox(rightX + 6, rightY, 7);
-    doc.text(truncate(t.title, 42), colTitleX, rightY);
+    checkbox(rightX + 6, rightY, 7); // 8pt gap from text
+    doc.text(truncate(t.title, 38), colTitleX, rightY);
     doc.setTextColor(120);
     doc.text(dueLabel(t.dueDate), colDueX, rightY);
-    doc.text(t.urgency.slice(0, 4), colUrgencyX, rightY);
-    doc.text(t.theme.slice(0, 7), colThemeX, rightY);
+    doc.text(t.urgency, colUrgencyX, rightY);
+    // Full theme word — no truncation
+    doc.text(t.theme, colThemeX, rightY);
     doc.setTextColor(0);
     rightY += 13;
     rowIdx++;
   }
 
-  // ── Notes / doodles (smaller, fixed height) ───────────────────────────────
-  const doodleY = pageH - margin - DOODLE_H - footerH - 4;
+  // ── Fluids tracker (BOTTOM-LEFT) ──────────────────────────────────────────
+  drawFluidsTracker(doc, leftX, pageH - margin - FLUIDS_H - footerH, colW, FLUIDS_H);
+
+  // ── Notes / doodles (BOTTOM-RIGHT, fills remaining space) ─────────────────
+  const notesTop = rightY + 14;
+  const notesBottom = pageH - margin - footerH - 4;
+  const notesH = Math.max(NOTES_MIN_H, notesBottom - notesTop);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
-  doc.text("Notes / doodles", rightX, doodleY - 4);
+  doc.text("Notes / doodles", rightX, notesTop - 4);
   doc.setFont("helvetica", "normal");
 
   doc.setDrawColor(210);
   doc.setLineWidth(0.5);
-  doc.rect(rightX, doodleY, colW, DOODLE_H);
+  doc.rect(rightX, notesTop, colW, notesH);
   doc.setFillColor(220, 220, 220);
   for (let gx = rightX + 12; gx < rightX + colW - 6; gx += 14) {
-    for (let gy = doodleY + 12; gy < doodleY + DOODLE_H - 6; gy += 14) {
+    for (let gy = notesTop + 12; gy < notesTop + notesH - 6; gy += 14) {
       doc.circle(gx, gy, 0.35, "F");
     }
   }

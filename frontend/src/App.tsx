@@ -247,11 +247,11 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       return;
     }
     try {
-      const { htmlLink } = await scheduleTask(task, choice.start, choice.end);
-      // Pushed to Google — clear local schedule so it's not shown twice.
-      // The event will appear in WeekSchedule via the Google fetch.
+      const { eventId, htmlLink } = await scheduleTask(task, choice.start, choice.end);
+      // Pushed to Google — store the real event id so we can delete it later.
+      // Clear scheduledFor so it doesn't show twice (Google fetch will surface it).
       updateTask(task.id, {
-        calendarEventId: "set",
+        calendarEventId: eventId,
         scheduledFor: undefined,
       });
       setCalendarMsg(
@@ -441,17 +441,15 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             </button>
           )}
           {googleStatus?.connected && (
-            <button
-              type="button"
-              className="text-xs text-emerald-700 hover:text-emerald-900"
-              onClick={async () => {
-                await disconnectGoogle();
-                setGoogleStatus(await fetchGoogleStatus());
-              }}
-              title={`Click to disconnect — ${googleStatus.email ?? "connected"}`}
+            <a
+              href="https://calendar.google.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-emerald-700 hover:text-emerald-900 hover:underline"
+              title={`${googleStatus.email ?? "connected"} — open Google Calendar in a new tab. To disconnect, see Settings.`}
             >
-              Calendar: {googleStatus.email ?? "connected"}
-            </button>
+              Calendar: {googleStatus.email ?? "connected"} ↗
+            </a>
           )}
           <button
             type="button"
@@ -465,14 +463,6 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             Export PDF
           </button>
           <ModeSwitch mode={prefs.mode} onChange={(mode) => setPrefs({ mode })} />
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={startNew}
-            title="Add a task"
-          >
-            + Task
-          </button>
           <button
             type="button"
             className="text-xs text-slate-500 hover:text-slate-900"
@@ -494,7 +484,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         </div>
       </header>
 
-      <nav className="flex gap-1 border-b border-slate-200">
+      <nav className="flex items-center gap-1 border-b border-slate-200">
         {TAB_DEFS.map((t) => {
           const active = view === t.key;
           return (
@@ -512,6 +502,16 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             </button>
           );
         })}
+        <div className="ml-auto pr-1">
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={startNew}
+            title="Add a task"
+          >
+            + Task
+          </button>
+        </div>
       </nav>
 
       {calendarMsg && (
@@ -622,17 +622,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       {view === "tasks" && (
         <div className="space-y-6">
           <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">All tasks</h2>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={startNew}
-                title="Add a new task"
-              >
-                + New task
-              </button>
-            </div>
+            <h2 className="text-lg font-semibold">All tasks</h2>
             <PlannerScan tasks={tasks} onApply={applyScanUpdate} />
             <BrainDump onAdd={addTaskAndEnrich} />
           </section>
@@ -719,6 +709,18 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             replaceAllGoals(bundle.goals);
             replacePrefs(bundle.prefs);
           }}
+          calendar={
+            googleStatus
+              ? {
+                  connected: googleStatus.connected,
+                  email: googleStatus.email,
+                  onDisconnect: async () => {
+                    await disconnectGoogle();
+                    setGoogleStatus(await fetchGoogleStatus());
+                  },
+                }
+              : undefined
+          }
         />
       )}
 

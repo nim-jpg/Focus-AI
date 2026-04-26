@@ -230,22 +230,53 @@ googleRouter.get("/events", async (req, res) => {
       : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   try {
     const calendar = google.calendar({ version: "v3", auth: client });
-    const result = await calendar.events.list({
-      calendarId: "primary",
-      timeMin: from,
-      timeMax: to,
-      singleEvents: true,
-      orderBy: "startTime",
+
+    // Pull every calendar the user has selected in their Google Calendar UI.
+    // This includes shared / family calendars (e.g. a partner's), birthdays,
+    // holidays, etc. — not just the primary.
+    const list = await calendar.calendarList.list({
       maxResults: 50,
+      showHidden: false,
     });
-    const events = (result.data.items ?? []).map((ev) => ({
-      id: ev.id,
-      summary: ev.summary ?? "(no title)",
-      start: ev.start?.dateTime ?? ev.start?.date ?? null,
-      end: ev.end?.dateTime ?? ev.end?.date ?? null,
-      allDay: Boolean(ev.start?.date && !ev.start?.dateTime),
-      htmlLink: ev.htmlLink ?? null,
-    }));
+    const calendars = (list.data.items ?? []).filter(
+      (c) => c.id && c.selected !== false,
+    );
+
+    // Fetch events from each calendar in parallel.
+    const perCalendar = await Promise.all(
+      calendars.map(async (c) => {
+        try {
+          const r = await calendar.events.list({
+            calendarId: c.id!,
+            timeMin: from,
+            timeMax: to,
+            singleEvents: true,
+            orderBy: "startTime",
+            maxResults: 50,
+          });
+          return { calendar: c, items: r.data.items ?? [] };
+        } catch {
+          // skip calendars we can't read (permission errors, etc.)
+          return { calendar: c, items: [] };
+        }
+      }),
+    );
+
+    const events = perCalendar.flatMap(({ calendar: c, items }) =>
+      items.map((ev) => ({
+        id: ev.id,
+        summary: ev.summary ?? "(no title)",
+        start: ev.start?.dateTime ?? ev.start?.date ?? null,
+        end: ev.end?.dateTime ?? ev.end?.date ?? null,
+        allDay: Boolean(ev.start?.date && !ev.start?.dateTime),
+        htmlLink: ev.htmlLink ?? null,
+        // Calendar provenance so the UI can colour / label by source
+        calendarId: c.id ?? null,
+        calendarName: c.summary ?? null,
+        calendarColor: c.backgroundColor ?? null,
+      })),
+    );
+
     res.json({ events });
   } catch (err) {
     res.status(500).json({

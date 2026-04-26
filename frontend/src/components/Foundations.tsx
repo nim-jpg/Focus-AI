@@ -1,4 +1,4 @@
-import type { Task, TimeOfDay } from "@/types/task";
+import type { Task } from "@/types/task";
 import {
   counterCountToday,
   isCounter,
@@ -15,20 +15,19 @@ interface Props {
   onEdit?: (id: string) => void;
 }
 
-const SLOT_ORDER: TimeOfDay[] = ["morning", "midday", "afternoon", "evening", "anytime"];
-const SLOT_LABELS: Record<TimeOfDay, string> = {
-  morning: "Morning",
-  midday: "Midday",
-  afternoon: "Afternoon",
-  evening: "Evening",
-  anytime: "Anytime",
-};
-
 function chipClasses(done: boolean, overdue: boolean): string {
   if (done) return "border-emerald-200 bg-emerald-50 text-emerald-800";
   if (overdue) return "border-amber-300 bg-amber-50 text-amber-900";
   return "border-slate-200 bg-white text-slate-700 hover:border-slate-300";
 }
+
+const SLOT_ORDER: Record<string, number> = {
+  morning: 0,
+  midday: 1,
+  afternoon: 2,
+  evening: 3,
+  anytime: 4,
+};
 
 export function Foundations({ tasks, onComplete, onIncrement, onEdit }: Props) {
   if (tasks.length === 0) return null;
@@ -36,17 +35,20 @@ export function Foundations({ tasks, onComplete, onIncrement, onEdit }: Props) {
   const now = new Date();
   const doneCount = tasks.filter((t) => wasCompletedToday(t, now)).length;
 
-  const grouped = SLOT_ORDER.map((slot) => ({
-    slot,
-    items: tasks
-      .filter((t) => (t.timeOfDay ?? "anytime") === slot)
-      .sort((a, b) => {
-        const aDone = wasCompletedToday(a, now);
-        const bDone = wasCompletedToday(b, now);
-        if (aDone === bDone) return a.title.localeCompare(b.title);
-        return aDone ? 1 : -1;
-      }),
-  })).filter((g) => g.items.length > 0);
+  // Single-row layout: timed first (chronologically), then by time-of-day slot,
+  // done items sink to the right. They're flags, not a daily plan.
+  const sorted = [...tasks].sort((a, b) => {
+    const aDone = wasCompletedToday(a, now);
+    const bDone = wasCompletedToday(b, now);
+    if (aDone !== bDone) return aDone ? 1 : -1;
+    const aT = a.specificTime ?? "99:99";
+    const bT = b.specificTime ?? "99:99";
+    if (aT !== bT) return aT.localeCompare(bT);
+    const aS = SLOT_ORDER[a.timeOfDay ?? "anytime"] ?? 4;
+    const bS = SLOT_ORDER[b.timeOfDay ?? "anytime"] ?? 4;
+    if (aS !== bS) return aS - bS;
+    return a.title.localeCompare(b.title);
+  });
 
   return (
     <section>
@@ -56,13 +58,8 @@ export function Foundations({ tasks, onComplete, onIncrement, onEdit }: Props) {
           {doneCount}/{tasks.length} done
         </span>
       </div>
-      <div className="space-y-2">
-        {grouped.map(({ slot, items }) => (
-          <div key={slot} className="flex flex-wrap items-center gap-2">
-            <span className="w-20 flex-none text-xs font-medium uppercase tracking-wide text-slate-500">
-              {SLOT_LABELS[slot]}
-            </span>
-            {items.map((task) => {
+      <div className="flex flex-wrap items-center gap-2">
+        {sorted.map((task) => {
               const done = wasCompletedToday(task, now);
               const overdue = isOverdueToday(task, now);
               const counter = isCounter(task);
@@ -164,8 +161,6 @@ export function Foundations({ tasks, onComplete, onIncrement, onEdit }: Props) {
                 </div>
               );
             })}
-          </div>
-        ))}
       </div>
     </section>
   );

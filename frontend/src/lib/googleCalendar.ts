@@ -44,6 +44,10 @@ export interface CalendarEvent {
   end: string | null;
   allDay: boolean;
   htmlLink: string | null;
+  /** Source calendar provenance — set when the backend returns multi-calendar data. */
+  calendarId?: string | null;
+  calendarName?: string | null;
+  calendarColor?: string | null;
 }
 
 export async function deleteEvent(eventId: string): Promise<void> {
