@@ -5,6 +5,7 @@ interface Props {
   tasks: Task[];
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
+  onEdit?: (id: string) => void;
 }
 
 function formatDue(iso?: string): string {
@@ -13,7 +14,7 @@ function formatDue(iso?: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-export function TaskList({ tasks, onToggle, onRemove }: Props) {
+export function TaskList({ tasks, onToggle, onRemove, onEdit }: Props) {
   if (tasks.length === 0) {
     return (
       <div className="card text-center text-sm text-slate-500">
@@ -71,14 +72,26 @@ export function TaskList({ tasks, onToggle, onRemove }: Props) {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => onRemove(task.id)}
-            className="text-xs text-slate-400 hover:text-red-600"
-            aria-label={`Delete ${task.title}`}
-          >
-            Delete
-          </button>
+          <div className="flex flex-col gap-1 text-xs">
+            {onEdit && (
+              <button
+                type="button"
+                onClick={() => onEdit(task.id)}
+                className="text-slate-500 hover:text-slate-900"
+                aria-label={`Edit ${task.title}`}
+              >
+                Edit
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onRemove(task.id)}
+              className="text-slate-400 hover:text-red-600"
+              aria-label={`Delete ${task.title}`}
+            >
+              Delete
+            </button>
+          </div>
         </li>
       ))}
     </ul>

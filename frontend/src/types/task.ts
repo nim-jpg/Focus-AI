@@ -27,6 +27,23 @@ export const RECURRENCE_PATTERNS = [
 ] as const;
 export type Recurrence = (typeof RECURRENCE_PATTERNS)[number];
 
+export const TIME_OF_DAY = [
+  "morning",
+  "midday",
+  "afternoon",
+  "evening",
+  "anytime",
+] as const;
+export type TimeOfDay = (typeof TIME_OF_DAY)[number];
+
+/** State for counter-style foundations (e.g. drink 8 glasses of water). */
+export interface DailyCounter {
+  target: number;
+  /** ISO date (YYYY-MM-DD) of the current day the count applies to. */
+  date: string;
+  count: number;
+}
+
 export type TaskStatus = "pending" | "completed" | "delayed";
 
 export interface Task {
@@ -56,6 +73,10 @@ export interface Task {
   avoidanceWeeks?: number;
   /** ISO timestamp the task was last marked done. For recurring tasks this drives next-due calculation. */
   lastCompletedAt?: string;
+  /** When in the day this task wants to be done. Defaults to "anytime". */
+  timeOfDay?: TimeOfDay;
+  /** If present, this task is a counter (e.g. drink 8 glasses). Tap-to-increment instead of tick-once. */
+  counter?: DailyCounter;
   /** Optional Google Calendar event id once scheduled. */
   calendarEventId?: string;
 }

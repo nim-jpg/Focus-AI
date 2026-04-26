@@ -1,21 +1,27 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   PRIVACY_LEVELS,
   RECURRENCE_PATTERNS,
   THEMES,
+  TIME_OF_DAY,
   URGENCY_LEVELS,
   type Privacy,
   type Recurrence,
+  type Task,
   type Theme,
+  type TimeOfDay,
   type Urgency,
 } from "@/types/task";
 import type { NewTaskInput } from "@/lib/useTasks";
 
 interface Props {
   onSubmit: (input: NewTaskInput) => void;
+  /** When set, form runs in edit mode: pre-fills, swaps button label, calls onSubmit with patch values. */
+  initialTask?: Task;
+  onCancel?: () => void;
 }
 
-const initial: NewTaskInput = {
+const blank: NewTaskInput = {
   title: "",
   description: "",
   theme: "work",
@@ -27,10 +33,42 @@ const initial: NewTaskInput = {
   isBlocker: false,
   blockedBy: [],
   recurrence: "none",
+  timeOfDay: "anytime",
 };
 
-export function TaskForm({ onSubmit }: Props) {
-  const [form, setForm] = useState<NewTaskInput>(initial);
+function fromTask(task: Task): NewTaskInput {
+  return {
+    title: task.title,
+    description: task.description ?? "",
+    theme: task.theme,
+    estimatedMinutes: task.estimatedMinutes,
+    dueDate: task.dueDate,
+    urgency: task.urgency,
+    privacy: task.privacy,
+    isWork: task.isWork,
+    isBlocker: task.isBlocker,
+    blockedBy: task.blockedBy ?? [],
+    recurrence: task.recurrence,
+    timeOfDay: task.timeOfDay ?? "anytime",
+    counter: task.counter,
+  };
+}
+
+export function TaskForm({ onSubmit, initialTask, onCancel }: Props) {
+  const [form, setForm] = useState<NewTaskInput>(
+    initialTask ? fromTask(initialTask) : blank,
+  );
+  const [counterTarget, setCounterTarget] = useState<number | "">(
+    initialTask?.counter?.target ?? "",
+  );
+
+  // When editing a different task, repopulate.
+  useEffect(() => {
+    if (initialTask) {
+      setForm(fromTask(initialTask));
+      setCounterTarget(initialTask.counter?.target ?? "");
+    }
+  }, [initialTask]);
 
   const update = <K extends keyof NewTaskInput>(key: K, value: NewTaskInput[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -38,9 +76,28 @@ export function TaskForm({ onSubmit }: Props) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title.trim()) return;
-    onSubmit({ ...form, title: form.title.trim() });
-    setForm(initial);
+
+    const payload: NewTaskInput = {
+      ...form,
+      title: form.title.trim(),
+      counter:
+        typeof counterTarget === "number" && counterTarget > 0
+          ? {
+              target: counterTarget,
+              date: new Date().toISOString().slice(0, 10),
+              count: initialTask?.counter?.count ?? 0,
+            }
+          : undefined,
+    };
+
+    onSubmit(payload);
+    if (!initialTask) {
+      setForm(blank);
+      setCounterTarget("");
+    }
   };
+
+  const isEdit = Boolean(initialTask);
 
   return (
     <form onSubmit={handleSubmit} className="card space-y-3">
@@ -131,7 +188,21 @@ export function TaskForm({ onSubmit }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div>
+          <label className="text-xs font-medium text-slate-700">Time of day</label>
+          <select
+            className="input mt-1"
+            value={form.timeOfDay ?? "anytime"}
+            onChange={(e) => update("timeOfDay", e.target.value as TimeOfDay)}
+          >
+            {TIME_OF_DAY.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </div>
         <div>
           <label className="text-xs font-medium text-slate-700">Due date</label>
           <input
@@ -139,7 +210,10 @@ export function TaskForm({ onSubmit }: Props) {
             className="input mt-1"
             value={form.dueDate?.slice(0, 10) ?? ""}
             onChange={(e) =>
-              update("dueDate", e.target.value ? new Date(e.target.value).toISOString() : undefined)
+              update(
+                "dueDate",
+                e.target.value ? new Date(e.target.value).toISOString() : undefined,
+              )
             }
           />
         </div>
@@ -154,7 +228,27 @@ export function TaskForm({ onSubmit }: Props) {
             onChange={(e) => update("estimatedMinutes", Number(e.target.value))}
           />
         </div>
-        <div className="flex items-end gap-3 pb-1.5 text-sm">
+        <div>
+          <label className="text-xs font-medium text-slate-700">
+            Counter target
+            <span className="ml-1 text-slate-400">(e.g. 8 glasses)</span>
+          </label>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            className="input mt-1"
+            placeholder="optional"
+            value={counterTarget}
+            onChange={(e) =>
+              setCounterTarget(e.target.value === "" ? "" : Number(e.target.value))
+            }
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+        <div className="flex flex-wrap items-center gap-3">
           <label className="inline-flex items-center gap-2">
             <input
               type="checkbox"
@@ -172,12 +266,16 @@ export function TaskForm({ onSubmit }: Props) {
             Blocker
           </label>
         </div>
-      </div>
-
-      <div className="flex justify-end">
-        <button type="submit" className="btn-primary">
-          Add task
-        </button>
+        <div className="flex gap-2">
+          {isEdit && onCancel && (
+            <button type="button" className="btn-secondary" onClick={onCancel}>
+              Cancel
+            </button>
+          )}
+          <button type="submit" className="btn-primary">
+            {isEdit ? "Save changes" : "Add task"}
+          </button>
+        </div>
       </div>
     </form>
   );

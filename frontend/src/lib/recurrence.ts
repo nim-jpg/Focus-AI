@@ -1,4 +1,4 @@
-import type { Recurrence, Task } from "@/types/task";
+import type { Recurrence, Task, TimeOfDay } from "@/types/task";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -62,4 +62,33 @@ const FOUNDATION_THEMES = new Set(["medication", "fitness", "diet"]);
  */
 export function isFoundation(task: Task): boolean {
   return task.recurrence === "daily" && FOUNDATION_THEMES.has(task.theme);
+}
+
+/** Counter-style foundations (e.g. drink 8 glasses) — tap to increment, not tick. */
+export function isCounter(task: Task): boolean {
+  return Boolean(task.counter && task.counter.target > 0);
+}
+
+/** Today's tally for a counter task, defaulting to 0 if the stored date is stale. */
+export function counterCountToday(task: Task, now: Date = new Date()): number {
+  if (!task.counter) return 0;
+  const todayStr = now.toISOString().slice(0, 10);
+  return task.counter.date === todayStr ? task.counter.count : 0;
+}
+
+/** End-of-slot hour (24h). evening + anytime never go overdue same day. */
+const SLOT_END_HOUR: Record<TimeOfDay, number> = {
+  morning: 12,
+  midday: 14,
+  afternoon: 18,
+  evening: 24,
+  anytime: 24,
+};
+
+/** A task is "overdue" if its time slot has passed today and it isn't done yet. */
+export function isOverdueToday(task: Task, now: Date = new Date()): boolean {
+  if (wasCompletedToday(task, now)) return false;
+  const slot = task.timeOfDay ?? "anytime";
+  if (slot === "anytime") return false;
+  return now.getHours() >= SLOT_END_HOUR[slot];
 }

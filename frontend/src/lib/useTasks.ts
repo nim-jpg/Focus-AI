@@ -71,10 +71,74 @@ export function useTasks() {
           };
         }
 
+        const completing = t.status !== "completed";
         return {
           ...t,
-          status: t.status === "completed" ? "pending" : "completed",
-          lastCompletedAt: t.status === "completed" ? t.lastCompletedAt : now,
+          status: completing ? "completed" : "pending",
+          lastCompletedAt: completing ? now : t.lastCompletedAt,
+          // Completing breaks the avoidance streak; clear surfaced stamp + counter.
+          avoidanceWeeks: completing ? 0 : t.avoidanceWeeks,
+          lastSurfacedAt: completing ? undefined : t.lastSurfacedAt,
+          updatedAt: now,
+        };
+      }),
+    );
+  }, []);
+
+  /**
+   * Stamp lastSurfacedAt for every id in `ids`. If a task was previously surfaced
+   * 7+ days ago without being completed, bump avoidanceWeeks — that's the signal
+   * the scoring engine uses to escalate long-avoided work.
+   */
+  const markSurfaced = useCallback((ids: string[], now: Date = new Date()) => {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    const nowIso = now.toISOString();
+    const todayMs = now.getTime();
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+    setTasks((prev) => {
+      let changed = false;
+      const next = prev.map((t) => {
+        if (!idSet.has(t.id)) return t;
+        if (t.recurrence !== "none") return t; // recurring tasks reset; avoidance n/a
+        if (t.status === "completed") return t;
+
+        const last = t.lastSurfacedAt ? new Date(t.lastSurfacedAt).getTime() : null;
+        const sameDay = last
+          ? new Date(last).toDateString() === now.toDateString()
+          : false;
+        if (sameDay) return t; // already stamped today
+
+        const weeksToAdd =
+          last !== null ? Math.floor((todayMs - last) / SEVEN_DAYS_MS) : 0;
+
+        changed = true;
+        return {
+          ...t,
+          lastSurfacedAt: nowIso,
+          avoidanceWeeks: (t.avoidanceWeeks ?? 0) + weeksToAdd,
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
+  const incrementCounter = useCallback((id: string, delta: number) => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== id || !t.counter) return t;
+        // If the stored count is from a previous day, reset before applying delta.
+        const baseCount = t.counter.date === todayStr ? t.counter.count : 0;
+        const next = Math.max(0, baseCount + delta);
+        const now = new Date().toISOString();
+        const reachedTarget = next >= t.counter.target;
+        return {
+          ...t,
+          counter: { ...t.counter, date: todayStr, count: next },
+          // Stamp lastCompletedAt when target is hit so isDueNow / wasCompletedToday agree.
+          lastCompletedAt: reachedTarget ? now : t.lastCompletedAt,
           updatedAt: now,
         };
       }),
@@ -92,6 +156,8 @@ export function useTasks() {
     updateTask,
     removeTask,
     toggleComplete,
+    incrementCounter,
+    markSurfaced,
     setPrefs,
   };
 }

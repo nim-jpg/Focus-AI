@@ -5,6 +5,7 @@ import { TopThree } from "@/components/TopThree";
 import { ModeSwitch } from "@/components/ModeSwitch";
 import { BrainDump } from "@/components/BrainDump";
 import { Foundations } from "@/components/Foundations";
+import { TomorrowPreview } from "@/components/TomorrowPreview";
 import { useTasks } from "@/lib/useTasks";
 import { prioritize } from "@/lib/prioritize";
 import { aiPrioritize, AiUnavailableError } from "@/lib/aiPrioritize";
@@ -14,8 +15,24 @@ import type { PrioritizedTask } from "@/types/task";
 type Source = "local" | "claude";
 
 export default function App() {
-  const { tasks, prefs, addTask, removeTask, toggleComplete, setPrefs } =
-    useTasks();
+  const {
+    tasks,
+    prefs,
+    addTask,
+    updateTask,
+    removeTask,
+    toggleComplete,
+    incrementCounter,
+    markSurfaced,
+    setPrefs,
+  } = useTasks();
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editingTask = editingId ? tasks.find((t) => t.id === editingId) : undefined;
+  const startEdit = (id: string) => {
+    setEditingId(id);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const local = useMemo(
     () => prioritize(tasks, { prefs, limit: 3 }),
@@ -26,6 +43,19 @@ export default function App() {
     () => tasks.filter((t) => isFoundation(t) && t.status !== "completed"),
     [tasks],
   );
+
+  const tomorrow = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d;
+  }, [tasks]);
+
+  const tomorrowPreview = useMemo(() => {
+    const todaysIds = new Set(local.map((p) => p.task.id));
+    return prioritize(tasks, { prefs, limit: 3, now: tomorrow }).filter(
+      (p) => !todaysIds.has(p.task.id),
+    );
+  }, [tasks, prefs, tomorrow, local]);
 
   const [aiResult, setAiResult] = useState<PrioritizedTask[] | null>(null);
   const [source, setSource] = useState<Source>("local");
@@ -49,6 +79,16 @@ export default function App() {
   }, [taskFingerprint, prefs.mode]);
 
   const prioritized = source === "claude" && aiResult ? aiResult : local;
+
+  // When the visible Top Three changes, stamp those tasks as surfaced. The hook
+  // also auto-bumps avoidanceWeeks when 7+ days have passed without action.
+  const surfacedFingerprint = prioritized.map((p) => p.task.id).join(",");
+  useEffect(() => {
+    if (prioritized.length === 0) return;
+    markSurfaced(prioritized.map((p) => p.task.id));
+    // intentionally only depend on the fingerprint string, not the array identity
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [surfacedFingerprint]);
 
   const handleAiRefresh = async () => {
     setLoading(true);
@@ -95,7 +135,12 @@ export default function App() {
         <ModeSwitch mode={prefs.mode} onChange={(mode) => setPrefs({ mode })} />
       </header>
 
-      <Foundations tasks={foundations} onComplete={toggleComplete} />
+      <Foundations
+        tasks={foundations}
+        onComplete={toggleComplete}
+        onIncrement={incrementCounter}
+        onEdit={startEdit}
+      />
 
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -142,10 +187,26 @@ export default function App() {
         />
       </section>
 
+      <TomorrowPreview prioritized={tomorrowPreview} onDoEarly={toggleComplete} />
+
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Add tasks</h2>
-        <BrainDump onAdd={addTask} />
-        <TaskForm onSubmit={addTask} />
+        <h2 className="text-lg font-semibold">
+          {editingTask ? `Edit "${editingTask.title}"` : "Add tasks"}
+        </h2>
+        {!editingTask && <BrainDump onAdd={addTask} />}
+        <TaskForm
+          key={editingId ?? "new"}
+          initialTask={editingTask}
+          onSubmit={(input) => {
+            if (editingTask) {
+              updateTask(editingTask.id, input);
+              setEditingId(null);
+            } else {
+              addTask(input);
+            }
+          }}
+          onCancel={editingTask ? () => setEditingId(null) : undefined}
+        />
       </section>
 
       <section>
@@ -154,6 +215,7 @@ export default function App() {
           tasks={tasks}
           onToggle={toggleComplete}
           onRemove={removeTask}
+          onEdit={startEdit}
         />
       </section>
 
