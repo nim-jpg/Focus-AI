@@ -1,6 +1,7 @@
 export const THEMES = [
   "work",
   "personal",
+  "school",
   "fitness",
   "finance",
   "diet",
@@ -85,6 +86,8 @@ export interface Task {
   scheduledFor?: string;
   /** When true, this task is treated as a Foundation regardless of theme/recurrence. Keeps it out of Top Three. */
   treatAsFoundation?: boolean;
+  /** Companies House number locked-in for this task. When set, lookups skip the fuzzy search and fetch this company directly. Cleared via the "Reset" button in Company Assist. */
+  companyHouseNumber?: string;
   /** Optional Google Calendar event id once scheduled. */
   calendarEventId?: string;
 }

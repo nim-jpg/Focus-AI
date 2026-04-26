@@ -8,7 +8,10 @@ const SYSTEM_PROMPT = `You parse natural-language brain dumps into structured Fo
 For each distinct task in the input, emit a JSON object with these fields:
 - title: short imperative phrase, max 80 chars
 - description: optional clarifying text from the input; omit if title is self-explanatory
-- theme: one of: work, personal, fitness, finance, diet, medication, development, household
+- theme: one of: work, personal, school, fitness, finance, diet, medication, development, household
+  · Use "school" for any homework, school project, exam, school trip, parents-evening, school admin, or anything tied to a child's education or school calendar.
+  · Use "fitness" for sports practice, training, gym sessions, runs.
+  · Use "household" for chores, repairs, bills not tied to finance accounts, food shop.
 - urgency: one of: low, normal, high, critical (default normal)
 - privacy: one of: private, semi-private, public (default private)
 - recurrence: one of: none, daily, weekly, monthly, quarterly, yearly (default none)

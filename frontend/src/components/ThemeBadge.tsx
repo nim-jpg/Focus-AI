@@ -3,6 +3,7 @@ import type { Theme } from "@/types/task";
 const LABELS: Record<Theme, string> = {
   work: "Work",
   personal: "Personal",
+  school: "School",
   fitness: "Fitness",
   finance: "Finance",
   diet: "Diet",
@@ -14,6 +15,7 @@ const LABELS: Record<Theme, string> = {
 const CLASSES: Record<Theme, string> = {
   work: "bg-blue-100 text-blue-800",
   personal: "bg-purple-100 text-purple-800",
+  school: "bg-pink-100 text-pink-800",
   fitness: "bg-green-100 text-green-800",
   finance: "bg-yellow-100 text-yellow-800",
   diet: "bg-orange-100 text-orange-800",

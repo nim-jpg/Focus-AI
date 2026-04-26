@@ -169,17 +169,17 @@ export function WeekSchedule({
           return (
             <div
               key={label}
-              className={`rounded-md border p-2 ${
+              className={`flex min-h-[480px] flex-col rounded-md border p-2 ${
                 isToday
                   ? "border-emerald-300 bg-emerald-50/40"
                   : "border-slate-200 bg-white"
               }`}
             >
-              <div className="mb-1 flex items-baseline justify-between">
-                <span className="text-xs font-semibold text-slate-700">
+              <div className="mb-2 flex items-baseline justify-between border-b border-slate-200/60 pb-1">
+                <span className="text-sm font-semibold text-slate-700">
                   {label}
                 </span>
-                <span className="text-[10px] text-slate-500">
+                <span className="text-xs text-slate-500">
                   {dayDate.toLocaleDateString(undefined, {
                     day: "numeric",
                     month: "short",
@@ -187,21 +187,23 @@ export function WeekSchedule({
                 </span>
               </div>
               {items.length === 0 ? (
-                <p className="text-[11px] italic text-slate-400">empty</p>
+                <p className="text-xs italic text-slate-400">empty</p>
               ) : (
-                <ul className="space-y-1">
+                <ul className="space-y-1.5">
                   {items.map((it, i) => {
                     if (it.kind === "event" && it.event) {
                       return (
                         <li
                           key={`ev-${it.event.id}-${i}`}
-                          className="rounded border border-blue-200 bg-blue-50/70 px-1.5 py-0.5 text-[11px] text-blue-900"
+                          className="rounded border border-blue-200 bg-blue-50/70 px-2 py-1.5 text-xs text-blue-900"
                           title={it.event.summary}
                         >
-                          <span className="font-mono">
+                          <div className="font-mono text-[10px] text-blue-700">
                             {fmtTime(it.event.start, it.event.allDay)}
-                          </span>{" "}
-                          <span className="truncate">{it.event.summary}</span>
+                          </div>
+                          <div className="mt-0.5 leading-tight">
+                            {it.event.summary}
+                          </div>
                         </li>
                       );
                     }
@@ -210,16 +212,16 @@ export function WeekSchedule({
                       return (
                         <li
                           key={`t-${it.task.id}-${i}`}
-                          className="rounded border border-emerald-200 bg-emerald-50/60 px-1.5 py-0.5 text-[11px] text-emerald-900"
+                          className="rounded border border-emerald-200 bg-emerald-50/60 px-2 py-1.5 text-xs text-emerald-900"
                           title={it.task.title}
                         >
-                          <div className="flex items-baseline gap-1">
-                            <span className="font-mono">
-                              {fmtTime(it.start.toISOString())}
-                            </span>
-                            <span className="truncate">{it.task.title}</span>
+                          <div className="font-mono text-[10px] text-emerald-700">
+                            {fmtTime(it.start.toISOString())}
                           </div>
-                          <div className="mt-0.5 flex items-center gap-1.5 text-[10px]">
+                          <div className="mt-0.5 leading-tight">
+                            {it.task.title}
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
                             <ThemeBadge theme={it.task.theme} />
                             {local && (
                               <button

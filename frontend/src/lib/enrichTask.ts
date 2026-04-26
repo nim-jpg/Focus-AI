@@ -47,7 +47,11 @@ export async function enrichTaskFromCompaniesHouse(
   if (dueDate && !task.dueDate) {
     patch.dueDate = new Date(dueDate).toISOString();
   }
-  // Always tag the company number into the description if it isn't already there.
+  // Lock the matched company so future lookups skip the fuzzy search.
+  if (!task.companyHouseNumber) {
+    patch.companyHouseNumber = result.company.number;
+  }
+  // Tag the company number into the description if it isn't already there.
   const tag = `Companies House #${result.company.number}`;
   if (!task.description?.includes(tag)) {
     patch.description = task.description
