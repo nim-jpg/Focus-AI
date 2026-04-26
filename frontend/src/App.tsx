@@ -3,6 +3,7 @@ import { TaskFormModal } from "@/components/TaskFormModal";
 import { TaskList } from "@/components/TaskList";
 import { TopThree } from "@/components/TopThree";
 import { ModeSwitch } from "@/components/ModeSwitch";
+import { isInWorkMode } from "@/lib/modeFilter";
 import { BrainDump } from "@/components/BrainDump";
 import { Foundations } from "@/components/Foundations";
 import { TomorrowPreview } from "@/components/TomorrowPreview";
@@ -360,13 +361,18 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     );
   }, [tasks, prefs, tomorrow, local, goals]);
 
+  // aiResult holds Claude's tier+reasoning for EVERY candidate task (not
+  // just the top 3) so that toggling the work/personal mode just re-filters
+  // the cached ranking instead of throwing it away and re-asking the model.
   const [aiResult, setAiResult] = useState<PrioritizedTask[] | null>(null);
   const [source, setSource] = useState<Source>("local");
   const [loading, setLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
-  // If task ids change (added/removed/completed), the cached AI result becomes
-  // stale — drop it so we show the fresh local heuristic.
+  // If task ids change (added/removed/completed), the cached AI result
+  // becomes stale — drop it so we show the fresh local heuristic. NB: we
+  // intentionally do NOT include prefs.mode here so the toggle preserves
+  // the cached AI ranking.
   const taskFingerprint = useMemo(
     () =>
       tasks
@@ -379,9 +385,27 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
   useEffect(() => {
     setAiResult(null);
     setSource("local");
-  }, [taskFingerprint, prefs.mode]);
+  }, [taskFingerprint]);
 
-  const prioritized = source === "claude" && aiResult ? aiResult : local;
+  // Filter the cached AI ranking to the current mode and slice to the
+  // visible Top Three. The AI returns ranked tier+reasoning for every
+  // candidate, so this is a pure local re-filter.
+  const filteredAiResult = useMemo<PrioritizedTask[] | null>(() => {
+    if (!aiResult) return null;
+    const mode = prefs.mode;
+    const userType = prefs.userType;
+    const inMode = aiResult.filter(({ task }) => {
+      if (mode === "both") return true;
+      const isWorkBucket = isInWorkMode(task, userType);
+      return mode === "work" ? isWorkBucket : !isWorkBucket;
+    });
+    // Preserve AI's tier ordering.
+    inMode.sort((a, b) => a.tier - b.tier);
+    return inMode.slice(0, 3);
+  }, [aiResult, prefs.mode, prefs.userType]);
+
+  const prioritized =
+    source === "claude" && filteredAiResult ? filteredAiResult : local;
 
   // When the visible Top Three changes, stamp those tasks as surfaced. The hook
   // also auto-bumps avoidanceWeeks when 7+ days have passed without action.
@@ -474,7 +498,11 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               Calendar: {googleStatus.email ?? "connected"} ↗
             </a>
           )}
-          <ModeSwitch mode={prefs.mode} onChange={(mode) => setPrefs({ mode })} />
+          <ModeSwitch
+            mode={prefs.mode}
+            userType={prefs.userType}
+            onChange={(mode) => setPrefs({ mode })}
+          />
           <button
             type="button"
             className="text-xs text-slate-500 hover:text-slate-900"
