@@ -454,40 +454,18 @@ export function WeekSchedule({
         ...(prefs.excludedCalendarIds ?? []),
         ...(prefs.privateCalendarIds ?? []),
       ],
+      prefs.shadowedEventIds ?? [],
+      prefs.shadowedSeriesIds ?? [],
+      prefs.ignoredEventIds ?? [],
+      prefs.ignoredSeriesIds ?? [],
     );
-    let result = suggestSessionTimesDetailed(
+    const result = suggestSessionTimesDetailed(
       need,
       task.estimatedMinutes ?? 60,
       rollStart,
       busy,
       prefs,
     );
-    // Fallback: if EVERY non-past attempt was rejected as outside-waking,
-    // the user's day-shape window is too narrow. Try a wide-open day
-    // (06:00–23:00) so the user gets *some* placements rather than none,
-    // and explain in the message that the window was widened.
-    let widenedFallback = false;
-    if (
-      result.slots.length === 0 &&
-      result.attempts.length > 0 &&
-      result.attempts.every(
-        (a) => a.reason === "outside-waking" || a.reason === "past",
-      )
-    ) {
-      const widePrefs = {
-        ...prefs,
-        wakeUpTime: "05:30",
-        bedTime: "23:30",
-      };
-      result = suggestSessionTimesDetailed(
-        need,
-        task.estimatedMinutes ?? 60,
-        rollStart,
-        busy,
-        widePrefs,
-      );
-      widenedFallback = result.slots.length > 0;
-    }
     const slots = result.slots;
     if (slots.length === 0) {
       // Build a useful diagnostic from the per-slot attempts.
@@ -533,26 +511,20 @@ export function WeekSchedule({
         ...slots.map((d) => d.toISOString()),
       ];
       onSetSessionTimes(taskId, next);
-      const widenedNote = widenedFallback
-        ? " (widened your day window to find slots — adjust Settings → Day shape if you want narrower hours.)"
-        : "";
       if (slots.length < need) {
         onMessage?.(
-          `Auto-schedule placed ${slots.length} of ${need} sessions for "${task.title}".${widenedNote} Run again later or schedule the rest manually.`,
+          `Auto-schedule placed ${slots.length} of ${need} sessions for "${task.title}". Run again later or schedule the rest manually.`,
         );
       } else {
         onMessage?.(
-          `Auto-schedule placed ${slots.length} session${slots.length === 1 ? "" : "s"} for "${task.title}".${widenedNote}`,
+          `Auto-schedule placed ${slots.length} session${slots.length === 1 ? "" : "s"} for "${task.title}".`,
         );
       }
     } else {
       // Single weekly+ task — set scheduledFor instead of using the sessions array.
       onMoveTask(taskId, slots[0]!.toISOString());
-      const widenedNote = widenedFallback
-        ? " (widened your day window to find a slot.)"
-        : "";
       onMessage?.(
-        `Scheduled "${task.title}" for ${slots[0]!.toLocaleString()}.${widenedNote}`,
+        `Scheduled "${task.title}" for ${slots[0]!.toLocaleString()}.`,
       );
     }
   };
