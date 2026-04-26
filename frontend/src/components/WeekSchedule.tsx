@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Task, UserPrefs } from "@/types/task";
 import { deleteEvent, fetchEvents, type CalendarEvent } from "@/lib/googleCalendar";
 import { busyWindowsForWeek, suggestSessionTimes } from "@/lib/autoSchedule";
+import { isDueNow } from "@/lib/recurrence";
 import { ThemeBadge } from "./ThemeBadge";
 
 interface Props {
@@ -179,21 +180,41 @@ export function WeekSchedule({
   today.setHours(0, 0, 0, 0);
   const todayIdx = Math.floor((today.getTime() - weekStart.getTime()) / DAY_MS);
 
-  const pendingMultiSession = useMemo(
-    () =>
-      tasks.filter(
-        (t) =>
-          t.status !== "completed" &&
-          (t.sessionsPerWeek ?? 0) > 0 &&
-          (t.sessionTimes?.length ?? 0) < (t.sessionsPerWeek ?? 0),
-      ),
-    [tasks],
-  );
+  // Tasks that should be slotted into the week schedule but aren't:
+  //   - multi-session tasks missing slots
+  //   - weekly+ recurring tasks that are due this week and not yet scheduled
+  const pendingMultiSession = useMemo(() => {
+    const now = new Date();
+    return tasks.filter((t) => {
+      if (t.status === "completed") return false;
+      if (t.recurrence === "daily") return false;
+      if ((t.sessionsPerWeek ?? 0) > 0) {
+        return (t.sessionTimes?.length ?? 0) < (t.sessionsPerWeek ?? 0);
+      }
+      if (
+        (t.recurrence === "weekly" ||
+          t.recurrence === "monthly" ||
+          t.recurrence === "quarterly" ||
+          t.recurrence === "yearly") &&
+        !t.scheduledFor &&
+        !t.calendarEventId &&
+        isDueNow(t, now)
+      ) {
+        return true;
+      }
+      return false;
+    });
+  }, [tasks]);
+
+  const sessionCountFor = (t: Task): number =>
+    (t.sessionsPerWeek ?? 0) > 0
+      ? Math.max(0, (t.sessionsPerWeek ?? 0) - (t.sessionTimes?.length ?? 0))
+      : 1;
 
   const autoScheduleSessionsFor = (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
-    if (!task || !task.sessionsPerWeek) return;
-    const need = task.sessionsPerWeek - (task.sessionTimes?.length ?? 0);
+    if (!task) return;
+    const need = sessionCountFor(task);
     if (need <= 0) return;
     const busy = busyWindowsForWeek(weekStart, weekEnd, tasks, events, taskId);
     const slots = suggestSessionTimes(
@@ -204,11 +225,16 @@ export function WeekSchedule({
       prefs,
     );
     if (slots.length === 0) return;
-    const next = [
-      ...(task.sessionTimes ?? []),
-      ...slots.map((d) => d.toISOString()),
-    ];
-    onSetSessionTimes(taskId, next);
+    if ((task.sessionsPerWeek ?? 0) > 0) {
+      const next = [
+        ...(task.sessionTimes ?? []),
+        ...slots.map((d) => d.toISOString()),
+      ];
+      onSetSessionTimes(taskId, next);
+    } else {
+      // Single weekly+ task — set scheduledFor instead of using the sessions array.
+      onMoveTask(taskId, slots[0]!.toISOString());
+    }
   };
 
   const goPrev = () =>
@@ -361,26 +387,28 @@ export function WeekSchedule({
       {pendingMultiSession.length > 0 && (
         <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs">
           <p className="font-medium text-amber-900">
-            Multi-session tasks need slots this week:
+            Suggested for scheduling this week:
           </p>
           <ul className="mt-1 space-y-1">
             {pendingMultiSession.map((t) => {
+              const need = sessionCountFor(t);
+              const isMulti = (t.sessionsPerWeek ?? 0) > 0;
               const have = t.sessionTimes?.length ?? 0;
-              const need = (t.sessionsPerWeek ?? 0) - have;
+              const label = isMulti
+                ? `(${have}/${t.sessionsPerWeek} scheduled)`
+                : `(${t.recurrence}, due)`;
               return (
                 <li key={t.id} className="flex items-center justify-between gap-2">
                   <span className="truncate text-amber-900">
                     {t.title}{" "}
-                    <span className="text-amber-700">
-                      ({have}/{t.sessionsPerWeek} scheduled)
-                    </span>
+                    <span className="text-amber-700">{label}</span>
                   </span>
                   <button
                     type="button"
                     className="rounded-full border border-amber-300 bg-white px-2 py-0.5 text-amber-900 hover:border-amber-500"
                     onClick={() => autoScheduleSessionsFor(t.id)}
                   >
-                    Auto-schedule {need}
+                    Auto-schedule {need > 1 ? need : ""}
                   </button>
                 </li>
               );

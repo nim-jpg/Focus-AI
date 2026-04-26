@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { TaskForm } from "@/components/TaskForm";
+import { TaskFormModal } from "@/components/TaskFormModal";
 import { TaskList } from "@/components/TaskList";
 import { TopThree } from "@/components/TopThree";
 import { ModeSwitch } from "@/components/ModeSwitch";
@@ -10,6 +10,7 @@ import { Goals } from "@/components/Goals";
 import { PriorityMatrix } from "@/components/PriorityMatrix";
 import { SuggestDates } from "@/components/SuggestDates";
 import { CompanyAssist } from "@/components/CompanyAssist";
+import { Achievements } from "@/components/Achievements";
 import { WeekSchedule } from "@/components/WeekSchedule";
 import { SchedulePicker, type ScheduleChoice } from "@/components/SchedulePicker";
 import { PlannerScan, type ResolvedUpdate } from "@/components/PlannerScan";
@@ -124,7 +125,10 @@ export default function App() {
   }, [tasks]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [addingNew, setAddingNew] = useState(false);
+  const [presetGoalIds, setPresetGoalIds] = useState<string[]>([]);
   const editingTask = editingId ? tasks.find((t) => t.id === editingId) : undefined;
+  const taskFormOpen = Boolean(editingTask) || addingNew;
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
   const [calendarMsg, setCalendarMsg] = useState<string | null>(null);
   const [view, setView] = useState<View>(() => loadInitialView());
@@ -278,14 +282,23 @@ export default function App() {
   };
 
   const startEdit = (id: string) => {
+    setAddingNew(false);
     setEditingId(id);
-    setView("tasks");
-    // Scroll to the form after the Tasks view renders.
-    setTimeout(() => {
-      document
-        .getElementById("task-form-section")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 80);
+  };
+  const startNew = () => {
+    setEditingId(null);
+    setPresetGoalIds([]);
+    setAddingNew(true);
+  };
+  const startNewForGoal = (goalId: string) => {
+    setEditingId(null);
+    setPresetGoalIds([goalId]);
+    setAddingNew(true);
+  };
+  const closeTaskForm = () => {
+    setEditingId(null);
+    setAddingNew(false);
+    setPresetGoalIds([]);
   };
 
   const local = useMemo(
@@ -435,6 +448,14 @@ export default function App() {
           <ModeSwitch mode={prefs.mode} onChange={(mode) => setPrefs({ mode })} />
           <button
             type="button"
+            className="btn-primary"
+            onClick={startNew}
+            title="Add a task"
+          >
+            + Task
+          </button>
+          <button
+            type="button"
             className="text-xs text-slate-500 hover:text-slate-900"
             onClick={() => setShowSettings(true)}
             title="Working hours, days, notifications"
@@ -570,33 +591,24 @@ export default function App() {
       )}
 
       {view === "tasks" && (
-        <div className="space-y-8">
-          <section id="task-form-section" className="space-y-3 scroll-mt-4">
-            <h2 className="text-lg font-semibold">
-              {editingTask ? `Edit "${editingTask.title}"` : "Add tasks"}
-            </h2>
-            {!editingTask && (
-              <PlannerScan tasks={tasks} onApply={applyScanUpdate} />
-            )}
-            {!editingTask && <BrainDump onAdd={addTaskAndEnrich} />}
-            <TaskForm
-              key={editingId ?? "new"}
-              initialTask={editingTask}
-              goals={goals}
-              onSubmit={(input) => {
-                if (editingTask) {
-                  updateTask(editingTask.id, input);
-                  setEditingId(null);
-                } else {
-                  addTaskAndEnrich(input);
-                }
-              }}
-              onCancel={editingTask ? () => setEditingId(null) : undefined}
-            />
+        <div className="space-y-6">
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">All tasks</h2>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={startNew}
+                title="Add a new task"
+              >
+                + New task
+              </button>
+            </div>
+            <PlannerScan tasks={tasks} onApply={applyScanUpdate} />
+            <BrainDump onAdd={addTaskAndEnrich} />
           </section>
 
           <section>
-            <h2 className="mb-3 text-lg font-semibold">All tasks</h2>
             <TaskList
               tasks={tasks}
               onToggle={toggleComplete}
@@ -611,6 +623,7 @@ export default function App() {
 
       {view === "insights" && (
         <div className="space-y-8">
+          <Achievements tasks={tasks} goals={goals} />
           <PriorityMatrix tasks={tasks} onEdit={startEdit} />
           <SuggestDates
             tasks={tasks}
@@ -632,6 +645,7 @@ export default function App() {
           onAdd={addGoal}
           onUpdate={updateGoal}
           onRemove={removeGoal}
+          onAddTaskForGoal={startNewForGoal}
         />
       )}
 
@@ -645,6 +659,22 @@ export default function App() {
           calendarConnected={googleStatus?.connected ?? false}
           onConfirm={confirmSchedule}
           onCancel={() => setPickerForTaskId(null)}
+        />
+      )}
+
+      {taskFormOpen && (
+        <TaskFormModal
+          initialTask={editingTask}
+          goals={goals}
+          presetGoalIds={presetGoalIds}
+          onSubmit={(input) => {
+            if (editingTask) {
+              updateTask(editingTask.id, input);
+            } else {
+              addTaskAndEnrich(input);
+            }
+          }}
+          onClose={closeTaskForm}
         />
       )}
 

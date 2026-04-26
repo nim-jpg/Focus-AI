@@ -22,6 +22,8 @@ interface Props {
   initialTask?: Task;
   onCancel?: () => void;
   goals?: Goal[];
+  /** Pre-link these goals on a brand-new task (ignored if initialTask is set). */
+  presetGoalIds?: string[];
 }
 
 const blank: NewTaskInput = {
@@ -61,9 +63,19 @@ function fromTask(task: Task): NewTaskInput {
   };
 }
 
-export function TaskForm({ onSubmit, initialTask, onCancel, goals = [] }: Props) {
+export function TaskForm({
+  onSubmit,
+  initialTask,
+  onCancel,
+  goals = [],
+  presetGoalIds,
+}: Props) {
   const [form, setForm] = useState<NewTaskInput>(
-    initialTask ? fromTask(initialTask) : blank,
+    initialTask
+      ? fromTask(initialTask)
+      : presetGoalIds && presetGoalIds.length > 0
+      ? { ...blank, goalIds: presetGoalIds }
+      : blank,
   );
   const [counterTarget, setCounterTarget] = useState<number | "">(
     initialTask?.counter?.target ?? "",

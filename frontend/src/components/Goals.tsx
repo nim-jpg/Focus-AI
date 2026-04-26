@@ -19,6 +19,8 @@ interface Props {
   onAdd: (input: NewGoalInput) => void;
   onUpdate: (id: string, patch: Partial<Goal>) => void;
   onRemove: (id: string) => void;
+  /** Open the new-task modal pre-linked to this goal. */
+  onAddTaskForGoal?: (goalId: string) => void;
 }
 
 const HORIZON_LABELS: Record<GoalHorizon, string> = {
@@ -55,6 +57,7 @@ export function Goals({
   onAdd,
   onUpdate,
   onRemove,
+  onAddTaskForGoal,
 }: Props) {
   const [draft, setDraft] = useState<NewGoalInput>(blank);
   const [open, setOpen] = useState(false);
@@ -172,14 +175,21 @@ export function Goals({
                   const prog = progressByGoal?.get(g.id);
                   const done30 = prog?.doneLast30 ?? 0;
                   const activityLabel = relativeDays(prog?.lastActivityIso);
-                  const isStale =
-                    prog?.lastActivityIso &&
-                    Date.now() - new Date(prog.lastActivityIso).getTime() >
-                      30 * 24 * 60 * 60 * 1000;
+                  const ms = prog?.lastActivityIso
+                    ? Date.now() - new Date(prog.lastActivityIso).getTime()
+                    : Infinity;
+                  const stalePastWeek = ms > 7 * 24 * 60 * 60 * 1000;
+                  const stalePastMonth = ms > 30 * 24 * 60 * 60 * 1000;
                   return (
                     <li
                       key={g.id}
-                      className="card flex items-start justify-between gap-3"
+                      className={`card flex items-start justify-between gap-3 ${
+                        stalePastMonth
+                          ? "border-l-4 border-l-red-400"
+                          : stalePastWeek
+                          ? "border-l-4 border-l-amber-400"
+                          : ""
+                      }`}
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
@@ -200,7 +210,11 @@ export function Goals({
                           </span>
                           <span
                             className={`text-xs ${
-                              isStale ? "text-amber-700" : "text-slate-500"
+                              stalePastMonth
+                                ? "font-semibold text-red-700"
+                                : stalePastWeek
+                                ? "font-semibold text-amber-700"
+                                : "text-slate-500"
                             }`}
                             title={
                               prog?.lastActivityIso
@@ -208,6 +222,7 @@ export function Goals({
                                 : "no linked-task activity yet"
                             }
                           >
+                            {stalePastWeek ? "⚠ " : ""}
                             {activityLabel}
                           </span>
                         </div>
@@ -216,6 +231,16 @@ export function Goals({
                         )}
                       </div>
                       <div className="flex flex-col gap-1 text-xs">
+                        {onAddTaskForGoal && (
+                          <button
+                            type="button"
+                            onClick={() => onAddTaskForGoal(g.id)}
+                            className="text-emerald-700 hover:text-emerald-900"
+                            title="Add a new task linked to this goal"
+                          >
+                            + Task
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => {
