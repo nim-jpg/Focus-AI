@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import {
   fileToBase64,
   findTaskByShortId,
+  findTaskByTitle,
   scanPlanner,
   ScanError,
   shortIdFor,
@@ -29,6 +30,8 @@ const ACTION_LABELS: Record<ScanUpdate["action"], string> = {
   block: "Mark blocked (snooze 14d)",
   timeSpent: "Log time",
   rename: "Rename",
+  habitTick: "Daily habit tick",
+  newNote: "New note",
 };
 
 export function PlannerScan({
@@ -94,14 +97,28 @@ export function PlannerScan({
       );
       const mapped: ResolvedUpdate[] = updates
         .map((u) => {
-          const task = findTaskByShortId(tasks, u.shortId);
-          if (!task) return null;
-          return { ...u, taskId: task.id, taskTitle: task.title };
+          // Resolve by shortId first (key + stretch), then by title
+          // (backlog + daily habits). newNote rows may carry neither.
+          const byId = u.shortId ? findTaskByShortId(tasks, u.shortId) : null;
+          const byTitle =
+            !byId && u.taskTitle ? findTaskByTitle(tasks, u.taskTitle) : null;
+          const task = byId ?? byTitle;
+          if (task) return { ...u, taskId: task.id, taskTitle: task.title };
+          // newNote without a task target — surface anyway so the user
+          // can decide what to do with it.
+          if (u.action === "newNote") {
+            return {
+              ...u,
+              taskId: "",
+              taskTitle: u.taskTitle ?? "(unattributed)",
+            };
+          }
+          return null;
         })
         .filter((u): u is ResolvedUpdate => u !== null);
       if (mapped.length === 0) {
         setError(
-          "No matching task IDs found. Make sure the planner pages still show the #abc123 stamps clearly.",
+          "No matching tasks found. Make sure the photo is clear and shows the wave codes / row titles.",
         );
       } else {
         setResolved(mapped);
