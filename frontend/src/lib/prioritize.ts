@@ -187,6 +187,8 @@ export function prioritize(
   const mode = options.prefs?.mode ?? "both";
   const goalsById = new Map(goals.map((g) => [g.id, g]));
 
+  const FAR_FUTURE_HOURS = 90 * 24; // 3 months
+
   const candidates = tasks.filter((t) => {
     if (t.status === "completed") return false;
     if (mode === "work" && !t.isWork) return false;
@@ -198,6 +200,20 @@ export function prioritize(
     // Snoozed tasks hide until snoozedUntil passes.
     if (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > now.getTime()) {
       return false;
+    }
+    // Far-future tasks (>3 months out) stay quiet unless they have another
+    // reason to surface — high/critical urgency, blocker, or already avoided.
+    // The user shouldn't be nagged about Jan 2027 in May 2026.
+    if (t.dueDate) {
+      const hoursLeft = hoursUntil(t.dueDate, now);
+      if (hoursLeft !== null && hoursLeft > FAR_FUTURE_HOURS) {
+        const hasOtherSignal =
+          t.urgency === "high" ||
+          t.urgency === "critical" ||
+          t.isBlocker ||
+          (t.avoidanceWeeks ?? 0) >= 2;
+        if (!hasOtherSignal) return false;
+      }
     }
     return true;
   });

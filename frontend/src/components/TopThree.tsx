@@ -94,10 +94,10 @@ export function TopThree({
                   : "no deadline"}
               </p>
             </div>
-            <div className="flex flex-col gap-2">
+            <div className="flex w-28 flex-none flex-col gap-2">
               <button
                 type="button"
-                className="btn-secondary"
+                className="btn-secondary w-full"
                 onClick={() => onSchedule(task.id)}
                 title={
                   !calendarConnected

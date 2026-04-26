@@ -748,7 +748,7 @@ export function WeekSchedule({
                 return (
                   <div
                     key={i}
-                    className={`group absolute left-0.5 right-0.5 z-10 overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight transition-all hover:z-40 hover:overflow-visible hover:shadow-lg ${colour} ${
+                    className={`group absolute left-0.5 right-0.5 z-10 overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight transition-all hover:z-40 hover:overflow-visible hover:!h-auto hover:min-h-fit hover:shadow-lg ${colour} ${
                       draggable ? "cursor-move" : ""
                     }`}
                     style={{

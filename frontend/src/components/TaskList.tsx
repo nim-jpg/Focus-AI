@@ -95,16 +95,6 @@ export function TaskList({
             onChange={(e) => setSearch(e.target.value)}
             className="input h-8 flex-1 min-w-[160px] text-sm"
           />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-            className="input h-8 w-auto text-sm"
-          >
-            <option value="open">Open</option>
-            <option value="all">All</option>
-            <option value="completed">Completed</option>
-            <option value="snoozed">Snoozed</option>
-          </select>
           {(selectedThemes.size > 0 || search || statusFilter !== "open") && (
             <button
               type="button"
@@ -114,6 +104,30 @@ export function TaskList({
               clear filters
             </button>
           )}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {([
+            { value: "open", label: "Open" },
+            { value: "all", label: "All" },
+            { value: "completed", label: "Completed" },
+            { value: "snoozed", label: "Snoozed" },
+          ] as Array<{ value: StatusFilter; label: string }>).map((opt) => {
+            const active = statusFilter === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setStatusFilter(opt.value)}
+                className={`rounded-full border px-2.5 py-0.5 text-xs ${
+                  active
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+                }`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
         </div>
         <div className="flex flex-wrap gap-1.5">
           {THEMES.map((theme) => {
@@ -205,12 +219,12 @@ export function TaskList({
                 </p>
               </div>
 
-              <div className="flex flex-col gap-1 text-xs">
+              <div className="flex w-24 flex-none flex-col gap-1 text-xs">
                 {onSchedule && task.status !== "completed" && (
                   <button
                     type="button"
                     onClick={() => onSchedule(task.id)}
-                    className="text-emerald-700 hover:text-emerald-900"
+                    className="btn-secondary w-full px-2 py-0.5 text-xs"
                     aria-label={`Schedule ${task.title}`}
                     title="Pick a time / push to Calendar"
                   >

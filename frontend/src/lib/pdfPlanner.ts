@@ -18,7 +18,11 @@ function dueLabel(iso?: string): string {
   if (!iso) return "no due";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "no due";
-  return d.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
+  return d.toLocaleDateString(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "2-digit",
+  });
 }
 
 function truncate(s: string, max: number): string {
