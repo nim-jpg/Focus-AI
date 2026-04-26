@@ -301,9 +301,8 @@ export async function exportWeeklyPlanner(
     }
   }
 
-  leftY += 6;
-
-  // Section: Other tasks (backlog)
+  // (Backlog moved to right column under Daily habits)
+  // Pre-compute the others list — it's rendered later in the right column.
   const others = tasks
     .filter(
       (t) =>
@@ -321,41 +320,6 @@ export async function exportWeeklyPlanner(
       return aU - bU;
     });
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text("Backlog — other tasks by due date", leftX, leftY);
-  leftY += 4;
-  doc.setDrawColor(220);
-  doc.line(leftX, leftY, leftX + colW, leftY);
-  leftY += 12;
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  // Truncate to fit the left column.
-  const maxOthersY = pageH - margin - 12;
-  for (const t of others) {
-    if (leftY > maxOthersY - 11) {
-      doc.setTextColor(150);
-      doc.text(
-        `+${others.length - others.indexOf(t)} more — see app`,
-        leftX,
-        leftY,
-      );
-      doc.setTextColor(0);
-      break;
-    }
-    checkbox(leftX, leftY, 7);
-    doc.text(truncate(t.title, 56), leftX + 12, leftY);
-    doc.setTextColor(120);
-    doc.text(
-      `${dueLabel(t.dueDate)}  ·  ${t.urgency}  ·  ${t.theme}  ·  ${shortId(t.id)}`,
-      leftX + colW - 170,
-      leftY,
-    );
-    doc.setTextColor(0);
-    leftY += 11;
-  }
-
   // ── RIGHT COLUMN ──────────────────────────────────────────────────────────
   let rightY = y;
 
@@ -369,29 +333,30 @@ export async function exportWeeklyPlanner(
       return aT.localeCompare(bT);
     });
 
+  // ── Daily habits ──────────────────────────────────────────────────────────
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.text("Daily habits", rightX, rightY);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(140);
-  doc.text("tick a box for each day done · counters get N boxes per day", rightX + 80, rightY);
+  doc.text("tick each day · counters: tick one block per glass / set", rightX + 75, rightY);
   doc.setTextColor(0);
-  rightY += 4;
+  rightY += 6;
   doc.setDrawColor(220);
   doc.line(rightX, rightY, rightX + colW, rightY);
-  rightY += 14;
+  rightY += 18;
 
   // Day-of-week header row
   const labelW = 140;
   const dayColW = (colW - labelW) / 7;
-  doc.setFontSize(7);
+  doc.setFontSize(8);
   doc.setTextColor(120);
   ["M", "T", "W", "T", "F", "S", "S"].forEach((d, i) => {
     doc.text(d, rightX + labelW + i * dayColW + dayColW / 2 - 2, rightY);
   });
   doc.setTextColor(0);
-  rightY += 4;
+  rightY += 6;
 
   if (dailyTasks.length === 0) {
     doc.setFontSize(9);
@@ -404,10 +369,11 @@ export async function exportWeeklyPlanner(
     for (const t of dailyTasks) {
       const isCounter = Boolean(t.counter && t.counter.target > 0);
       const target = t.counter?.target ?? 1;
-      const rowH = isCounter ? 28 : 20;
+      // Counter rows are taller for prominence; non-counter rows are compact.
+      const rowH = isCounter ? 34 : 22;
 
-      doc.setFontSize(9);
-      doc.text(truncate(t.title, 24), rightX, rightY + 9);
+      doc.setFontSize(10);
+      doc.text(truncate(t.title, 22), rightX, rightY + 10);
       doc.setFontSize(7);
       doc.setTextColor(150);
       const meta = [
@@ -416,58 +382,103 @@ export async function exportWeeklyPlanner(
       ]
         .filter(Boolean)
         .join(" · ");
-      doc.text(meta, rightX, rightY + 18);
+      doc.text(meta, rightX, rightY + 20);
       doc.setTextColor(0);
 
       if (isCounter) {
-        // Render N small boxes per day with a tiny "0/N" hint underneath.
-        const perBox = Math.max(4, Math.min(7, Math.floor(dayColW / (target + 1))));
+        // Bigger blocks per day so each glass / unit is easy to tick.
+        // Lay out target boxes in a 2-row grid if target > what fits in one row.
+        const maxPerRow = Math.max(3, Math.floor(dayColW / 6));
+        const perRow = Math.min(target, maxPerRow);
+        const rows = Math.ceil(target / perRow);
+        const boxSize = Math.max(4.5, Math.min(6.5, (dayColW - 4) / perRow - 1));
+        const gridH = rows * (boxSize + 1);
+        const gridY = rightY + 9 - (gridH - boxSize) / 2;
+
         for (let d = 0; d < 7; d++) {
+          const colX = rightX + labelW + d * dayColW + 2;
           for (let n = 0; n < target; n++) {
+            const r = Math.floor(n / perRow);
+            const c = n % perRow;
             checkbox(
-              rightX + labelW + d * dayColW + n * (perBox + 1),
-              rightY + 12,
-              perBox,
+              colX + c * (boxSize + 1),
+              gridY + r * (boxSize + 1) + boxSize - 1,
+              boxSize,
             );
           }
-          // Per-day "0/N" hint
-          doc.setFontSize(5.5);
-          doc.setTextColor(170);
+          // Per-day "0/N" hint, slightly larger
+          doc.setFontSize(6.5);
+          doc.setTextColor(160);
           doc.text(
             `0/${target}`,
-            rightX + labelW + d * dayColW + dayColW / 2 - 6,
-            rightY + 22,
+            rightX + labelW + d * dayColW + dayColW / 2 - 7,
+            rightY + rowH - 4,
           );
           doc.setTextColor(0);
         }
       } else {
         for (let d = 0; d < 7; d++) {
-          checkbox(rightX + labelW + d * dayColW + dayColW / 2 - 5, rightY + 9, 9);
+          checkbox(rightX + labelW + d * dayColW + dayColW / 2 - 5, rightY + 11, 10);
         }
       }
       rightY += rowH;
     }
   }
 
-  rightY += 8;
+  rightY += 14;
 
-  // Section: Notes / doodles — fills the rest of the right column
+  // ── Backlog (moved here) ──────────────────────────────────────────────────
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.text("Notes / doodles", rightX, rightY);
-  rightY += 4;
+  doc.text("Backlog — other tasks by due date", rightX, rightY);
+  rightY += 6;
   doc.setDrawColor(220);
   doc.line(rightX, rightY, rightX + colW, rightY);
-  rightY += 8;
+  rightY += 12;
 
-  const doodleY = rightY;
-  const doodleH = pageH - margin - doodleY - 12;
+  // Reserve a fixed-height doodle box at the bottom (smaller than before).
+  const DOODLE_H = 90;
+  const footerH = 16;
+  const backlogMaxY = pageH - margin - DOODLE_H - footerH - 18;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  for (const t of others) {
+    if (rightY > backlogMaxY - 11) {
+      doc.setTextColor(150);
+      doc.text(
+        `+${others.length - others.indexOf(t)} more — see app`,
+        rightX,
+        rightY,
+      );
+      doc.setTextColor(0);
+      break;
+    }
+    checkbox(rightX, rightY, 7);
+    doc.text(truncate(t.title, 50), rightX + 12, rightY);
+    doc.setTextColor(120);
+    doc.text(
+      `${dueLabel(t.dueDate)}  ·  ${t.urgency}  ·  ${t.theme}  ·  ${shortId(t.id)}`,
+      rightX + colW - 165,
+      rightY,
+    );
+    doc.setTextColor(0);
+    rightY += 11;
+  }
+
+  // ── Notes / doodles (smaller, fixed height) ───────────────────────────────
+  const doodleY = pageH - margin - DOODLE_H - footerH - 4;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("Notes / doodles", rightX, doodleY - 4);
+  doc.setFont("helvetica", "normal");
+
   doc.setDrawColor(210);
   doc.setLineWidth(0.5);
-  doc.rect(rightX, doodleY, colW, doodleH);
+  doc.rect(rightX, doodleY, colW, DOODLE_H);
   doc.setFillColor(220, 220, 220);
   for (let gx = rightX + 12; gx < rightX + colW - 6; gx += 14) {
-    for (let gy = doodleY + 12; gy < doodleY + doodleH - 6; gy += 14) {
+    for (let gy = doodleY + 12; gy < doodleY + DOODLE_H - 6; gy += 14) {
       doc.circle(gx, gy, 0.35, "F");
     }
   }
