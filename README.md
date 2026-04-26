@@ -91,3 +91,54 @@ The Claude-powered version (server-side) uses the same tier definitions and asks
 - `private` tasks must never appear in PDFs or shared views.
 - `semi-private` tasks may appear in PDFs but should be redacted in the export step (not yet implemented).
 - API keys live in `backend/.env` and are never sent to the client.
+
+## Cloud deploy (Vercel + Fly.io + Supabase)
+
+The app runs single-user on `npm run dev` with no cloud setup. To host it for
+multiple testers:
+
+### 1. Supabase (auth + Postgres)
+
+1. Create a project at https://supabase.com (free tier is fine).
+2. **Settings → API**: copy the URL, anon key, and service-role key.
+3. **SQL editor**: run the schema in `docs/supabase-schema.sql` (creates the
+   tasks / goals / prefs / google_tokens tables with RLS).
+4. **Authentication → Email**: enable magic-link sign-in.
+
+### 2. Backend on Fly.io
+
+1. Install `flyctl`: https://fly.io/docs/hands-on/install-flyctl/
+2. From the repo root: `fly launch --copy-config --no-deploy`
+3. Set secrets:
+   ```
+   fly secrets set \
+     ANTHROPIC_API_KEY=sk-... \
+     GOOGLE_CLIENT_ID=...apps.googleusercontent.com \
+     GOOGLE_CLIENT_SECRET=... \
+     COMPANIES_HOUSE_API_KEY=... \
+     SUPABASE_URL=https://xxx.supabase.co \
+     SUPABASE_SERVICE_ROLE_KEY=... \
+     ALLOWED_ORIGINS=https://your-vercel-domain.vercel.app
+   ```
+4. `fly deploy`
+5. Note the app URL (e.g. `https://focus3-backend.fly.dev`) — you'll need it for Vercel.
+
+### 3. Frontend on Vercel
+
+1. `vercel.json` is committed — Vercel auto-detects Vite.
+2. Edit the rewrite `destination` in `vercel.json` to point at your Fly URL.
+3. In the Vercel dashboard → **Settings → Environment Variables** set:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+4. Deploy.
+
+### 4. Google OAuth — production redirect URI
+
+In the Google Cloud Console (Credentials → your OAuth client):
+1. Add `https://focus3-backend.fly.dev/api/google/callback` as an authorised
+   redirect URI.
+2. Add every tester's Google account email under **OAuth consent screen → Test
+   users** (cap is 100 while in Testing mode — fine for a beta).
+
+See `/Users/nim/.claude/plans/on-the-longer-list-humble-hippo.md` for the full
+plan and tradeoffs.
