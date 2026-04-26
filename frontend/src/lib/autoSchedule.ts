@@ -59,37 +59,52 @@ function isHolidayOf(date: Date, wh: WorkingHours): boolean {
   return wh.holidayDates.has(isoDateOf(date));
 }
 
-/** Slot preference rules — weekday-shape vs weekend-shape, anchored to working hours. */
-function preferredSlotsFor(
-  dayOfWeek: number,
+/**
+ * Generate every legal candidate start time inside the wake → bed window
+ * for the given date, in 30-minute steps. Returns them sorted by preference:
+ *   - Working day  → evenings (after work end) first, then early-mornings
+ *                    (before work start), then anywhere else.
+ *   - Weekend / holiday → ascending time (morning first).
+ *
+ * The slot list IS the wake/bed window — every minute the user is awake is
+ * a candidate. work-hours / busy / rest-gap / past filters apply downstream.
+ */
+function preferredCandidatesFor(
+  date: Date,
   wh: WorkingHours,
   isHoliday = false,
-): Array<{ hour: number; minute: number }> {
-  // Holidays use the weekend slot shape (full day available).
+): Date[] {
+  const dayOfWeek = date.getDay();
   const isWorkingDay = !isHoliday && wh.days.includes(dayOfWeek);
-  if (!isWorkingDay) {
-    // "weekend" shape: morning slots before any work-anchor
-    return [
-      { hour: 9, minute: 0 },
-      { hour: 10, minute: 30 },
-      { hour: 8, minute: 0 },
-      { hour: 11, minute: 30 },
-    ];
+  const STEP_MIN = 30;
+  // Walk wake+0.5 → bed-1 in 30-min steps. Round wake to the next 30-min
+  // boundary so candidates land on tidy minute values.
+  const startMin = Math.ceil((wh.wakeUp + 0.5) * 60 / STEP_MIN) * STEP_MIN;
+  const endMin = Math.floor((wh.bed - 1) * 60 / STEP_MIN) * STEP_MIN;
+  const out: Date[] = [];
+  for (let m = startMin; m <= endMin; m += STEP_MIN) {
+    const c = new Date(date);
+    c.setHours(Math.floor(m / 60), m % 60, 0, 0);
+    out.push(c);
   }
-  // Working day: prefer after-work, then early morning before work. Office days
-  // push "after work" later to account for commute.
-  const isOffice = wh.officeDays.includes(dayOfWeek);
-  const afterWork = Math.ceil(wh.end + (isOffice ? wh.commuteHours : 0));
-  const earlyMorning = Math.max(
-    6,
-    Math.floor(wh.start - (isOffice ? wh.commuteHours : 0)) - 1,
-  );
-  return [
-    { hour: afterWork, minute: 0 },
-    { hour: afterWork, minute: 30 },
-    { hour: Math.min(22, afterWork + 1), minute: 0 },
-    { hour: earlyMorning, minute: 0 },
-  ];
+  if (!isWorkingDay) {
+    // Already in ascending time order — that's the weekend preference.
+    return out;
+  }
+  // Working day: bucket by relationship to work hours, prefer evenings.
+  const workEndH = wh.end;
+  const workStartH = wh.start;
+  out.sort((a, b) => {
+    const ah = a.getHours() + a.getMinutes() / 60;
+    const bh = b.getHours() + b.getMinutes() / 60;
+    const bucket = (h: number) =>
+      h >= workEndH ? 0 : h < workStartH ? 1 : 2;
+    const ab = bucket(ah);
+    const bb = bucket(bh);
+    if (ab !== bb) return ab - bb;
+    return a.getTime() - b.getTime();
+  });
+  return out;
 }
 
 function isWorkHours(date: Date, wh: WorkingHours): boolean {
@@ -202,15 +217,15 @@ export function suggestSessionTimesDetailed(
 
   const tryDayWithSlot = (dayOffset: number): Date | null => {
     const date = new Date(weekStart.getTime() + dayOffset * DAY_MS);
-    const dow = date.getDay();
-    const slots = preferredSlotsFor(dow, wh, isHolidayOf(date, wh));
-    for (const slot of slots) {
-      const candidate = new Date(date);
-      candidate.setHours(slot.hour, slot.minute, 0, 0);
+    const candidates = preferredCandidatesFor(date, wh, isHolidayOf(date, wh));
+    for (const candidate of candidates) {
       if (candidate.getTime() < Date.now()) {
         attempts.push({ candidate, reason: "past" });
         continue;
       }
+      // outside-waking is implicit now: candidates are generated only
+      // inside the wake/bed window. Keep the check defensively in case
+      // someone passes a custom candidate set later.
       if (isOutsideWakingHours(candidate, wh)) {
         attempts.push({ candidate, reason: "outside-waking" });
         continue;
@@ -329,15 +344,29 @@ export function busyWindowsForWeek(
   shadowCalendarIds: string[] = [],
   /** Calendar IDs the user marked as "exclude" — also don't block. */
   excludedCalendarIds: string[] = [],
+  /** Per-event shadow / ignore IDs — visible-but-not-blocking or hidden;
+   *  either way the user has said these don't claim their time. */
+  shadowedEventIds: string[] = [],
+  shadowedSeriesIds: string[] = [],
+  ignoredEventIds: string[] = [],
+  ignoredSeriesIds: string[] = [],
 ): BusyBlock[] {
   const busy: BusyBlock[] = [];
   const shadowSet = new Set(shadowCalendarIds);
   const excludedSet = new Set(excludedCalendarIds);
+  const shadowEventSet = new Set(shadowedEventIds);
+  const shadowSeriesSet = new Set(shadowedSeriesIds);
+  const ignoredEventSet = new Set(ignoredEventIds);
+  const ignoredSeriesSet = new Set(ignoredSeriesIds);
 
   for (const ev of events) {
     if (!ev.start || !ev.end) continue;
     if (ev.calendarId && shadowSet.has(ev.calendarId)) continue;
     if (ev.calendarId && excludedSet.has(ev.calendarId)) continue;
+    if (ev.id && shadowEventSet.has(ev.id)) continue;
+    if (ev.id && ignoredEventSet.has(ev.id)) continue;
+    if (ev.recurringEventId && shadowSeriesSet.has(ev.recurringEventId)) continue;
+    if (ev.recurringEventId && ignoredSeriesSet.has(ev.recurringEventId)) continue;
     const s = new Date(ev.start).getTime();
     const e = new Date(ev.end).getTime();
     if (e < weekStart.getTime() || s > weekEnd.getTime()) continue;
