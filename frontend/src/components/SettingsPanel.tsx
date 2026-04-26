@@ -348,13 +348,13 @@ export function SettingsPanel({
                     Per-calendar mode
                   </p>
                   <p className="mb-2 text-[11px] text-slate-500">
-                    <span className="font-medium">Block</span>: events show in
-                    full and count as busy time.{" "}
-                    <span className="font-medium">Private</span>: events show as
-                    grey "Busy" (title hidden) and still block.{" "}
+                    <span className="font-medium">Block</span>: events show and
+                    count as busy time.{" "}
                     <span className="font-medium">Shadow</span>: events show
-                    faintly so you're aware, but they DON'T block your
-                    auto-schedule (e.g. family / partner calendars).
+                    faintly so you're aware but they DON'T block your
+                    auto-schedule (e.g. family / partner calendars).{" "}
+                    <span className="font-medium">Exclude</span>: events are
+                    hidden entirely and don't count as busy.
                   </p>
                   {!calendars && (
                     <p className="text-[11px] italic text-slate-400">
@@ -367,72 +367,98 @@ export function SettingsPanel({
                       reconnect.
                     </p>
                   )}
-                  {calendars && calendars.length > 0 && (
-                    <ul className="space-y-1.5">
-                      {calendars.map((c) => {
-                        const isPrivate = (
-                          prefs.privateCalendarIds ?? []
-                        ).includes(c.id);
-                        const isShadow = (
-                          prefs.shadowCalendarIds ?? []
-                        ).includes(c.id);
-                        const mode: "block" | "private" | "shadow" = isPrivate
-                          ? "private"
-                          : isShadow
-                          ? "shadow"
-                          : "block";
-                        const setMode = (m: "block" | "private" | "shadow") => {
-                          const priv = new Set(prefs.privateCalendarIds ?? []);
-                          const sh = new Set(prefs.shadowCalendarIds ?? []);
-                          priv.delete(c.id);
-                          sh.delete(c.id);
-                          if (m === "private") priv.add(c.id);
-                          else if (m === "shadow") sh.add(c.id);
-                          onChange({
-                            privateCalendarIds: Array.from(priv),
-                            shadowCalendarIds: Array.from(sh),
-                          });
-                        };
-                        return (
-                          <li
-                            key={c.id}
-                            className="flex flex-wrap items-center gap-2 text-xs"
-                          >
-                            {c.color && (
-                              <span
-                                className="inline-block h-3 w-3 rounded-sm"
-                                style={{ backgroundColor: c.color }}
-                              />
-                            )}
-                            <span className="flex-1 truncate">
-                              {c.name}
-                              {c.primary && (
-                                <span className="ml-1 text-slate-400">
-                                  (primary)
-                                </span>
+                  {calendars && calendars.length > 0 && (() => {
+                    type Mode = "block" | "shadow" | "exclude";
+                    const excludedSet = new Set([
+                      ...(prefs.excludedCalendarIds ?? []),
+                      ...(prefs.privateCalendarIds ?? []),
+                    ]);
+                    const shadowSet = new Set(prefs.shadowCalendarIds ?? []);
+                    const modeOf = (id: string): Mode =>
+                      excludedSet.has(id)
+                        ? "exclude"
+                        : shadowSet.has(id)
+                        ? "shadow"
+                        : "block";
+                    // Excluded calendars sort to the bottom; primary first
+                    // within each group, then alphabetical.
+                    const sorted = [...calendars].sort((a, b) => {
+                      const ae = modeOf(a.id) === "exclude" ? 1 : 0;
+                      const be = modeOf(b.id) === "exclude" ? 1 : 0;
+                      if (ae !== be) return ae - be;
+                      const ap = a.primary ? 0 : 1;
+                      const bp = b.primary ? 0 : 1;
+                      if (ap !== bp) return ap - bp;
+                      return a.name.localeCompare(b.name);
+                    });
+                    const setMode = (id: string, m: Mode) => {
+                      const ex = new Set(excludedSet);
+                      const sh = new Set(shadowSet);
+                      ex.delete(id);
+                      sh.delete(id);
+                      if (m === "exclude") ex.add(id);
+                      else if (m === "shadow") sh.add(id);
+                      onChange({
+                        excludedCalendarIds: Array.from(ex),
+                        shadowCalendarIds: Array.from(sh),
+                        // Drop the deprecated field so it stops shadowing
+                        // the new state on next render.
+                        privateCalendarIds: [],
+                      });
+                    };
+                    return (
+                      <ul
+                        className="space-y-1.5 overflow-y-auto pr-1"
+                        // ~6 rows visible (each ~28px incl. gap), scroll the rest
+                        style={{ maxHeight: "180px" }}
+                      >
+                        {sorted.map((c) => {
+                          const mode = modeOf(c.id);
+                          return (
+                            <li
+                              key={c.id}
+                              className={`flex flex-wrap items-center gap-2 text-xs ${
+                                mode === "exclude" ? "opacity-60" : ""
+                              }`}
+                            >
+                              {c.color && (
+                                <span
+                                  className="inline-block h-3 w-3 rounded-sm"
+                                  style={{ backgroundColor: c.color }}
+                                />
                               )}
-                            </span>
-                            <div className="flex gap-1">
-                              {(["block", "private", "shadow"] as const).map((m) => (
-                                <button
-                                  key={m}
-                                  type="button"
-                                  onClick={() => setMode(m)}
-                                  className={`rounded-full border px-2 py-0.5 text-[10px] ${
-                                    mode === m
-                                      ? "border-slate-900 bg-slate-900 text-white"
-                                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
-                                  }`}
-                                >
-                                  {m}
-                                </button>
-                              ))}
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
+                              <span className="flex-1 truncate">
+                                {c.name}
+                                {c.primary && (
+                                  <span className="ml-1 text-slate-400">
+                                    (primary)
+                                  </span>
+                                )}
+                              </span>
+                              <div className="flex gap-1">
+                                {(["block", "shadow", "exclude"] as const).map(
+                                  (m) => (
+                                    <button
+                                      key={m}
+                                      type="button"
+                                      onClick={() => setMode(c.id, m)}
+                                      className={`rounded-full border px-2 py-0.5 text-[10px] ${
+                                        mode === m
+                                          ? "border-slate-900 bg-slate-900 text-white"
+                                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+                                      }`}
+                                    >
+                                      {m}
+                                    </button>
+                                  ),
+                                )}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    );
+                  })()}
                 </div>
               )}
               <div className="mt-2 flex flex-wrap items-center gap-2">

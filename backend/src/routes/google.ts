@@ -236,18 +236,23 @@ googleRouter.get("/calendars", async (req, res) => {
   }
   try {
     const calendar = google.calendar({ version: "v3", auth: client });
+    // Only return calendars the user has TICKED in Google Calendar's own UI.
+    // Hidden / unticked calendars are noise (long-archived shares, etc.) and
+    // should not appear in Focus3's settings list.
     const list = await calendar.calendarList.list({
       maxResults: 250,
-      showHidden: true,
+      showHidden: false,
     });
-    const calendars = (list.data.items ?? []).map((c) => ({
-      id: c.id ?? "",
-      name: c.summary ?? "",
-      description: c.description ?? null,
-      color: c.backgroundColor ?? null,
-      primary: c.primary ?? false,
-      selected: c.selected ?? true,
-    }));
+    const calendars = (list.data.items ?? [])
+      .filter((c) => c.id && c.selected !== false)
+      .map((c) => ({
+        id: c.id ?? "",
+        name: c.summary ?? "",
+        description: c.description ?? null,
+        color: c.backgroundColor ?? null,
+        primary: c.primary ?? false,
+        selected: c.selected ?? true,
+      }));
     res.json({ calendars });
   } catch (err) {
     res.status(500).json({
@@ -271,17 +276,16 @@ googleRouter.get("/events", async (req, res) => {
   try {
     const calendar = google.calendar({ version: "v3", auth: client });
 
-    // Pull every calendar the user has selected in their Google Calendar UI.
-    // This includes shared / family calendars (e.g. a partner's), birthdays,
-    // holidays, etc. — not just the primary.
+    // Pull only the calendars the user has TICKED in Google Calendar's own
+    // UI — shared/family calendars, holidays, etc. that they've actively
+    // chosen to see. Hidden or unticked subscriptions stay out.
     const list = await calendar.calendarList.list({
       maxResults: 250,
-      showHidden: true,
+      showHidden: false,
     });
-    // Surface every calendar the user has subscribed to, including hidden ones.
-    // Selection state is just whether they checked the box in Google Calendar's
-    // own UI — we still want to read events from them by default.
-    const calendars = (list.data.items ?? []).filter((c) => Boolean(c.id));
+    const calendars = (list.data.items ?? []).filter(
+      (c) => c.id && c.selected !== false,
+    );
 
     // Fetch events from each calendar in parallel.
     const perCalendar = await Promise.all(

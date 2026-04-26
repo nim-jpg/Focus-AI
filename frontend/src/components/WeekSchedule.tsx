@@ -161,8 +161,13 @@ export function WeekSchedule({
   // Convert events + tasks + sessions into positioned Blocks.
   const blocks: Block[] = useMemo(() => {
     const out: Block[] = [];
-    const privateIds = new Set(prefs.privateCalendarIds ?? []);
     const shadowIds = new Set(prefs.shadowCalendarIds ?? []);
+    // Migration: legacy `privateCalendarIds` is folded into the exclude set
+    // since "private" is no longer a mode.
+    const excludedIds = new Set([
+      ...(prefs.excludedCalendarIds ?? []),
+      ...(prefs.privateCalendarIds ?? []),
+    ]);
 
     // Tasks linked to Google events (calendarEventId set) — we'll skip rendering
     // them as task blocks because the event itself will appear via the events
@@ -180,29 +185,21 @@ export function WeekSchedule({
 
     for (const ev of events) {
       if (!ev.start) continue;
+      // Excluded calendars: don't render at all.
+      if (ev.calendarId && excludedIds.has(ev.calendarId)) continue;
       const sd = new Date(ev.start);
       const ed = ev.end ? new Date(ev.end) : new Date(sd.getTime() + 60 * 60 * 1000);
       const dayIdx = dayIdxFor(sd);
       if (dayIdx < 0 || dayIdx > 6) continue;
 
-      const isPrivate = ev.calendarId ? privateIds.has(ev.calendarId) : false;
       const isShadow = ev.calendarId ? shadowIds.has(ev.calendarId) : false;
       const linkedTask = ev.id ? tasksByEventId.get(ev.id) : undefined;
 
-      // Redact private events: title hidden, no calendar name, no link.
-      const renderedEvent: CalendarEvent = isPrivate
+      const renderedEvent: CalendarEvent = isShadow
         ? {
             ...ev,
-            summary: "Busy",
-            calendarName: null,
-            calendarColor: "#94a3b8", // slate-400
-            htmlLink: null,
-          }
-        : isShadow
-        ? {
-            ...ev,
-            // Keep title and metadata but mark visually as shadow via colour
-            calendarColor: "#cbd5e1", // slate-300, faint
+            // Faint colour so shadow events read as background context.
+            calendarColor: "#cbd5e1", // slate-300
           }
         : ev;
 
@@ -286,7 +283,14 @@ export function WeekSchedule({
     }
 
     return out;
-  }, [events, tasks, weekStart, prefs.privateCalendarIds, prefs.shadowCalendarIds]);
+  }, [
+    events,
+    tasks,
+    weekStart,
+    prefs.shadowCalendarIds,
+    prefs.excludedCalendarIds,
+    prefs.privateCalendarIds,
+  ]);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -335,6 +339,10 @@ export function WeekSchedule({
       events,
       taskId,
       prefs.shadowCalendarIds ?? [],
+      [
+        ...(prefs.excludedCalendarIds ?? []),
+        ...(prefs.privateCalendarIds ?? []),
+      ],
     );
     const slots = suggestSessionTimes(
       need,
