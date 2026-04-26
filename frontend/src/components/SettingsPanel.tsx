@@ -16,10 +16,12 @@ interface Props {
   /** Optional backup hooks; when omitted the section is hidden. */
   onExport?: () => void;
   onImport?: (file: File) => Promise<void>;
-  /** Calendar status + disconnect action. When undefined the section is hidden. */
+  /** Calendar status + connect/disconnect actions. When undefined the section is hidden. */
   calendar?: {
+    configured: boolean;
     connected: boolean;
     email?: string | null;
+    onConnect: () => void | Promise<void>;
     onDisconnect: () => Promise<void> | void;
   };
 }
@@ -84,14 +86,14 @@ export function SettingsPanel({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 px-4 py-6"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl"
+        className="my-auto flex max-h-[90vh] w-full max-w-lg flex-col rounded-lg bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
           <h3 className="text-base font-semibold">Settings</h3>
           <button
             type="button"
@@ -101,6 +103,7 @@ export function SettingsPanel({
             ×
           </button>
         </div>
+        <div className="overflow-y-auto px-5 py-4">
 
         <div className="space-y-5">
           {/* User type — shapes how Focus3 reads your day */}
@@ -109,8 +112,10 @@ export function SettingsPanel({
               I'm an…
             </h4>
             <p className="text-xs text-slate-500">
-              Helps Focus3 sort tasks. Self-employed people's main work
-              counts as "projects"; retired people don't get a "work" bucket.
+              Shapes how brain-dumps are tagged. Employees: company / dev work
+              you do on the side counts as "projects". Self-employed: your
+              business work counts as "work". Retired: any work-shaped task
+              counts as "projects".
             </p>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {USER_TYPES.map((t) => {
@@ -428,23 +433,39 @@ export function SettingsPanel({
                   )}
                 </div>
               )}
-              {calendar.connected && (
-                <button
-                  type="button"
-                  className="mt-2 text-xs text-red-600 hover:text-red-800"
-                  onClick={() => {
-                    if (
-                      confirm(
-                        "Disconnect Google Calendar? Your tasks stay; we'll forget your Google tokens.",
-                      )
-                    ) {
-                      void calendar.onDisconnect();
-                    }
-                  }}
-                >
-                  Disconnect Calendar
-                </button>
-              )}
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {!calendar.connected && calendar.configured && (
+                  <button
+                    type="button"
+                    className="btn-primary text-xs"
+                    onClick={() => void calendar.onConnect()}
+                  >
+                    Connect Calendar
+                  </button>
+                )}
+                {!calendar.configured && (
+                  <span className="text-xs text-amber-700">
+                    Google OAuth isn't configured on the server.
+                  </span>
+                )}
+                {calendar.connected && (
+                  <button
+                    type="button"
+                    className="text-xs text-red-600 hover:text-red-800"
+                    onClick={() => {
+                      if (
+                        confirm(
+                          "Disconnect Google Calendar? Your tasks stay; we'll forget your Google tokens.",
+                        )
+                      ) {
+                        void calendar.onDisconnect();
+                      }
+                    }}
+                  >
+                    Disconnect Calendar
+                  </button>
+                )}
+              </div>
             </section>
           )}
 
@@ -518,8 +539,9 @@ export function SettingsPanel({
             </section>
           )}
         </div>
+        </div>
 
-        <div className="mt-5 flex justify-end">
+        <div className="flex justify-end border-t border-slate-200 px-5 py-3">
           <button type="button" className="btn-primary" onClick={onClose}>
             Done
           </button>

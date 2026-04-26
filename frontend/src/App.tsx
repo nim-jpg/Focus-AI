@@ -98,6 +98,21 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     return task;
   };
 
+  // One-time auto-correction: any task with a Companies House lock and a
+  // dueDate >30 days out shouldn't be flagged high/critical urgency. The
+  // brain-dump AI sets urgency before the filing date is known, so once we
+  // have the real date we can relax the flag automatically.
+  useEffect(() => {
+    for (const t of tasks) {
+      if (t.status === "completed") continue;
+      if (!t.companyHouseNumber || !t.dueDate) continue;
+      if (t.urgency !== "high" && t.urgency !== "critical") continue;
+      const daysOut = (new Date(t.dueDate).getTime() - Date.now()) / 86400000;
+      if (daysOut > 30) updateTask(t.id, { urgency: "normal" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const taskCountByGoal = useMemo(() => {
     const map = new Map<string, number>();
     for (const t of tasks) {
@@ -701,12 +716,20 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       {view === "goals" && (
         <Goals
           goals={goals}
+          tasks={tasks}
           taskCountByGoal={taskCountByGoal}
           progressByGoal={goalProgress}
           onAdd={addGoal}
           onUpdate={updateGoal}
           onRemove={removeGoal}
           onAddTaskForGoal={startNewForGoal}
+          onLinkTaskToGoal={(taskId, goalId) => {
+            const t = tasks.find((x) => x.id === taskId);
+            if (!t) return;
+            const cur = t.goalIds ?? [];
+            if (cur.includes(goalId)) return;
+            updateTask(taskId, { goalIds: [...cur, goalId] });
+          }}
         />
       )}
 
@@ -792,8 +815,15 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           calendar={
             googleStatus
               ? {
+                  configured: googleStatus.configured,
                   connected: googleStatus.connected,
                   email: googleStatus.email,
+                  onConnect: () =>
+                    startGoogleConnect().catch((err) =>
+                      setCalendarMsg(
+                        `Connect failed — ${err instanceof Error ? err.message : String(err)}`,
+                      ),
+                    ),
                   onDisconnect: async () => {
                     await disconnectGoogle();
                     setGoogleStatus(await fetchGoogleStatus());

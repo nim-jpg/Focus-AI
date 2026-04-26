@@ -29,7 +29,11 @@ const THEME_LABELS: Record<Theme, string> = {
 function formatDue(iso?: string): string {
   if (!iso) return "—";
   const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "2-digit",
+  });
 }
 
 export function TaskList({

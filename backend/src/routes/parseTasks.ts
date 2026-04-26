@@ -9,18 +9,23 @@ For each distinct task in the input, emit a JSON object with these fields:
 - title: short imperative phrase, max 80 chars
 - description: optional clarifying text from the input; omit if title is self-explanatory
 - theme: one of: work, projects, personal, school, fitness, finance, diet, medication, development, household
-  · "work" = paid day-job tasks (employer, employee duties, salaried role).
-  · "projects" = personal initiatives the user is building/working on (own
-    company, side hustle, app build, freelance gig). Looks like work but
-    isn't day-job. If the user is self-employed, their main work likely
-    goes here too.
+  · "work" = the user's primary income-earning activity. For an employee
+    this is their day-job. For a self-employed person this is their
+    business / freelance work — which may include their own Ltd company,
+    development, client work, etc.
+  · "projects" = side initiatives that aren't the user's primary income.
+    For an employee, this includes their own company, side hustles, app
+    builds, freelance gigs, personal development. For a retired person,
+    any work-shaped activity (companies, dev, building things) goes here
+    since they have no day-job.
   · "school" = homework, exams, school admin, parents-evening, anything
     tied to a child's education.
   · "fitness" for sports practice, training, gym sessions, runs.
   · "household" for chores, repairs, bills not tied to finance accounts, food shop.
   · "finance" for bank, tax, investments, government filings (Companies
     House confirmation statements, VAT, accounts) — but if the filing is
-    clearly tied to a personal-project company, prefer "projects".
+    clearly tied to the user's own company, use "work" (self-employed) or
+    "projects" (employee / retired).
 - urgency: one of: low, normal, high, critical (default normal)
 - privacy: one of: private, semi-private, public (default private)
 - recurrence: one of: none, daily, weekly, monthly, quarterly, yearly (default none)
@@ -37,13 +42,14 @@ Rules:
 - Return tasks in input order.
 - The user message may include a "user-type:" line indicating the user's
   primary occupation context (employee / self-employed / student /
-  retired / other). Use it to disambiguate themes:
-    · self-employed → main work probably goes to "projects" not "work".
-    · employee → "work" for day-job tasks, "projects" for personal side
-      ventures (their own Ltd, app, etc.).
-    · student → "school" is for THEIR studies, not a child's.
-    · retired → no "work" theme; "personal" / "household" / "fitness" /
-      "projects" only.
+  retired / other). Use it to disambiguate work-shaped tasks
+  (companies, development, business filings, building things):
+    · employee → those go to "projects" (the day-job is "work"; their
+      own ventures are side projects).
+    · self-employed → those go to "work" (their business IS the day-job).
+    · retired → those go to "projects" (no day-job, so nothing is "work").
+    · student → "school" is for THEIR studies, not a child's; their own
+      ventures still go to "projects".
 
 Respond with strict JSON only, no prose, no markdown fences:
 { "tasks": [ { ... }, { ... } ] }`;
