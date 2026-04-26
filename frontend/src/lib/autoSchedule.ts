@@ -3,9 +3,11 @@ import type { CalendarEvent } from "./googleCalendar";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-interface BusyBlock {
+export interface BusyBlock {
   start: number;
   end: number;
+  /** Optional human-readable label so diagnostics can say WHAT blocked a slot. */
+  label?: string;
 }
 
 interface WorkingHours {
@@ -14,6 +16,17 @@ interface WorkingHours {
   days: number[]; // day-of-week 0=Sun..6=Sat
   officeDays: number[];
   commuteHours: number;
+  /** Buffer in hours around commute on office days. Slots can't sit within
+   *  this many hours of commute start/end. */
+  commuteBufferHours: number;
+  /** Wake-up hour. Earliest acceptable slot is wakeUp + 0.5 (half hour). */
+  wakeUp: number;
+  /** Bedtime hour. Latest acceptable slot is bed - 1 (one hour before bed). */
+  bed: number;
+  /** ISO date strings ("YYYY-MM-DD") the user has marked as holidays —
+   *  treated as non-working (no work-hours block, no commute, weekend
+   *  slot shape). */
+  holidayDates: Set<string>;
 }
 
 function parseHour(hhmm: string): number {
@@ -28,15 +41,32 @@ function workingHoursFromPrefs(prefs?: UserPrefs): WorkingHours {
     days: prefs?.workingDays ?? [1, 2, 3, 4, 5],
     officeDays: prefs?.officeDays ?? [],
     commuteHours: (prefs?.commuteMinutes ?? 0) / 60,
+    commuteBufferHours: (prefs?.commuteBufferMinutes ?? 30) / 60,
+    wakeUp: prefs?.wakeUpTime ? parseHour(prefs.wakeUpTime) : 7,
+    bed: prefs?.bedTime ? parseHour(prefs.bedTime) : 23,
+    holidayDates: new Set(prefs?.holidayDates ?? []),
   };
+}
+
+function isoDateOf(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function isHolidayOf(date: Date, wh: WorkingHours): boolean {
+  return wh.holidayDates.has(isoDateOf(date));
 }
 
 /** Slot preference rules — weekday-shape vs weekend-shape, anchored to working hours. */
 function preferredSlotsFor(
   dayOfWeek: number,
   wh: WorkingHours,
+  isHoliday = false,
 ): Array<{ hour: number; minute: number }> {
-  const isWorkingDay = wh.days.includes(dayOfWeek);
+  // Holidays use the weekend slot shape (full day available).
+  const isWorkingDay = !isHoliday && wh.days.includes(dayOfWeek);
   if (!isWorkingDay) {
     // "weekend" shape: morning slots before any work-anchor
     return [
@@ -64,19 +94,21 @@ function preferredSlotsFor(
 
 function isWorkHours(date: Date, wh: WorkingHours): boolean {
   if (!wh.days.includes(date.getDay())) return false;
+  // Holidays disable the work-hours block for that specific date.
+  if (isHolidayOf(date, wh)) return false;
   const t = date.getHours() + date.getMinutes() / 60;
-  // On office days, commute extends busy windows by commuteHours either side.
+  // On office days, commute + buffer extends busy windows either side.
   const isOffice = wh.officeDays.includes(date.getDay());
-  const startBlock = isOffice ? wh.start - wh.commuteHours : wh.start;
-  const endBlock = isOffice ? wh.end + wh.commuteHours : wh.end;
+  const padding = isOffice ? wh.commuteHours + wh.commuteBufferHours : 0;
+  const startBlock = wh.start - padding;
+  const endBlock = wh.end + padding;
   return t >= startBlock && t < endBlock;
 }
 
-function overlaps(start: number, end: number, busy: BusyBlock[]): boolean {
-  for (const b of busy) {
-    if (start < b.end && end > b.start) return true;
-  }
-  return false;
+function isOutsideWakingHours(date: Date, wh: WorkingHours): boolean {
+  const t = date.getHours() + date.getMinutes() / 60;
+  // Earliest = wakeUp + 30 min. Latest start = bed - 1 hour.
+  return t < wh.wakeUp + 0.5 || t > wh.bed - 1;
 }
 
 /**
@@ -108,6 +140,19 @@ const MIN_GAP_HOURS = 16; // hard floor between consecutive sessions
  *  4. Reject any candidate that lands within MIN_GAP_HOURS of an already-
  *     placed session, or clashes with existing busy blocks.
  */
+export interface SlotAttempt {
+  candidate: Date;
+  reason: "past" | "work-hours" | "outside-waking" | "busy" | "rest-gap";
+  /** When reason === "busy", the busy window that blocked it (start/end ms). */
+  conflict?: BusyBlock;
+}
+
+export interface SuggestResult {
+  slots: Date[];
+  /** Per-day attempt log — one entry per slot tried. */
+  attempts: SlotAttempt[];
+}
+
 export function suggestSessionTimes(
   count: number,
   durationMinutes: number,
@@ -115,30 +160,65 @@ export function suggestSessionTimes(
   busy: BusyBlock[],
   prefs?: UserPrefs,
 ): Date[] {
-  if (count <= 0) return [];
+  return suggestSessionTimesDetailed(
+    count,
+    durationMinutes,
+    weekStart,
+    busy,
+    prefs,
+  ).slots;
+}
+
+export function suggestSessionTimesDetailed(
+  count: number,
+  durationMinutes: number,
+  weekStart: Date,
+  busy: BusyBlock[],
+  prefs?: UserPrefs,
+): SuggestResult {
+  if (count <= 0) return { slots: [], attempts: [] };
   const n = Math.min(count, 7);
   const wh = workingHoursFromPrefs(prefs);
 
   const placed: Date[] = [];
+  const attempts: SlotAttempt[] = [];
   const localBusy = [...busy];
 
   const tryDayWithSlot = (dayOffset: number): Date | null => {
     const date = new Date(weekStart.getTime() + dayOffset * DAY_MS);
     const dow = date.getDay();
-    const slots = preferredSlotsFor(dow, wh);
+    const slots = preferredSlotsFor(dow, wh, isHolidayOf(date, wh));
     for (const slot of slots) {
       const candidate = new Date(date);
       candidate.setHours(slot.hour, slot.minute, 0, 0);
-      if (candidate.getTime() < Date.now()) continue;
-      if (isWorkHours(candidate, wh)) continue;
+      if (candidate.getTime() < Date.now()) {
+        attempts.push({ candidate, reason: "past" });
+        continue;
+      }
+      if (isOutsideWakingHours(candidate, wh)) {
+        attempts.push({ candidate, reason: "outside-waking" });
+        continue;
+      }
+      if (isWorkHours(candidate, wh)) {
+        attempts.push({ candidate, reason: "work-hours" });
+        continue;
+      }
       const start = candidate.getTime();
       const end = start + durationMinutes * 60 * 1000;
-      if (overlaps(start, end, localBusy)) continue;
-      // Enforce minimum rest gap from any already-placed session
+      const conflict = localBusy.find(
+        (b) => start < b.end && end > b.start,
+      );
+      if (conflict) {
+        attempts.push({ candidate, reason: "busy", conflict });
+        continue;
+      }
       const tooClose = placed.some(
         (p) => Math.abs(p.getTime() - start) < MIN_GAP_HOURS * 60 * 60 * 1000,
       );
-      if (tooClose) continue;
+      if (tooClose) {
+        attempts.push({ candidate, reason: "rest-gap" });
+        continue;
+      }
       localBusy.push({ start, end });
       return candidate;
     }
@@ -208,7 +288,10 @@ export function suggestSessionTimes(
     }
   }
 
-  return placed.sort((a, b) => a.getTime() - b.getTime());
+  return {
+    slots: placed.sort((a, b) => a.getTime() - b.getTime()),
+    attempts,
+  };
 }
 
 /**
@@ -240,7 +323,7 @@ export function busyWindowsForWeek(
     const s = new Date(ev.start).getTime();
     const e = new Date(ev.end).getTime();
     if (e < weekStart.getTime() || s > weekEnd.getTime()) continue;
-    busy.push({ start: s, end: e });
+    busy.push({ start: s, end: e, label: ev.summary || "calendar event" });
   }
 
   for (const t of tasks) {
@@ -250,13 +333,13 @@ export function busyWindowsForWeek(
     if (t.scheduledFor) {
       const s = new Date(t.scheduledFor).getTime();
       if (s >= weekStart.getTime() && s < weekEnd.getTime()) {
-        busy.push({ start: s, end: s + dur });
+        busy.push({ start: s, end: s + dur, label: t.title });
       }
     }
     for (const iso of t.sessionTimes ?? []) {
       const s = new Date(iso).getTime();
       if (s >= weekStart.getTime() && s < weekEnd.getTime()) {
-        busy.push({ start: s, end: s + dur });
+        busy.push({ start: s, end: s + dur, label: `${t.title} (session)` });
       }
     }
   }

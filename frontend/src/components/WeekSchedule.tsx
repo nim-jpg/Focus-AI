@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Task, UserPrefs } from "@/types/task";
 import { deleteEvent, fetchEvents, type CalendarEvent } from "@/lib/googleCalendar";
-import { busyWindowsForWeek, suggestSessionTimes } from "@/lib/autoSchedule";
+import { busyWindowsForWeek, suggestSessionTimesDetailed } from "@/lib/autoSchedule";
 import { isDueNow } from "@/lib/recurrence";
 
 interface Props {
@@ -455,16 +455,46 @@ export function WeekSchedule({
         ...(prefs.privateCalendarIds ?? []),
       ],
     );
-    const slots = suggestSessionTimes(
+    const result = suggestSessionTimesDetailed(
       need,
       task.estimatedMinutes ?? 60,
       rollStart,
       busy,
       prefs,
     );
+    const slots = result.slots;
     if (slots.length === 0) {
+      // Build a useful diagnostic from the per-slot attempts.
+      const reasonCounts: Record<string, number> = {};
+      const conflictTitles = new Set<string>();
+      for (const a of result.attempts) {
+        reasonCounts[a.reason] = (reasonCounts[a.reason] ?? 0) + 1;
+        if (a.reason === "busy" && a.conflict?.label) {
+          conflictTitles.add(a.conflict.label);
+        }
+      }
+      const parts: string[] = [];
+      if (reasonCounts["work-hours"])
+        parts.push(`${reasonCounts["work-hours"]} during your working hours`);
+      if (reasonCounts["outside-waking"])
+        parts.push(
+          `${reasonCounts["outside-waking"]} outside your wake-up / bedtime range`,
+        );
+      if (reasonCounts["busy"])
+        parts.push(`${reasonCounts["busy"]} clash with calendar/tasks`);
+      if (reasonCounts["rest-gap"])
+        parts.push(
+          `${reasonCounts["rest-gap"]} too close to another session (16h rest gap)`,
+        );
+      if (reasonCounts["past"])
+        parts.push(`${reasonCounts["past"]} already in the past`);
+      const suffix = parts.length > 0 ? ` — tried ${result.attempts.length} slots: ${parts.join(", ")}.` : "";
+      const conflictList =
+        conflictTitles.size > 0
+          ? ` Conflicts include: ${[...conflictTitles].slice(0, 3).join(", ")}.`
+          : "";
       onMessage?.(
-        `Auto-schedule for "${task.title}" found no free slots in the next 7 days. Try widening working hours, freeing up evenings/weekends, or schedule manually.`,
+        `Auto-schedule for "${task.title}" found no free slots in the next 7 days.${suffix}${conflictList} Adjust working hours, mark calendars as Shadow/Exclude, or schedule manually.`,
       );
       return;
     }
@@ -624,14 +654,6 @@ export function WeekSchedule({
   const visibleBlocks = blocks.filter(passesFocusFilter);
   const allDayBlocks = visibleBlocks.filter((b) => b.allDay);
   const timedBlocks = visibleBlocks.filter((b) => !b.allDay);
-  // Stacked-view list: chronological across the visible window.
-  const stackedBlocks = visibleBlocks
-    .slice()
-    .sort((a, b) => {
-      if (a.dayIdx !== b.dayIdx) return a.dayIdx - b.dayIdx;
-      if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
-      return a.startMin - b.startMin;
-    });
 
   return (
     <section>
@@ -657,12 +679,34 @@ export function WeekSchedule({
               session
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-slate-200" />
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-sm"
+                style={{
+                  backgroundImage:
+                    "repeating-linear-gradient(45deg, transparent 0 2px, rgba(100,116,139,0.45) 2px 3px)",
+                }}
+              />
               working hours
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-sm"
+                style={{
+                  backgroundImage:
+                    "repeating-linear-gradient(45deg, transparent 0 2px, rgba(148,163,184,0.55) 2px 3px)",
+                }}
+              />
+              weekend / non-working
             </span>
             {commuteMin > 0 && (
               <span className="inline-flex items-center gap-1">
-                <span className="inline-block h-2.5 w-2.5 rounded-sm bg-amber-200" />
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-sm"
+                  style={{
+                    backgroundImage:
+                      "repeating-linear-gradient(45deg, transparent 0 2px, rgba(217,119,6,0.55) 2px 3px)",
+                  }}
+                />
                 commute
               </span>
             )}
@@ -803,154 +847,6 @@ export function WeekSchedule({
         </div>
       )}
 
-      {viewMode === "stacked" && (() => {
-        // Same day-column layout as the calendar grid, but no hour gutter
-        // and no Y-positioning. Items are listed top-to-bottom inside each
-        // column in chronological order.
-        const byDay = new Map<number, Block[]>();
-        for (const b of stackedBlocks) {
-          const arr = byDay.get(b.dayIdx) ?? [];
-          arr.push(b);
-          byDay.set(b.dayIdx, arr);
-        }
-        return (
-          <div className="overflow-x-auto">
-            {/* Day headers — same template as the grid view, minus the
-                48px hour gutter. */}
-            <div
-              className="grid border-b border-slate-200 text-xs"
-              style={{
-                gridTemplateColumns: `repeat(${viewDays}, minmax(160px, 1fr))`,
-                minWidth: "820px",
-              }}
-            >
-              {Array.from({ length: viewDays }).map((_, idx) => {
-                const dayDate = new Date(weekStart.getTime() + idx * DAY_MS);
-                const isToday = idx === todayIdx;
-                return (
-                  <div
-                    key={idx}
-                    className={`border-l border-slate-200 px-2 py-1 first:border-l-0 ${
-                      isToday ? "bg-emerald-50/50" : ""
-                    }`}
-                  >
-                    <div className="font-semibold text-slate-700">
-                      {SHORT_DAYS[dayDate.getDay()]}
-                    </div>
-                    <div className="text-[10px] text-slate-500">
-                      {dayDate.toLocaleDateString(undefined, {
-                        day: "numeric",
-                        month: "short",
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {/* Day columns — items stacked vertically per column. */}
-            <div
-              className="grid"
-              style={{
-                gridTemplateColumns: `repeat(${viewDays}, minmax(160px, 1fr))`,
-                minWidth: "820px",
-              }}
-            >
-              {Array.from({ length: viewDays }).map((_, dayIdx) => {
-                const items = byDay.get(dayIdx) ?? [];
-                const isToday = dayIdx === todayIdx;
-                return (
-                  <div
-                    key={dayIdx}
-                    className={`min-h-[120px] space-y-1 border-l border-slate-200 p-1 first:border-l-0 ${
-                      isToday ? "bg-emerald-50/30" : ""
-                    }`}
-                  >
-                    {items.length === 0 ? (
-                      <p className="px-1 py-2 text-[10px] italic text-slate-400">
-                        nothing
-                      </p>
-                    ) : (
-                      items.map((b, i) => {
-                        const startIso = b.allDay
-                          ? null
-                          : new Date(
-                              weekStart.getTime() +
-                                b.dayIdx * DAY_MS +
-                                b.startMin * 60_000,
-                            ).toISOString();
-                        const endIso = b.allDay
-                          ? null
-                          : new Date(
-                              weekStart.getTime() +
-                                b.dayIdx * DAY_MS +
-                                b.endMin * 60_000,
-                            ).toISOString();
-                        const title =
-                          b.event?.summary ??
-                          (b.task?.title
-                            ? `${b.task.title}${b.kind === "session" ? ` (${b.sessionIdx}/${b.sessionTotal})` : ""}`
-                            : "");
-                        const eventBg =
-                          b.event?.calendarColor ?? "#dbeafe";
-                        // Same colour treatment as the grid view: solid
-                        // fills; shadow blocks light grey + medium grey
-                        // text that darkens on hover.
-                        const colourCls = b.shadow
-                          ? "bg-slate-100 text-slate-500 border-slate-200 hover:text-slate-900"
-                          : b.kind === "session"
-                          ? "border-violet-300 bg-violet-100 text-violet-900"
-                          : b.kind === "task"
-                          ? "border-emerald-300 bg-emerald-100 text-emerald-900"
-                          : "border text-slate-900";
-                        const inlineBg =
-                          b.kind === "event" && !b.shadow
-                            ? {
-                                backgroundColor: eventBg,
-                                borderColor: eventBg,
-                              }
-                            : undefined;
-                        return (
-                          <div
-                            key={i}
-                            className={`rounded border px-1.5 py-1 text-[11px] leading-tight ${colourCls}`}
-                            style={inlineBg}
-                            title={
-                              b.event?.calendarName
-                                ? `${title} · ${b.event.calendarName}`
-                                : title
-                            }
-                          >
-                            <div className="font-mono text-[9px] opacity-70">
-                              {b.allDay
-                                ? "all day"
-                                : `${fmtTime(startIso)} – ${fmtTime(endIso)}`}
-                            </div>
-                            <div className="break-words">
-                              {title}
-                              {b.brokenLink && (
-                                <span className="ml-1 text-amber-700">
-                                  (removed)
-                                </span>
-                              )}
-                            </div>
-                            {b.event?.calendarName && (
-                              <div className="mt-0.5 truncate text-[9px] opacity-70">
-                                {b.event.calendarName}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
-
-      {viewMode !== "stacked" && (
       <div className="relative overflow-x-auto">
       {/* Edge advance zones — show while dragging, trigger week jump after a hover */}
       {dragging && (
@@ -982,7 +878,7 @@ export function WeekSchedule({
       <div
         className="grid border-b border-slate-200 text-xs"
         style={{
-          gridTemplateColumns: `48px repeat(${viewDays}, minmax(110px, 1fr))`,
+          gridTemplateColumns: viewMode === "stacked" ? `repeat(${viewDays}, minmax(160px, 1fr))` : `48px repeat(${viewDays}, minmax(110px, 1fr))`,
           minWidth: "820px",
         }}
       >
@@ -1038,7 +934,7 @@ export function WeekSchedule({
         <div
           className="grid border-b border-slate-200 text-[10px]"
           style={{
-            gridTemplateColumns: `48px repeat(${viewDays}, minmax(110px, 1fr))`,
+            gridTemplateColumns: viewMode === "stacked" ? `repeat(${viewDays}, minmax(160px, 1fr))` : `48px repeat(${viewDays}, minmax(110px, 1fr))`,
             minWidth: "820px",
           }}
         >
@@ -1067,45 +963,56 @@ export function WeekSchedule({
         </div>
       )}
 
-      {/* Hour grid */}
+      {/* Hour grid (column-flex stack in stacked mode) */}
       <div
         className="relative grid"
         style={{
-          gridTemplateColumns: `48px repeat(${viewDays}, minmax(110px, 1fr))`,
+          gridTemplateColumns: viewMode === "stacked" ? `repeat(${viewDays}, minmax(160px, 1fr))` : `48px repeat(${viewDays}, minmax(110px, 1fr))`,
           minWidth: "820px",
-          height: `${gridHeight}px`,
+          ...(viewMode === "stacked"
+            ? { minHeight: "120px" }
+            : { height: `${gridHeight}px` }),
         }}
       >
-        {/* Hour labels column */}
-        <div className="relative">
-          {Array.from({ length: totalHours }).map((_, i) => {
-            const hour = gridStartHour + i;
-            return (
-              <div
-                key={hour}
-                className="absolute right-1 -translate-y-1.5 text-[10px] text-slate-400"
-                style={{ top: `${i * HOUR_HEIGHT}px` }}
-              >
-                {String(hour).padStart(2, "0")}:00
-              </div>
-            );
-          })}
-        </div>
+        {/* Hour labels column — only in grid mode. */}
+        {viewMode !== "stacked" && (
+          <div className="relative">
+            {Array.from({ length: totalHours }).map((_, i) => {
+              const hour = gridStartHour + i;
+              return (
+                <div
+                  key={hour}
+                  className="absolute right-1 -translate-y-1.5 text-[10px] text-slate-400"
+                  style={{ top: `${i * HOUR_HEIGHT}px` }}
+                >
+                  {String(hour).padStart(2, "0")}:00
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Day columns */}
         {Array.from({ length: viewDays }).map((_, dayIdx) => {
           const isToday = dayIdx === todayIdx;
-          const rawDayBlocks = timedBlocks.filter((b) => b.dayIdx === dayIdx);
-          // Side-by-side layout for overlapping blocks (Google Calendar style):
-          // assign each block a column index within its overlap cluster.
-          const layout = layoutOverlappingBlocks(rawDayBlocks);
-          const dayBlocks = layout.blocks;
+          const rawDayBlocks = (
+            viewMode === "stacked" ? blocks.filter((b) => b.dayIdx === dayIdx) : timedBlocks.filter((b) => b.dayIdx === dayIdx)
+          );
+          // Stacked: simple time-sort. Grid: cluster + cascade-indent.
+          const dayBlocks = viewMode === "stacked"
+            ? [...rawDayBlocks].sort((a, b) => {
+                if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
+                return a.startMin - b.startMin;
+              })
+            : layoutOverlappingBlocks(rawDayBlocks).blocks;
           return (
             <div
               key={dayIdx}
               className={`relative border-l border-slate-200 ${
                 isToday ? "bg-emerald-50/30" : ""
-              } ${dragging ? "ring-1 ring-inset ring-slate-300" : ""}`}
+              } ${dragging ? "ring-1 ring-inset ring-slate-300" : ""} ${
+                viewMode === "stacked" ? "flex flex-col gap-1 p-1 min-h-[120px]" : ""
+              }`}
               onDragOver={(e) => {
                 if (dragging) {
                   e.preventDefault();
@@ -1114,6 +1021,7 @@ export function WeekSchedule({
               }}
               onDrop={handleColumnDrop(dayIdx)}
               onMouseMove={(e) => {
+                if (viewMode === "stacked") return;
                 // Only respond when the cursor is over the empty column —
                 // when over a block, that block's onMouseEnter sets the
                 // focus to its true time range instead.
@@ -1136,8 +1044,10 @@ export function WeekSchedule({
             >
               {/* Working-hours zone — diagonal grey stripes (matches the
                   commute treatment) so it reads as background context, not
-                  a solid block. Suppressed on holidays. */}
-              {isWorkingDayIdx(dayIdx) &&
+                  a solid block. Suppressed on holidays. Skipped in stacked
+                  view (no time grid to overlay). */}
+              {viewMode !== "stacked" &&
+                isWorkingDayIdx(dayIdx) &&
                 workTopY < gridHeight &&
                 workBottomY > 0 && (
                   <div
@@ -1151,6 +1061,22 @@ export function WeekSchedule({
                     title="Working hours"
                   />
                 )}
+              {/* Weekend / non-working day — diagonal lighter-grey stripes
+                  across the whole column so the user can see at a glance
+                  that this day is off-shape. Holidays count too. */}
+              {viewMode !== "stacked" &&
+                (!isWorkingDayIdx(dayIdx) || isHolidayIdx(dayIdx)) && (
+                  <div
+                    className="pointer-events-none absolute inset-0"
+                    style={{
+                      backgroundImage:
+                        "repeating-linear-gradient(45deg, transparent 0 6px, rgba(148,163,184,0.12) 6px 8px)",
+                    }}
+                    title={
+                      isHolidayIdx(dayIdx) ? "Holiday" : "Non-working day"
+                    }
+                  />
+                )}
               {isHolidayIdx(dayIdx) && (
                 <div
                   className="pointer-events-none absolute left-1 top-1 z-30 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-800"
@@ -1159,8 +1085,9 @@ export function WeekSchedule({
                   holiday
                 </div>
               )}
-              {/* Commute zones on office days — striped amber so it's distinct */}
-              {isOfficeDayIdx(dayIdx) && commuteMin > 0 && (
+              {/* Commute zones on office days — striped amber so it's distinct.
+                  Skipped in stacked view. */}
+              {viewMode !== "stacked" && isOfficeDayIdx(dayIdx) && commuteMin > 0 && (
                 <>
                   <div
                     className="absolute left-0 right-0 bg-amber-100/70"
@@ -1185,23 +1112,24 @@ export function WeekSchedule({
                 </>
               )}
 
-              {/* Hour gridlines — faint solid lines, slightly stronger every 6 hours */}
-              {Array.from({ length: totalHours }).map((_, i) => {
-                const hour = gridStartHour + i;
-                const major = hour % 6 === 0;
-                return (
-                  <div
-                    key={i}
-                    className={`absolute left-0 right-0 border-t ${
-                      major ? "border-slate-300" : "border-slate-200"
-                    }`}
-                    style={{ top: `${i * HOUR_HEIGHT}px` }}
-                  />
-                );
-              })}
+              {/* Hour gridlines — only in grid mode. */}
+              {viewMode !== "stacked" &&
+                Array.from({ length: totalHours }).map((_, i) => {
+                  const hour = gridStartHour + i;
+                  const major = hour % 6 === 0;
+                  return (
+                    <div
+                      key={i}
+                      className={`absolute left-0 right-0 border-t ${
+                        major ? "border-slate-300" : "border-slate-200"
+                      }`}
+                      style={{ top: `${i * HOUR_HEIGHT}px` }}
+                    />
+                  );
+                })}
 
-              {/* Now-line on today */}
-              {isToday && showNowLine && (
+              {/* Now-line on today — grid mode only. */}
+              {viewMode !== "stacked" && isToday && showNowLine && (
                 <div
                   className="absolute left-0 right-0 z-20 border-t-2 border-rose-400"
                   style={{ top: `${minToY(nowMin)}px` }}
@@ -1284,12 +1212,12 @@ export function WeekSchedule({
                 return (
                   <div
                     key={i}
-                    className={`group absolute overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight transition-all hover:!left-0 hover:!right-0 hover:!w-auto hover:overflow-visible hover:!min-h-fit hover:shadow-lg ${colour} ${
+                    className={`group ${viewMode === "stacked" ? "relative" : "absolute hover:!left-0 hover:!right-0 hover:!w-auto hover:overflow-visible hover:!min-h-fit"} overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight transition-all hover:shadow-lg ${colour} ${
                       draggable ? "cursor-move" : ""
                     } ${b.ignored ? "opacity-40 border-dashed" : ""} ${(() => {
-                      // Cursor focus: when hovering a different day/slot,
-                      // fade non-matching blocks to ~20% so the relevant
-                      // ones stand out.
+                      // Cursor focus: only used in grid mode (stacked
+                      // mode shows everything at full opacity).
+                      if (viewMode === "stacked") return "";
                       if (!hoverFocus) return "";
                       if (hoverFocus.dayIdx !== b.dayIdx) return "opacity-20";
                       // Range mode (cursor over a block): match if our
@@ -1308,13 +1236,20 @@ export function WeekSchedule({
                       return inSlot ? "" : "opacity-20";
                     })()}`}
                     style={{
-                      top: `${top}px`,
-                      minHeight: `${minHeight}px`,
-                      left: `${leftPx}px`,
-                      right: `1px`,
-                      // Later-starting blocks render above earlier ones so
-                      // their cascaded body isn't hidden. Hover bumps to top.
-                      zIndex: 10 + stackIdx,
+                      // Stacked mode: flex-flow positioning, no absolute Y.
+                      // Grid mode: absolute positioning by time.
+                      ...(viewMode === "stacked"
+                        ? { position: "static" as const }
+                        : {
+                            top: `${top}px`,
+                            minHeight: `${minHeight}px`,
+                            left: `${leftPx}px`,
+                            right: `1px`,
+                            // Later-starting blocks render above earlier
+                            // ones so their cascaded body isn't hidden.
+                            // Hover bumps to top.
+                            zIndex: 10 + stackIdx,
+                          }),
                       ...(inlineBg ?? {}),
                     }}
                     onMouseEnter={(e) => {
@@ -1583,7 +1518,6 @@ export function WeekSchedule({
         })}
       </div>
       </div>
-      )}
     </section>
   );
 }

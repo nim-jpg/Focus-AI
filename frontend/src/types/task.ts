@@ -171,6 +171,16 @@ export interface UserPrefs {
   /** Single-leg commute time in minutes. Applied before AND after the working
    *  day on office days, both for visualisation and auto-schedule. */
   commuteMinutes: number;
+  /** Wake-up time (HH:MM). Auto-schedule won't place a slot earlier than
+   *  wakeUpTime + 30 minutes. Defaults to 07:00. */
+  wakeUpTime?: string;
+  /** Bedtime (HH:MM). Auto-schedule won't place a slot later than
+   *  bedTime - 1 hour. Defaults to 23:00. */
+  bedTime?: string;
+  /** Buffer in minutes around commute on office days, beyond commute itself.
+   *  E.g. 30 means slots can't sit within 30 min of commute start/end.
+   *  Defaults to 30. */
+  commuteBufferMinutes?: number;
   /** Local colour overrides per Google Calendar id (hex `#rrggbb`). When
    *  present, beats Google's own backgroundColor in the schedule view. */
   calendarColorOverrides?: Record<string, string>;
@@ -208,6 +218,9 @@ export const DEFAULT_PREFS: UserPrefs = {
   excludedCalendarIds: [],
   officeDays: [],
   commuteMinutes: 0,
+  wakeUpTime: "07:00",
+  bedTime: "23:00",
+  commuteBufferMinutes: 30,
   calendarColorOverrides: {},
   ignoredEventIds: [],
   ignoredSeriesIds: [],
