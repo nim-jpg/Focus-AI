@@ -497,7 +497,13 @@ export function WeekSchedule({
         conflictTitles.size > 0
           ? ` Conflicts include: ${[...conflictTitles].slice(0, 3).join(", ")}.`
           : "";
-      const advice = reasonCounts["outside-waking"]
+      // Zero attempts = the candidate generator produced nothing, which
+      // means the wake → bed window is empty (wake ≥ bed, or both unset/
+      // unparseable). Most likely cause is corrupt prefs values.
+      const noWindow = result.attempts.length === 0;
+      const advice = noWindow
+        ? ` No candidate slots inside your day window (${result.windowStart}–${result.windowEnd}). Open Settings → Day shape and check Wake up / Bedtime.`
+        : reasonCounts["outside-waking"]
         ? " Widen Wake up / Bedtime in Settings → Day shape to open more slots."
         : " Adjust working hours, mark calendars as Shadow/Exclude, or schedule manually.";
       onMessage?.(
@@ -529,10 +535,13 @@ export function WeekSchedule({
     }
   };
 
+  // 7d view pages by a full week; 1d / 3d step by a single day so the
+  // user can scrub through the schedule a day at a time.
+  const stepDays = viewDays === 7 ? 7 : 1;
   const goPrev = () =>
-    setWeekStartDate(new Date(weekStart.getTime() - viewDays * DAY_MS));
+    setWeekStartDate(new Date(weekStart.getTime() - stepDays * DAY_MS));
   const goNext = () =>
-    setWeekStartDate(new Date(weekStart.getTime() + viewDays * DAY_MS));
+    setWeekStartDate(new Date(weekStart.getTime() + stepDays * DAY_MS));
   const goToday = () => setWeekStartDate(startOfDay(new Date()));
 
   const totalHours = gridEndHour - gridStartHour;

@@ -29,21 +29,36 @@ interface WorkingHours {
   holidayDates: Set<string>;
 }
 
-function parseHour(hhmm: string): number {
+function parseHour(hhmm: string | undefined | null): number | null {
+  if (!hhmm || typeof hhmm !== "string") return null;
   const [h, m] = hhmm.split(":").map(Number);
-  return (h ?? 0) + (m ?? 0) / 60;
+  if (!Number.isFinite(h)) return null;
+  return h + (Number.isFinite(m) ? m / 60 : 0);
 }
 
 function workingHoursFromPrefs(prefs?: UserPrefs): WorkingHours {
+  // Defensive parsing — anything unparseable falls back to a sensible
+  // default. Prevents one bad pref value from collapsing the whole
+  // candidate-slot window to nothing.
+  const start = parseHour(prefs?.workingHoursStart) ?? 9;
+  const end = parseHour(prefs?.workingHoursEnd) ?? 18;
+  let wakeUp = parseHour(prefs?.wakeUpTime) ?? 7;
+  let bed = parseHour(prefs?.bedTime) ?? 23;
+  // If wake >= bed (data error), reset to defaults so the candidate
+  // window is non-empty.
+  if (wakeUp >= bed) {
+    wakeUp = 7;
+    bed = 23;
+  }
   return {
-    start: prefs ? parseHour(prefs.workingHoursStart) : 9,
-    end: prefs ? parseHour(prefs.workingHoursEnd) : 18,
+    start,
+    end,
     days: prefs?.workingDays ?? [1, 2, 3, 4, 5],
     officeDays: prefs?.officeDays ?? [],
     commuteHours: (prefs?.commuteMinutes ?? 0) / 60,
     commuteBufferHours: (prefs?.commuteBufferMinutes ?? 30) / 60,
-    wakeUp: prefs?.wakeUpTime ? parseHour(prefs.wakeUpTime) : 7,
-    bed: prefs?.bedTime ? parseHour(prefs.bedTime) : 23,
+    wakeUp,
+    bed,
     holidayDates: new Set(prefs?.holidayDates ?? []),
   };
 }
