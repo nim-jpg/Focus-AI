@@ -460,22 +460,24 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {googleStatus && !googleStatus.configured && (
-            <span
-              className="text-xs text-amber-700"
-              title="Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to backend/.env. See README."
+          {/* Compact calendar status: "Calendar 🔗" connected (click → open
+              Google Calendar) or "Calendar ⛓️‍💥" not connected (click → start
+              OAuth). Disconnect lives in Settings. */}
+          {googleStatus?.connected ? (
+            <a
+              href="https://calendar.google.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-900 hover:underline"
+              title="Connected — open Google Calendar in a new tab. To disconnect, see Settings."
             >
-              Calendar: setup needed
-            </span>
-          )}
-          {/* Header Connect button — show whenever NOT connected, even before
-              the status fetch completes, so it never disappears on a slow or
-              failed /api/google/status call. Errors land in calendarMsg below
-              the nav for visibility outside the Settings modal. */}
-          {!googleStatus?.connected && googleStatus?.configured !== false && (
+              Calendar
+              <span aria-hidden>🔗</span>
+            </a>
+          ) : (
             <button
               type="button"
-              className="btn-secondary"
+              className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-900"
               onClick={() =>
                 startGoogleConnect().catch((err) =>
                   setCalendarMsg(
@@ -483,20 +485,15 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
                   ),
                 )
               }
+              title={
+                googleStatus && !googleStatus.configured
+                  ? "Google OAuth isn't configured on the server"
+                  : "Click to connect Google Calendar"
+              }
             >
-              Connect Calendar
+              Calendar
+              <span aria-hidden>⛓️‍💥</span>
             </button>
-          )}
-          {googleStatus?.connected && (
-            <a
-              href="https://calendar.google.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-emerald-700 hover:text-emerald-900 hover:underline"
-              title={`${googleStatus.email ?? "connected"} — open Google Calendar in a new tab. To disconnect, see Settings.`}
-            >
-              Calendar: {googleStatus.email ?? "connected"} ↗
-            </a>
           )}
           <ModeSwitch
             mode={prefs.mode}
