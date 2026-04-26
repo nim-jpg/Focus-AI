@@ -121,9 +121,10 @@ function pickStretchTasks(
 }
 
 /**
- * Fluids tracker — a 7-day grid for tallying everything you drink, not just
- * water. Tick a box per cup; capacity per row chosen to reflect typical daily
- * intake. Goes in the bottom-left of the planner.
+ * Fluids tracker — a 7-day grid for tallying everything you drink. Each cell
+ * is a uniform 8-box grid (consistent across all rows and days) — tick a box
+ * per cup / glass / can as you go. No per-day total column; labels carry the
+ * "aim high / minimise" hint instead.
  */
 function drawFluidsTracker(
   doc: import("jspdf").jsPDF,
@@ -138,23 +139,28 @@ function drawFluidsTracker(
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   doc.setTextColor(140);
-  doc.text("tick a box per cup / glass — aim for variety", x + 92, y - 4);
+  doc.text("tick a box per cup — aim water high, fizzy + caffeine low", x + 92, y - 4);
   doc.setTextColor(0);
 
   doc.setDrawColor(210);
   doc.setLineWidth(0.5);
   doc.rect(x, y, w, h);
 
-  const rows: Array<{ label: string; capacity: number; tint: [number, number, number] }> = [
-    { label: "WATER",  capacity: 8, tint: [219, 234, 254] },
-    { label: "TEA",    capacity: 5, tint: [254, 226, 226] },
-    { label: "COFFEE", capacity: 4, tint: [231, 207, 184] },
-    { label: "OTHER",  capacity: 5, tint: [233, 213, 255] },
+  // Rows: water (aim high), tea (ok), coffee (caffeine — minimise), fizzy (minimise!).
+  const rows: Array<{
+    label: string;
+    hint: string;
+    tint: [number, number, number];
+    hintColour: [number, number, number];
+  }> = [
+    { label: "WATER",   hint: "aim high",  tint: [219, 234, 254], hintColour: [29, 78, 216] },
+    { label: "TEA",     hint: "ok",        tint: [254, 226, 226], hintColour: [120, 53, 15] },
+    { label: "COFFEE",  hint: "caffeine — minimise", tint: [231, 207, 184], hintColour: [120, 53, 15] },
+    { label: "FIZZY",   hint: "minimise",  tint: [233, 213, 255], hintColour: [126, 34, 206] },
   ];
 
-  const labelW = 40;
-  const totalsW = 26;
-  const dayColW = (w - labelW - totalsW - 8) / 7;
+  const labelW = 60; // wider label column to fit "minimise" hint
+  const dayColW = (w - labelW - 4) / 7;
   const headerY = y + 12;
 
   // Day headers
@@ -163,45 +169,42 @@ function drawFluidsTracker(
   ["M", "T", "W", "T", "F", "S", "S"].forEach((d, i) => {
     doc.text(d, x + labelW + i * dayColW + dayColW / 2 - 2, headerY);
   });
-  doc.text("/day", x + w - totalsW + 4, headerY);
   doc.setTextColor(0);
 
   const gridTop = headerY + 4;
   const rowH = (h - 16) / rows.length;
 
+  // Uniform: 8 boxes per cell, every row, every day.
+  const BOXES = 8;
+
   rows.forEach((row, rIdx) => {
     const rowY = gridTop + rIdx * rowH;
-    // Subtle row tint matching the drink colour
     doc.setFillColor(row.tint[0], row.tint[1], row.tint[2]);
     doc.rect(x + labelW - 2, rowY, w - labelW + 2, rowH - 1, "F");
 
-    // Label
-    doc.setFontSize(7.5);
+    // Label + hint (stacked)
+    doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(80);
-    doc.text(row.label, x + 4, rowY + rowH / 2 + 2);
+    doc.setTextColor(60);
+    doc.text(row.label, x + 4, rowY + rowH / 2 - 1);
     doc.setFont("helvetica", "normal");
+    doc.setFontSize(6);
+    doc.setTextColor(row.hintColour[0], row.hintColour[1], row.hintColour[2]);
+    doc.text(row.hint, x + 4, rowY + rowH / 2 + 8);
     doc.setTextColor(0);
 
-    // Per-day boxes — tightly packed to fit the day column width
-    const cap = row.capacity;
-    const boxSize = Math.max(3.5, Math.min(5.5, (dayColW - 6) / cap - 0.5));
+    // Uniform 8-box grid per day cell
+    const boxSize = Math.max(3, Math.min(4.5, (dayColW - 4) / BOXES - 0.4));
     for (let d = 0; d < 7; d++) {
       const colX = x + labelW + d * dayColW + 2;
-      for (let n = 0; n < cap; n++) {
-        const bx = colX + n * (boxSize + 0.6);
+      for (let n = 0; n < BOXES; n++) {
+        const bx = colX + n * (boxSize + 0.4);
         const by = rowY + (rowH - boxSize) / 2;
-        doc.setDrawColor(110);
+        doc.setDrawColor(120);
         doc.setLineWidth(0.4);
         doc.rect(bx, by, boxSize, boxSize);
       }
     }
-
-    // /day capacity hint on the right
-    doc.setFontSize(6.5);
-    doc.setTextColor(120);
-    doc.text(`/${cap}`, x + w - totalsW + 6, rowY + rowH / 2 + 2);
-    doc.setTextColor(0);
   });
 }
 
@@ -310,10 +313,28 @@ export async function exportWeeklyPlanner(
   doc.line(margin, y, pageW - margin, y);
   y += 22; // more space after the divider
 
-  // Build content for each task list
+  // Build content for each task list. Stretch capacity is computed from the
+  // space left in the left column after key tasks and the fluids tracker —
+  // we want to fill the gap, not leave it empty.
   const keyTasks = pickKeyTasks(allowedTasks, prefs, start, end);
   const keyIds = new Set(keyTasks.map((t) => t.id));
-  const stretchTasks = pickStretchTasks(allowedTasks, prefs, start, keyIds, 8);
+  // Reserve at the bottom-left for the fluids tracker (and footer).
+  const FLUIDS_H = 110;
+  const FOOTER_H = 16;
+  const STRETCH_ROW_H = 26;
+  const KEY_ROW_H = 50;
+  // Approximate y after key tasks (24pt section header + 14pt gap + N rows + 6pt gap)
+  const keyEndsY = y + 18 + keyTasks.length * KEY_ROW_H + 6;
+  const stretchHeader = 18; // header + divider
+  const stretchAvailableY = pageH - margin - FLUIDS_H - FOOTER_H - 30 - keyEndsY - stretchHeader;
+  const stretchCapacity = Math.max(5, Math.floor(stretchAvailableY / STRETCH_ROW_H));
+  const stretchTasks = pickStretchTasks(
+    allowedTasks,
+    prefs,
+    start,
+    keyIds,
+    stretchCapacity,
+  );
   const stretchIds = new Set(stretchTasks.map((t) => t.id));
   const surfacedIds = new Set([...keyIds, ...stretchIds]);
 
@@ -569,20 +590,20 @@ export async function exportWeeklyPlanner(
   doc.line(rightX, rightY, rightX + colW, rightY);
   rightY += 18; // generous gap before the column header / first row
 
-  // Column header row — wider THEME column so words like "development",
-  // "household" don't get truncated.
+  // Column header row — three columns now (no #ID), wider THEME so words like
+  // "development", "household" render in full.
   doc.setFontSize(6.5);
   doc.setTextColor(140);
-  const colTitleX = rightX + 14; // tickbox→text gap bumped
-  const colDueX = rightX + colW - 168;
-  const colUrgencyX = rightX + colW - 122;
-  const colThemeX = rightX + colW - 78;
+  const colTitleX = rightX + 14;
+  const colDueX = rightX + colW - 150;
+  const colUrgencyX = rightX + colW - 100;
+  const colThemeX = rightX + colW - 60;
   doc.text("TASK", colTitleX, rightY);
   doc.text("DUE", colDueX, rightY);
-  doc.text("URG", colUrgencyX, rightY);
+  doc.text("URGENCY", colUrgencyX, rightY);
   doc.text("THEME", colThemeX, rightY);
   doc.setTextColor(0);
-  rightY += 12; // header→first row gap
+  rightY += 12;
 
   // Faint theme-color stripe + alternating-row tint for scannability.
   const themeStripeColour: Record<string, [number, number, number]> = {
@@ -599,10 +620,8 @@ export async function exportWeeklyPlanner(
 
   // Reserve a fluids tracker (bottom-LEFT) and a notes box (bottom-RIGHT).
   // Notes box is dynamic — it fills whatever space backlog leaves.
-  const FLUIDS_H = 110;
   const NOTES_MIN_H = 80;
-  const footerH = 16;
-  const backlogMaxY = pageH - margin - NOTES_MIN_H - footerH - 26;
+  const backlogMaxY = pageH - margin - NOTES_MIN_H - FOOTER_H - 26;
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
@@ -639,11 +658,11 @@ export async function exportWeeklyPlanner(
   }
 
   // ── Fluids tracker (BOTTOM-LEFT) ──────────────────────────────────────────
-  drawFluidsTracker(doc, leftX, pageH - margin - FLUIDS_H - footerH, colW, FLUIDS_H);
+  drawFluidsTracker(doc, leftX, pageH - margin - FLUIDS_H - FOOTER_H, colW, FLUIDS_H);
 
   // ── Notes / doodles (BOTTOM-RIGHT, fills remaining space) ─────────────────
   const notesTop = rightY + 14;
-  const notesBottom = pageH - margin - footerH - 4;
+  const notesBottom = pageH - margin - FOOTER_H - 4;
   const notesH = Math.max(NOTES_MIN_H, notesBottom - notesTop);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
