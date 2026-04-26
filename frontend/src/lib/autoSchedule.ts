@@ -178,7 +178,9 @@ const SPREAD_PATTERNS: Record<number, number[]> = {
   7: [0, 1, 2, 3, 4, 5, 6],
 };
 
-const MIN_GAP_HOURS = 16; // hard floor between consecutive sessions
+// Auto-schedule rule: at most one session of the same task per day.
+// Replaces the previous 16h rest-gap heuristic, which was both stricter
+// (effectively blocked back-to-back days) and less explicit.
 
 /**
  * Suggest N session start times for the given week.
@@ -193,7 +195,7 @@ const MIN_GAP_HOURS = 16; // hard floor between consecutive sessions
  */
 export interface SlotAttempt {
   candidate: Date;
-  reason: "past" | "work-hours" | "outside-waking" | "busy" | "rest-gap";
+  reason: "past" | "work-hours" | "outside-waking" | "busy" | "same-day";
   /** When reason === "busy", the busy window that blocked it (start/end ms). */
   conflict?: BusyBlock;
 }
@@ -283,11 +285,14 @@ export function suggestSessionTimesDetailed(
         attempts.push({ candidate, reason: "busy", conflict });
         continue;
       }
-      const tooClose = placed.some(
-        (p) => Math.abs(p.getTime() - start) < MIN_GAP_HOURS * 60 * 60 * 1000,
+      // Never place two sessions of the same task on the same calendar
+      // day. The candidate's date is compared by toDateString to handle
+      // local-time correctly (handles DST without arithmetic).
+      const sameDay = placed.some(
+        (p) => p.toDateString() === candidate.toDateString(),
       );
-      if (tooClose) {
-        attempts.push({ candidate, reason: "rest-gap" });
+      if (sameDay) {
+        attempts.push({ candidate, reason: "same-day" });
         continue;
       }
       localBusy.push({ start, end });
@@ -343,11 +348,17 @@ export function suggestSessionTimesDetailed(
     const slot = tryDayWithSlot(bestDay);
     if (slot) placed.push(slot);
     else {
-      // No slot available on the best day; remove it from consideration
-      // by adjusting allDays. Simple bail-out: try any remaining day greedily.
+      // No slot on the best day; try any other day NOT already used.
+      // (We never want two placements on the same calendar day, so
+      // skip used days here too.)
       let fallbackPlaced = false;
       for (const day of allDays) {
         if (day === bestDay) continue;
+        const dayDate = new Date(weekStart.getTime() + day * DAY_MS);
+        const used = placed.some(
+          (p) => p.toDateString() === dayDate.toDateString(),
+        );
+        if (used) continue;
         const slot2 = tryDayWithSlot(day);
         if (slot2) {
           placed.push(slot2);

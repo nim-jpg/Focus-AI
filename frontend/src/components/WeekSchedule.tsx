@@ -486,9 +486,9 @@ export function WeekSchedule({
         );
       if (reasonCounts["busy"])
         parts.push(`${reasonCounts["busy"]} clash with calendar/tasks`);
-      if (reasonCounts["rest-gap"])
+      if (reasonCounts["same-day"])
         parts.push(
-          `${reasonCounts["rest-gap"]} too close to another session (16h rest gap)`,
+          `${reasonCounts["same-day"]} on a day that already has this session`,
         );
       if (reasonCounts["past"])
         parts.push(`${reasonCounts["past"]} already in the past`);
@@ -535,13 +535,13 @@ export function WeekSchedule({
     }
   };
 
-  // 7d view pages by a full week; 1d / 3d step by a single day so the
-  // user can scrub through the schedule a day at a time.
-  const stepDays = viewDays === 7 ? 7 : 1;
+  // Prev / Next always step by a single day across all view modes —
+  // lets the user scrub the schedule one day at a time regardless of
+  // whether they're viewing 1d, 3d or 7d.
   const goPrev = () =>
-    setWeekStartDate(new Date(weekStart.getTime() - stepDays * DAY_MS));
+    setWeekStartDate(new Date(weekStart.getTime() - DAY_MS));
   const goNext = () =>
-    setWeekStartDate(new Date(weekStart.getTime() + stepDays * DAY_MS));
+    setWeekStartDate(new Date(weekStart.getTime() + DAY_MS));
   const goToday = () => setWeekStartDate(startOfDay(new Date()));
 
   const totalHours = gridEndHour - gridStartHour;
