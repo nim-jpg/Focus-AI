@@ -438,6 +438,126 @@ export function WeekSchedule({
         )
       : 1;
 
+  /**
+   * Detect a future-week window with very little Focus3 activity scheduled.
+   * Used to surface a "repeat last week" / "auto-fit" banner so the user
+   * doesn't have to re-plan from scratch each week.
+   */
+  const visibleFocusBlocks = useMemo(() => {
+    const ws = weekStart.getTime();
+    const we = weekEnd.getTime();
+    let count = 0;
+    for (const t of tasks) {
+      if (t.status === "completed") continue;
+      if (t.scheduledFor) {
+        const s = new Date(t.scheduledFor).getTime();
+        if (s >= ws && s < we) count++;
+      }
+      for (const iso of t.sessionTimes ?? []) {
+        const s = new Date(iso).getTime();
+        if (s >= ws && s < we) count++;
+      }
+    }
+    return count;
+  }, [tasks, weekStart, weekEnd]);
+
+  const isFutureEmptyWeek =
+    viewDays === 7 &&
+    weekStart.getTime() > startOfDay(new Date()).getTime() &&
+    visibleFocusBlocks < 3;
+
+  /**
+   * Copy sessionTimes from the previous 7-day window into the visible
+   * window, shifted by +7 days. Used by "Repeat last week".
+   */
+  const repeatLastWeek = () => {
+    const lastWeekStart = weekStart.getTime() - 7 * DAY_MS;
+    const lastWeekEnd = weekStart.getTime();
+    let copied = 0;
+    for (const t of tasks) {
+      if (t.status === "completed") continue;
+      const lastWeekSessions = (t.sessionTimes ?? []).filter((iso) => {
+        const s = new Date(iso).getTime();
+        return s >= lastWeekStart && s < lastWeekEnd;
+      });
+      if (lastWeekSessions.length === 0) continue;
+      const shifted = lastWeekSessions.map((iso) =>
+        new Date(new Date(iso).getTime() + 7 * DAY_MS).toISOString(),
+      );
+      // Append (don't replace) — keep any already-scheduled this-week
+      // sessions. Dedupe by ISO string to avoid duplicates.
+      const merged = Array.from(
+        new Set([...(t.sessionTimes ?? []), ...shifted]),
+      );
+      onSetSessionTimes(t.id, merged);
+      copied += shifted.length;
+    }
+    onMessage?.(
+      copied > 0
+        ? `Copied ${copied} session${copied === 1 ? "" : "s"} from last week into this one.`
+        : "Last week had no sessions to copy. Try Auto-fit instead.",
+    );
+  };
+
+  /**
+   * For each task with sessionsPerWeek > 0 missing its target in the
+   * visible week, auto-schedule the gap. Anchored to the visible
+   * weekStart (not today's rolling 7d) so future weeks fill correctly.
+   */
+  const autoFitVisibleWeek = () => {
+    let placedTotal = 0;
+    let skippedTotal = 0;
+    for (const t of tasks) {
+      if (t.status === "completed") continue;
+      const target = t.sessionsPerWeek ?? 0;
+      if (target <= 0) continue;
+      const have = (t.sessionTimes ?? []).filter((iso) => {
+        const s = new Date(iso).getTime();
+        return s >= weekStart.getTime() && s < weekEnd.getTime();
+      }).length;
+      const need = target - have;
+      if (need <= 0) continue;
+      const busy = busyWindowsForWeek(
+        weekStart,
+        weekEnd,
+        tasks,
+        events,
+        t.id,
+        prefs.shadowCalendarIds ?? [],
+        [
+          ...(prefs.excludedCalendarIds ?? []),
+          ...(prefs.privateCalendarIds ?? []),
+        ],
+        prefs.shadowedEventIds ?? [],
+        prefs.shadowedSeriesIds ?? [],
+        prefs.ignoredEventIds ?? [],
+        prefs.ignoredSeriesIds ?? [],
+      );
+      const result = suggestSessionTimesDetailed(
+        need,
+        t.estimatedMinutes ?? 60,
+        weekStart,
+        busy,
+        prefs,
+      );
+      if (result.slots.length === 0) {
+        skippedTotal++;
+        continue;
+      }
+      const merged = [
+        ...(t.sessionTimes ?? []),
+        ...result.slots.map((d) => d.toISOString()),
+      ];
+      onSetSessionTimes(t.id, merged);
+      placedTotal += result.slots.length;
+    }
+    onMessage?.(
+      placedTotal > 0
+        ? `Auto-fit placed ${placedTotal} session${placedTotal === 1 ? "" : "s"} this week${skippedTotal > 0 ? ` (${skippedTotal} task${skippedTotal === 1 ? "" : "s"} couldn't be placed — open Auto-schedule on each to see why)` : ""}.`
+        : "Auto-fit found no free slots this week. Try widening Day shape or removing busy events.",
+    );
+  };
+
   const autoScheduleSessionsFor = (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
@@ -834,6 +954,33 @@ export function WeekSchedule({
           )}
         </div>
       </div>
+
+      {isFutureEmptyWeek && (
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-indigo-200 bg-indigo-50 p-2 text-xs">
+          <span className="text-indigo-900">
+            This week looks light on Focus3 sessions. Want to seed it from
+            last week or auto-fit your weekly targets?
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-full border border-indigo-300 bg-white px-2 py-0.5 text-indigo-900 hover:border-indigo-500"
+              onClick={repeatLastWeek}
+              title="Copy each session you ran last week into this week, shifted by 7 days."
+            >
+              Repeat last week
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-indigo-300 bg-white px-2 py-0.5 text-indigo-900 hover:border-indigo-500"
+              onClick={autoFitVisibleWeek}
+              title="Auto-schedule each task with weekly sessions to hit its target this week."
+            >
+              Auto-fit this week
+            </button>
+          </div>
+        </div>
+      )}
 
       {pendingMultiSession.length > 0 && (
         <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs">
