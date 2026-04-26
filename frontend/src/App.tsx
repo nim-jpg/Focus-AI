@@ -629,6 +629,36 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               );
               updateTask(id, { sessionTimes: next });
             }}
+            onShadowEvent={(ev) => {
+              if (!ev.start) return;
+              const start = new Date(ev.start);
+              const end = ev.end
+                ? new Date(ev.end)
+                : new Date(start.getTime() + 60 * 60 * 1000);
+              const minutes = Math.max(
+                15,
+                Math.round((end.getTime() - start.getTime()) / 60000),
+              );
+              addTask({
+                title: ev.summary || "Calendar block",
+                description: ev.calendarName
+                  ? `Imported from ${ev.calendarName} — won't sync back to Google.`
+                  : "Imported from Google Calendar — won't sync back.",
+                theme: "personal",
+                estimatedMinutes: minutes,
+                urgency: "normal",
+                privacy: "private",
+                isWork: false,
+                isBlocker: false,
+                blockedBy: [],
+                recurrence: "none",
+                timeOfDay: "anytime",
+                scheduledFor: start.toISOString(),
+              });
+              setCalendarMsg(
+                `"${ev.summary || "Calendar block"}" added to your schedule. It won't sync to Google.`,
+              );
+            }}
           />
 
           <TomorrowPreview

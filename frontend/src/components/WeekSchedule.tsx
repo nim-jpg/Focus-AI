@@ -16,6 +16,8 @@ interface Props {
   onMoveTask: (taskId: string, newIso: string) => void;
   /** Move a session within a task to a new ISO timestamp. */
   onMoveSession: (taskId: string, oldIso: string, newIso: string) => void;
+  /** "Block my time too": import a Google event as a local Focus3 task. */
+  onShadowEvent: (event: CalendarEvent) => void;
   /** Optional: hour grid bounds (defaults to 6-23 if not passed). */
   gridStartHour?: number;
   gridEndHour?: number;
@@ -133,6 +135,7 @@ export function WeekSchedule({
   onSetSessionTimes,
   onMoveTask,
   onMoveSession,
+  onShadowEvent,
   gridStartHour = 6,
   gridEndHour = 23,
 }: Props) {
@@ -940,6 +943,20 @@ export function WeekSchedule({
                           >
                             open
                           </a>
+                        )}
+                        {/* Block my time too — for shadow / awareness events
+                            you realise will eat your time. Creates a local
+                            Focus3 task at the event's slot. Hidden when the
+                            event is already linked to a task. */}
+                        {!b.task && (
+                          <button
+                            type="button"
+                            className="hover:underline"
+                            onClick={() => b.event && onShadowEvent(b.event)}
+                            title="Create a Focus3 block at this time so it counts as busy and shows on the planner"
+                          >
+                            📌 block my time
+                          </button>
                         )}
                         <button
                           type="button"
