@@ -177,6 +177,9 @@ export interface UserPrefs {
   /** Specific Google event ids the user has chosen to hide from the Focus3
    *  schedule. The event still exists in Google; this is a local mute. */
   ignoredEventIds?: string[];
+  /** Recurring-series ids (Google's recurringEventId) the user has muted —
+   *  hides every instance of the series from Focus3. */
+  ignoredSeriesIds?: string[];
   /** Default home-page schedule range: 1, 3, or 7 days. */
   homeViewDays?: 1 | 3 | 7;
   /** Specific dates the user has marked as holidays — working-hours
@@ -200,5 +203,6 @@ export const DEFAULT_PREFS: UserPrefs = {
   commuteMinutes: 0,
   calendarColorOverrides: {},
   ignoredEventIds: [],
+  ignoredSeriesIds: [],
   homeViewDays: 7,
 };

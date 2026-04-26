@@ -67,6 +67,11 @@ interface Block {
   layoutCols?: number;
   /** Position within its own column (0=top). Used for cascading indent. */
   layoutStackIdx?: number;
+  /** True when the user has muted this event (single or via its series),
+   *  but it's being shown anyway because Show ignored is on. */
+  ignored?: boolean;
+  /** Why it was ignored — drives the unignore action target. */
+  ignoredVia?: "event" | "series";
 }
 
 /**
@@ -136,6 +141,7 @@ export function WeekSchedule({
   const [viewDays, setViewDays] = useState<1 | 3 | 7>(
     prefs.homeViewDays ?? 7,
   );
+  const [showIgnored, setShowIgnored] = useState(false);
 
   const weekStart = weekStartDate;
   const weekEnd = useMemo(
@@ -176,6 +182,7 @@ export function WeekSchedule({
       ...(prefs.privateCalendarIds ?? []),
     ]);
     const ignoredEventIds = new Set(prefs.ignoredEventIds ?? []);
+    const ignoredSeriesIds = new Set(prefs.ignoredSeriesIds ?? []);
     const colorOverrides = prefs.calendarColorOverrides ?? {};
 
     // Tasks linked to Google events (calendarEventId set) — we'll skip rendering
@@ -196,8 +203,14 @@ export function WeekSchedule({
       if (!ev.start) continue;
       // Excluded calendars: don't render at all.
       if (ev.calendarId && excludedIds.has(ev.calendarId)) continue;
-      // Per-event ignore: user has muted this specific event from Focus3.
-      if (ev.id && ignoredEventIds.has(ev.id)) continue;
+      const seriesIgnored = !!(
+        ev.recurringEventId && ignoredSeriesIds.has(ev.recurringEventId)
+      );
+      const instanceIgnored = !!(ev.id && ignoredEventIds.has(ev.id));
+      const isIgnored = seriesIgnored || instanceIgnored;
+      // When Show ignored is OFF, ignored events are filtered out entirely.
+      // When ON, they're rendered with a faded style + an unignore action.
+      if (isIgnored && !showIgnored) continue;
       const sd = new Date(ev.start);
       const ed = ev.end ? new Date(ev.end) : new Date(sd.getTime() + 60 * 60 * 1000);
       const dayIdx = dayIdxFor(sd);
@@ -229,6 +242,8 @@ export function WeekSchedule({
         allDay: ev.allDay,
         // Annotate with the linked task so the block can show "✓ in Google" etc.
         task: linkedTask,
+        ignored: isIgnored,
+        ignoredVia: seriesIgnored ? "series" : instanceIgnored ? "event" : undefined,
       });
     }
 
@@ -305,10 +320,12 @@ export function WeekSchedule({
     tasks,
     weekStart,
     viewDays,
+    showIgnored,
     prefs.shadowCalendarIds,
     prefs.excludedCalendarIds,
     prefs.privateCalendarIds,
     prefs.ignoredEventIds,
+    prefs.ignoredSeriesIds,
     prefs.calendarColorOverrides,
   ]);
 
@@ -595,6 +612,21 @@ export function WeekSchedule({
               disabled={loading}
             >
               {loading ? "refreshing…" : "refresh"}
+            </button>
+          )}
+          {((prefs.ignoredEventIds?.length ?? 0) > 0 ||
+            (prefs.ignoredSeriesIds?.length ?? 0) > 0) && (
+            <button
+              type="button"
+              onClick={() => setShowIgnored((v) => !v)}
+              className={`rounded border px-2 py-1 ${
+                showIgnored
+                  ? "border-amber-400 bg-amber-50 text-amber-800"
+                  : "border-slate-200 text-slate-500 hover:border-slate-400"
+              }`}
+              title="Reveal events you've muted so you can un-ignore them"
+            >
+              {showIgnored ? "Hide ignored" : "Show ignored"}
             </button>
           )}
         </div>
@@ -950,7 +982,7 @@ export function WeekSchedule({
                     key={i}
                     className={`group absolute overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight transition-all hover:!left-0 hover:!right-0 hover:!w-auto hover:overflow-visible hover:!min-h-fit hover:shadow-lg ${colour} ${
                       draggable ? "cursor-move" : ""
-                    }`}
+                    } ${b.ignored ? "opacity-40 border-dashed" : ""}`}
                     style={{
                       top: `${top}px`,
                       minHeight: `${minHeight}px`,
@@ -1049,24 +1081,74 @@ export function WeekSchedule({
                             📌 block my time
                           </button>
                         )}
-                        {/* Local ignore — hides this event from the Focus3
-                            schedule only. The Google event is unchanged.
-                            Undo from Settings → Ignored events. */}
-                        {b.event.id && onUpdatePrefs && (
+                        {/* Local ignore — hides the event from Focus3
+                            (Google unchanged). Recurring events also offer
+                            an "ignore series" action. When Show ignored is
+                            ON, the action flips to "unignore". */}
+                        {b.event.id && onUpdatePrefs && !b.ignored && (
+                          <>
+                            <button
+                              type="button"
+                              className="hover:underline"
+                              onClick={() => {
+                                const id = b.event!.id!;
+                                const cur = prefs.ignoredEventIds ?? [];
+                                if (cur.includes(id)) return;
+                                onUpdatePrefs({
+                                  ignoredEventIds: [...cur, id],
+                                });
+                              }}
+                              title="Hide this single instance from Focus3. Toggle Show ignored to undo."
+                            >
+                              🚫 ignore
+                            </button>
+                            {b.event.recurringEventId && (
+                              <button
+                                type="button"
+                                className="hover:underline"
+                                onClick={() => {
+                                  const sid = b.event!.recurringEventId!;
+                                  const cur = prefs.ignoredSeriesIds ?? [];
+                                  if (cur.includes(sid)) return;
+                                  onUpdatePrefs({
+                                    ignoredSeriesIds: [...cur, sid],
+                                  });
+                                }}
+                                title="Hide every instance of this recurring series from Focus3."
+                              >
+                                🚫 series
+                              </button>
+                            )}
+                          </>
+                        )}
+                        {b.event.id && onUpdatePrefs && b.ignored && (
                           <button
                             type="button"
-                            className="hover:underline"
+                            className="font-medium text-emerald-700 hover:underline"
                             onClick={() => {
-                              const id = b.event!.id!;
-                              const cur = prefs.ignoredEventIds ?? [];
-                              if (cur.includes(id)) return;
-                              onUpdatePrefs({
-                                ignoredEventIds: [...cur, id],
-                              });
+                              if (b.ignoredVia === "series" && b.event!.recurringEventId) {
+                                onUpdatePrefs({
+                                  ignoredSeriesIds: (
+                                    prefs.ignoredSeriesIds ?? []
+                                  ).filter(
+                                    (s) => s !== b.event!.recurringEventId,
+                                  ),
+                                });
+                              } else {
+                                onUpdatePrefs({
+                                  ignoredEventIds: (
+                                    prefs.ignoredEventIds ?? []
+                                  ).filter((i) => i !== b.event!.id),
+                                });
+                              }
                             }}
-                            title="Hide this single event from Focus3. Undo from Settings → Ignored events."
+                            title={
+                              b.ignoredVia === "series"
+                                ? "Restore the entire recurring series"
+                                : "Restore this event"
+                            }
                           >
-                            🚫 ignore
+                            ✓ unignore{b.ignoredVia === "series" ? " series" : ""}
                           </button>
                         )}
                         <button
