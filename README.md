@@ -47,7 +47,8 @@ The frontend proxies `/api/*` to `http://localhost:8787` via Vite.
 
 1. Create a project at https://console.cloud.google.com/
 2. APIs & Services → Library → enable **Google Calendar API**
-3. APIs & Services → OAuth consent screen → External; add yourself as a test user
+3. APIs & Services → OAuth consent screen → External
+   - **Important:** scroll to **Test users** and click **+ Add users** to add every Google email that will authorize the app (otherwise you'll hit `Error 403: access_denied` "Access blocked: app has not completed the Google verification process"). Up to 100 testers — no review needed.
 4. APIs & Services → Credentials → Create Credentials → OAuth client ID
    - Application type: **Web application**
    - Authorized redirect URI: `http://localhost:8787/api/google/callback`
