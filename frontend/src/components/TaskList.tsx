@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { THEMES, type Task, type Theme, type UserType } from "@/types/task";
 import { ThemeBadge } from "./ThemeBadge";
 import { isInWorkMode } from "@/lib/modeFilter";
@@ -19,6 +19,10 @@ interface Props {
    *  so the user can re-rank from this tab too. */
   onRefreshAi?: () => void;
   aiBusy?: boolean;
+  /** Bumps each time an AI refresh completes — when it changes, the
+   *  TaskList auto-switches its sort to AI rank so the user immediately
+   *  sees the new ranking applied. */
+  aiRefreshTick?: number;
 }
 
 type StatusFilter = "open" | "all" | "completed" | "snoozed";
@@ -59,6 +63,7 @@ export function TaskList({
   userType,
   onRefreshAi,
   aiBusy = false,
+  aiRefreshTick = 0,
 }: Props) {
   const now = Date.now();
   const [selectedThemes, setSelectedThemes] = useState<Set<Theme>>(new Set());
@@ -67,6 +72,11 @@ export function TaskList({
   const [sortKey, setSortKey] = useState<SortKey>(
     aiTierById && aiTierById.size > 0 ? "ai" : "added",
   );
+  // When an AI refresh completes (aiRefreshTick increments), auto-switch
+  // the sort to AI rank so the user immediately sees the fresh ranking.
+  useEffect(() => {
+    if (aiRefreshTick > 0) setSortKey("ai");
+  }, [aiRefreshTick]);
 
   // Compute counts per theme for the chips (only over the un-themed-filtered set
   // so "School (3)" always shows the true number when nothing is filtered).

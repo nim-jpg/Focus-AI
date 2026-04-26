@@ -369,12 +369,47 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     /** Hash of fields that influence ranking. Mismatch ⇒ re-rank. */
     hash: string;
   };
-  const [aiCache, setAiCache] = useState<Map<string, CachedRank>>(
-    () => new Map(),
+  // aiCache survives page reloads — it's the user's last paid AI run, so
+  // we don't want to throw it away. Stored as { ranks: [[id, entry]...] }.
+  const AI_CACHE_KEY = "focus3:aiCache:v1";
+  const [aiCache, setAiCache] = useState<Map<string, CachedRank>>(() => {
+    if (typeof window === "undefined") return new Map();
+    try {
+      const raw = localStorage.getItem(AI_CACHE_KEY);
+      if (!raw) return new Map();
+      const parsed = JSON.parse(raw) as { ranks: Array<[string, CachedRank]> };
+      return new Map(parsed.ranks);
+    } catch {
+      return new Map();
+    }
+  });
+  // Persist on every change. The cache is small (one entry per task) so a
+  // synchronous write is fine.
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        AI_CACHE_KEY,
+        JSON.stringify({ ranks: [...aiCache.entries()] }),
+      );
+    } catch {
+      /* ignore — quota or private-mode */
+    }
+  }, [aiCache]);
+  // Source tracks whether we're currently DISPLAYING the AI ranking. We
+  // restore source=claude on mount if there's a non-empty cache, so the
+  // user lands back on their AI-ranked Top Three after a reload.
+  const [source, setSource] = useState<Source>(() =>
+    typeof window === "undefined"
+      ? "local"
+      : localStorage.getItem(AI_CACHE_KEY)
+        ? "claude"
+        : "local",
   );
-  const [source, setSource] = useState<Source>("local");
   const [loading, setLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  // Bumped each time an AI refresh completes — TaskList watches this to
+  // auto-switch its sort to AI rank when fresh ranks land.
+  const [aiRefreshTick, setAiRefreshTick] = useState(0);
 
   const hashTaskForRanking = (t: Task): string =>
     [
@@ -529,6 +564,8 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         return next;
       });
       setSource("claude");
+      // Notify any listeners (e.g. TaskList) to switch their sort to AI rank.
+      setAiRefreshTick((t) => t + 1);
     } catch (err) {
       const reason =
         err instanceof AiUnavailableError ? err.message : "unexpected error";
@@ -875,6 +912,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             userType={prefs.userType}
             onRefreshAi={handleAiRefresh}
             aiBusy={loading}
+            aiRefreshTick={aiRefreshTick}
           />
         </section>
       )}
