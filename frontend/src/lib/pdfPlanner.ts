@@ -286,16 +286,22 @@ export async function exportWeeklyPlanner(
   const drawCodes = (taskId: string, x: number, y: number) => {
     const seq = hashSeq(taskId, WAVE_BARS);
     doc.setFillColor(60, 60, 60);
+    // Anchor dot vertically centred with the wave.
     doc.circle(x + 3, y + WAVE_H / 2, 1.6, "F");
     const barAreaX = x + 8;
     const barAreaW = WAVE_W - 8;
     const barW = (barAreaW - (WAVE_BARS - 1) * 1) / WAVE_BARS;
+    const midY = y + WAVE_H / 2;
     for (let i = 0; i < WAVE_BARS; i++) {
       const tier = seq[i] % 3;
+      // Each bar has equal half-height above and below the midline so the
+      // wave reads as a centered pill row, not bars rising from a baseline.
       const bh = WAVE_H * (0.35 + tier * 0.32);
       const bx = barAreaX + i * (barW + 1);
-      const by = y + (WAVE_H - bh);
-      doc.rect(bx, by, barW, bh, "F");
+      const by = midY - bh / 2;
+      // Rounded rectangle with corner radius = barW/2 produces semicircular
+      // (pill-shaped) caps at the top and bottom of every bar.
+      doc.roundedRect(bx, by, barW, bh, barW / 2, barW / 2, "F");
     }
     // shortId text under the wave (OCR scan-back fallback)
     doc.setFontSize(5.5);
@@ -710,11 +716,13 @@ export async function exportWeeklyPlanner(
   doc.setDrawColor(210);
   doc.setLineWidth(0.5);
   doc.rect(rightX, notesTop, colW, notesH);
-  doc.setFillColor(220, 220, 220);
-  for (let gx = rightX + 12; gx < rightX + colW - 6; gx += 14) {
-    for (let gy = notesTop + 12; gy < notesTop + notesH - 6; gy += 14) {
-      doc.circle(gx, gy, 0.35, "F");
-    }
+  // Horizontal writing lines — spaced wide enough (~22pt ≈ 7.7mm) so a
+  // pen actually fits on the line without crowding adjacent rows.
+  const NOTES_LINE_GAP = 22;
+  doc.setDrawColor(220);
+  doc.setLineWidth(0.4);
+  for (let gy = notesTop + NOTES_LINE_GAP; gy < notesTop + notesH - 4; gy += NOTES_LINE_GAP) {
+    doc.line(rightX + 6, gy, rightX + colW - 6, gy);
   }
 
   // ── Footer ────────────────────────────────────────────────────────────────
