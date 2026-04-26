@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import {
+  fileToBase64,
   findTaskByShortId,
   scanPlanner,
   ScanError,
@@ -56,19 +57,17 @@ export function PlannerScan({
     setResolved(null);
     setAccepted(new Set());
     try {
-      // Run OCR and QR detection in parallel — they read the same image.
-      setBusy("scanning image (text + QR)…");
-      const [ocrText, qrIds] = await Promise.all([
+      // Convert image to base64 for Claude vision (preferred path), AND
+      // run OCR + QR detection in parallel as fallback / cross-check
+      // signals.
+      setBusy("preparing image + running OCR…");
+      const [base64, ocrText, qrIds] = await Promise.all([
+        fileToBase64(file),
         ocrImage(file, (status, progress) => {
           setBusy(`${status} ${Math.round(progress * 100)}%`);
-        }),
+        }).catch(() => ""),
         decodeFocus3QRs(file).catch(() => [] as string[]),
       ]);
-
-      if (!ocrText && qrIds.length === 0) {
-        setError("Couldn't find any readable text or QR codes in that image.");
-        return;
-      }
 
       // Map QR-decoded full task IDs to short IDs that match what's printed.
       const qrShortIds = qrIds
@@ -78,15 +77,21 @@ export function PlannerScan({
         })
         .filter((s): s is string => Boolean(s));
 
-      // Stitch QR-confirmed IDs into the text so Claude knows they're definitely
-      // present, even if OCR couldn't read the printed shortId text.
+      // Stitch QR-confirmed IDs into the text so Claude knows they're
+      // definitely present, even if OCR couldn't read the printed shortId.
       const enrichedText =
         qrShortIds.length > 0
           ? `${ocrText}\n\nQR codes confirmed on this page: ${qrShortIds.join(", ")}`
           : ocrText;
 
-      setBusy("asking Claude what changed…");
-      const updates = await scanPlanner(enrichedText, tasks);
+      setBusy("asking Claude to read the planner image…");
+      const updates = await scanPlanner(
+        {
+          image: { base64, mediaType: file.type || "image/jpeg" },
+          text: enrichedText || undefined,
+        },
+        tasks,
+      );
       const mapped: ResolvedUpdate[] = updates
         .map((u) => {
           const task = findTaskByShortId(tasks, u.shortId);

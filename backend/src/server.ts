@@ -28,7 +28,9 @@ app.use(
     credentials: true,
   }),
 );
-app.use(express.json({ limit: "1mb" }));
+// 10mb so the scan-planner route can accept a base64-encoded phone photo
+// of the printed planner (~3-4mb image → ~4-5mb base64).
+app.use(express.json({ limit: "10mb" }));
 
 // Public health check — no auth.
 app.get("/api/health", (_req, res) => {
