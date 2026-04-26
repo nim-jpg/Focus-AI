@@ -8,11 +8,26 @@ import { Foundations } from "@/components/Foundations";
 import { TomorrowPreview } from "@/components/TomorrowPreview";
 import { Goals } from "@/components/Goals";
 import { PriorityMatrix } from "@/components/PriorityMatrix";
+import { SuggestDates } from "@/components/SuggestDates";
 import { useGoals } from "@/lib/useGoals";
 import { useTasks } from "@/lib/useTasks";
 import { prioritize } from "@/lib/prioritize";
 import { aiPrioritize, AiUnavailableError } from "@/lib/aiPrioritize";
-import { isFoundation, wasCompletedToday } from "@/lib/recurrence";
+import {
+  intendedScheduleDate,
+  isFoundation,
+  wasCompletedLate,
+  wasCompletedToday,
+} from "@/lib/recurrence";
+import { exportWeeklyPlanner } from "@/lib/pdfPlanner";
+import {
+  CalendarError,
+  disconnectGoogle,
+  fetchGoogleStatus,
+  scheduleTask,
+  startGoogleConnect,
+  type GoogleStatus,
+} from "@/lib/googleCalendar";
 import type { PrioritizedTask } from "@/types/task";
 
 type Source = "local" | "claude";
@@ -44,6 +59,66 @@ export default function App() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const editingTask = editingId ? tasks.find((t) => t.id === editingId) : undefined;
+  const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
+  const [calendarMsg, setCalendarMsg] = useState<string | null>(null);
+  const [scheduleConfirm, setScheduleConfirm] = useState<{
+    taskId: string;
+    title: string;
+    intendedIso: string;
+  } | null>(null);
+
+  const handleTopThreeComplete = (id: string) => {
+    const task = tasks.find((t) => t.id === id);
+    if (!task) {
+      toggleComplete(id);
+      return;
+    }
+    const isWeeklyPlus =
+      task.recurrence !== "none" && task.recurrence !== "daily";
+    const completingNow = task.status !== "completed";
+    const late = isWeeklyPlus && completingNow && wasCompletedLate(task);
+    toggleComplete(id);
+    if (late) {
+      const intended = intendedScheduleDate(task);
+      if (intended) {
+        setScheduleConfirm({
+          taskId: id,
+          title: task.title,
+          intendedIso: intended.toISOString(),
+        });
+      }
+    }
+  };
+
+  useEffect(() => {
+    fetchGoogleStatus().then(setGoogleStatus).catch(() => setGoogleStatus(null));
+    // If we just returned from the OAuth round-trip, surface a confirmation.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("google") === "connected") {
+      setCalendarMsg("Google Calendar connected.");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
+  const handleScheduleTask = async (taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    setCalendarMsg(null);
+    try {
+      const { htmlLink } = await scheduleTask(task);
+      updateTask(taskId, { calendarEventId: "set" });
+      setCalendarMsg(
+        htmlLink
+          ? `Scheduled "${task.title}" — opening Calendar`
+          : `Scheduled "${task.title}".`,
+      );
+      if (htmlLink) window.open(htmlLink, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      const reason =
+        err instanceof CalendarError ? err.message : "unexpected error";
+      setCalendarMsg(`Couldn't schedule — ${reason}`);
+    }
+  };
   const startEdit = (id: string) => {
     setEditingId(id);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -147,7 +222,46 @@ export default function App() {
             Three things, every day. Your non-negotiables, surfaced.
           </p>
         </div>
-        <ModeSwitch mode={prefs.mode} onChange={(mode) => setPrefs({ mode })} />
+        <div className="flex items-center gap-2">
+          {googleStatus?.configured && !googleStatus.connected && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() =>
+                startGoogleConnect().catch((err) =>
+                  setCalendarMsg(`Connect failed — ${err.message}`),
+                )
+              }
+            >
+              Connect Calendar
+            </button>
+          )}
+          {googleStatus?.connected && (
+            <button
+              type="button"
+              className="text-xs text-slate-500 hover:text-slate-900"
+              onClick={async () => {
+                await disconnectGoogle();
+                setGoogleStatus(await fetchGoogleStatus());
+              }}
+              title={googleStatus.email ?? "Calendar connected"}
+            >
+              Calendar: {googleStatus.email ?? "connected"}
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              void exportWeeklyPlanner(tasks, prefs);
+            }}
+            title="Download a 7-day Top Three planner as PDF"
+            disabled={tasks.length === 0}
+          >
+            Export PDF
+          </button>
+          <ModeSwitch mode={prefs.mode} onChange={(mode) => setPrefs({ mode })} />
+        </div>
       </header>
 
       <Foundations
@@ -184,9 +298,22 @@ export default function App() {
               type="button"
               className="btn-secondary"
               onClick={handleAiRefresh}
-              disabled={loading || tasks.length === 0}
+              disabled={
+                loading ||
+                tasks.length === 0 ||
+                (source === "claude" && aiResult !== null)
+              }
+              title={
+                source === "claude" && aiResult !== null
+                  ? "AI ranking is current — add or change a task to re-run"
+                  : "Ask Claude to re-rank Top Three"
+              }
             >
-              {loading ? "Asking Claude…" : "Refresh with AI"}
+              {loading
+                ? "Asking Claude…"
+                : source === "claude" && aiResult !== null
+                ? "AI ✓"
+                : "Refresh with AI"}
             </button>
           </div>
         </div>
@@ -195,15 +322,28 @@ export default function App() {
             {aiError}
           </div>
         )}
+        {calendarMsg && (
+          <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+            {calendarMsg}
+          </div>
+        )}
         <TopThree
           prioritized={prioritized}
-          onComplete={toggleComplete}
-          onSchedule={() => {}}
+          onComplete={handleTopThreeComplete}
+          onSchedule={
+            googleStatus?.connected ? handleScheduleTask : undefined
+          }
+          onSnooze={(id, until) => updateTask(id, { snoozedUntil: until })}
           goals={goals}
         />
       </section>
 
       <TomorrowPreview prioritized={tomorrowPreview} onDoEarly={toggleComplete} />
+
+      <SuggestDates
+        tasks={tasks}
+        onApply={(id, dueDate) => updateTask(id, { dueDate })}
+      />
 
       <PriorityMatrix tasks={tasks} onEdit={startEdit} />
 
@@ -243,12 +383,46 @@ export default function App() {
           onToggle={toggleComplete}
           onRemove={removeTask}
           onEdit={startEdit}
+          onUnsnooze={(id) => updateTask(id, { snoozedUntil: undefined })}
         />
       </section>
 
       <footer className="pt-4 text-center text-xs text-slate-400">
-        Local-only MVP · Calendar, OCR &amp; PDF coming soon
+        Local MVP · Calendar via Google · OCR via Tesseract · PDF planner
       </footer>
+
+      {scheduleConfirm && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-sm rounded-lg border border-slate-200 bg-white p-4 shadow-lg">
+          <p className="mb-2 text-sm">
+            <span className="font-medium">"{scheduleConfirm.title}"</span> was
+            done late. Should the cycle reset to today, or stay on its original
+            day?
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              className="btn-secondary text-xs"
+              onClick={() => {
+                updateTask(scheduleConfirm.taskId, {
+                  lastCompletedAt: scheduleConfirm.intendedIso,
+                });
+                setScheduleConfirm(null);
+              }}
+              title="Next due date stays on the original schedule"
+            >
+              Keep original
+            </button>
+            <button
+              type="button"
+              className="btn-primary text-xs"
+              onClick={() => setScheduleConfirm(null)}
+              title="Next due date is the recurrence interval from today"
+            >
+              Reset to today
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

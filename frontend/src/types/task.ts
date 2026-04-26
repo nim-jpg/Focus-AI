@@ -79,6 +79,8 @@ export interface Task {
   counter?: DailyCounter;
   /** Goals this task ladders up to. */
   goalIds?: string[];
+  /** ISO timestamp the task is hidden until. Used for "blocked externally, recheck in N days". */
+  snoozedUntil?: string;
   /** Optional Google Calendar event id once scheduled. */
   calendarEventId?: string;
 }

@@ -30,6 +30,9 @@ export async function aiPrioritize(
     if (t.status === "completed") return false;
     if (isFoundation(t)) return false;
     if (t.recurrence !== "none" && !isDueNow(t, now)) return false;
+    if (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > now.getTime()) {
+      return false;
+    }
     return true;
   });
 

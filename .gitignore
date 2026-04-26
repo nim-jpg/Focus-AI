@@ -14,6 +14,9 @@ out/
 .env.local
 .env.*.local
 
+# OAuth tokens persisted by the backend
+.google-tokens.json
+
 # Logs
 npm-debug.log*
 yarn-debug.log*

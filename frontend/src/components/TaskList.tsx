@@ -6,6 +6,7 @@ interface Props {
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
   onEdit?: (id: string) => void;
+  onUnsnooze?: (id: string) => void;
 }
 
 function formatDue(iso?: string): string {
@@ -14,7 +15,8 @@ function formatDue(iso?: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-export function TaskList({ tasks, onToggle, onRemove, onEdit }: Props) {
+export function TaskList({ tasks, onToggle, onRemove, onEdit, onUnsnooze }: Props) {
+  const now = Date.now();
   if (tasks.length === 0) {
     return (
       <div className="card text-center text-sm text-slate-500">
@@ -62,6 +64,11 @@ export function TaskList({ tasks, onToggle, onRemove, onEdit }: Props) {
                   {task.privacy}
                 </span>
               )}
+              {task.snoozedUntil && new Date(task.snoozedUntil).getTime() > now && (
+                <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-800">
+                  snoozed until {new Date(task.snoozedUntil).toLocaleDateString()}
+                </span>
+              )}
             </div>
             {task.description && (
               <p className="mt-1 text-sm text-slate-600">{task.description}</p>
@@ -83,6 +90,17 @@ export function TaskList({ tasks, onToggle, onRemove, onEdit }: Props) {
                 Edit
               </button>
             )}
+            {onUnsnooze &&
+              task.snoozedUntil &&
+              new Date(task.snoozedUntil).getTime() > now && (
+                <button
+                  type="button"
+                  onClick={() => onUnsnooze(task.id)}
+                  className="text-indigo-600 hover:text-indigo-800"
+                >
+                  Wake
+                </button>
+              )}
             <button
               type="button"
               onClick={() => onRemove(task.id)}

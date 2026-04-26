@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { parseBrainDump, ParseUnavailableError } from "@/lib/parseTasks";
+import { ocrImage } from "@/lib/ocr";
 import type { NewTaskInput } from "@/lib/useTasks";
 import { ThemeBadge } from "./ThemeBadge";
 
@@ -27,11 +28,37 @@ export function BrainDump({ onAdd }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
+  const [ocrStatus, setOcrStatus] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const reset = () => {
     setText("");
     setSuggestions(null);
     setError(null);
+    setOcrStatus(null);
+  };
+
+  const handleScan = async (file: File) => {
+    setLoading(true);
+    setError(null);
+    setOcrStatus("loading worker…");
+    try {
+      const recognised = await ocrImage(file, (status, progress) => {
+        setOcrStatus(`${status} ${Math.round(progress * 100)}%`);
+      });
+      if (!recognised) {
+        setError("OCR didn't find any text in that image.");
+      } else {
+        // Append so the user can scan multiple pages into one parse.
+        setText((prev) => (prev ? `${prev}\n\n${recognised}` : recognised));
+      }
+    } catch (err) {
+      setError(`Scan failed — ${err instanceof Error ? err.message : "unknown"}`);
+    } finally {
+      setLoading(false);
+      setOcrStatus(null);
+      if (fileRef.current) fileRef.current.value = "";
+    }
   };
 
   const handleParse = async () => {
@@ -126,28 +153,56 @@ export function BrainDump({ onAdd }: Props) {
             onChange={(e) => setText(e.target.value)}
             disabled={loading}
           />
+          {ocrStatus && (
+            <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+              Scanning… {ocrStatus}
+            </div>
+          )}
           {error && (
             <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               {error}
             </div>
           )}
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={reset}
-              disabled={loading || !text}
-            >
-              Clear
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={handleParse}
-              disabled={loading || !text.trim()}
-            >
-              {loading ? "Parsing…" : "Parse with Claude"}
-            </button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleScan(file);
+                }}
+              />
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => fileRef.current?.click()}
+                disabled={loading}
+                title="Scan a photo of handwritten or printed notes"
+              >
+                📷 Scan image
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={reset}
+                disabled={loading || !text}
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleParse}
+                disabled={loading || !text.trim()}
+              >
+                {loading && !ocrStatus ? "Parsing…" : "Parse with Claude"}
+              </button>
+            </div>
           </div>
         </>
       )}

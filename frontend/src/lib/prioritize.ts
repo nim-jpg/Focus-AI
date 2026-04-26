@@ -155,6 +155,10 @@ export function prioritize(
     if (isFoundation(t)) return false;
     // Recurring tasks only compete when they're actually due.
     if (t.recurrence !== "none" && !isDueNow(t, now)) return false;
+    // Snoozed tasks hide until snoozedUntil passes.
+    if (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > now.getTime()) {
+      return false;
+    }
     return true;
   });
 

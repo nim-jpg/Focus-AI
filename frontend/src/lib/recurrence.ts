@@ -92,3 +92,48 @@ export function isOverdueToday(task: Task, now: Date = new Date()): boolean {
   if (slot === "anytime") return false;
   return now.getHours() >= SLOT_END_HOUR[slot];
 }
+
+/**
+ * For a weekly+ recurring task, the most recent date on or before `now` that
+ * matches the original schedule anchored to createdAt.
+ *  - weekly: same day-of-week as createdAt
+ *  - monthly/quarterly/yearly: same day-of-month as createdAt
+ * Returns null for non-recurring or daily tasks.
+ */
+export function intendedScheduleDate(task: Task, now: Date = new Date()): Date | null {
+  if (task.recurrence === "none" || task.recurrence === "daily") return null;
+  const anchor = new Date(task.createdAt);
+  if (Number.isNaN(anchor.getTime())) return null;
+
+  const result = new Date(now);
+  result.setHours(0, 0, 0, 0);
+
+  if (task.recurrence === "weekly") {
+    const anchorDow = anchor.getDay();
+    const todayDow = result.getDay();
+    const diff = (todayDow - anchorDow + 7) % 7;
+    result.setDate(result.getDate() - diff);
+    return result;
+  }
+
+  // monthly / quarterly / yearly: walk back to the most recent same-day-of-month.
+  const anchorDom = anchor.getDate();
+  result.setDate(anchorDom);
+  if (result.getTime() > now.getTime()) {
+    result.setMonth(result.getMonth() - 1);
+  }
+  return result;
+}
+
+/**
+ * True when a recurring task was completed *after* its scheduled instance —
+ * i.e. the user is doing it late and we should ask whether to reset the cycle.
+ */
+export function wasCompletedLate(task: Task, now: Date = new Date()): boolean {
+  const intended = intendedScheduleDate(task, now);
+  if (!intended) return false;
+  // "late" if intended was 1+ days before today
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  return intended.getTime() < today.getTime();
+}

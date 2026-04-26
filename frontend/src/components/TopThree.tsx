@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Goal, PrioritizedTask } from "@/types/task";
 import { ThemeBadge } from "./ThemeBadge";
 
@@ -5,8 +6,17 @@ interface Props {
   prioritized: PrioritizedTask[];
   onComplete: (id: string) => void;
   onSchedule?: (id: string) => void;
+  onSnooze: (id: string, untilIso: string) => void;
   goals?: Goal[];
 }
+
+const SNOOZE_OPTIONS: Array<{ label: string; days: number }> = [
+  { label: "1 day", days: 1 },
+  { label: "3 days", days: 3 },
+  { label: "1 week", days: 7 },
+  { label: "2 weeks", days: 14 },
+  { label: "1 month", days: 30 },
+];
 
 const TIER_LABELS: Record<1 | 2 | 3 | 4, string> = {
   1: "Must do now",
@@ -22,8 +32,15 @@ const TIER_CLASSES: Record<1 | 2 | 3 | 4, string> = {
   4: "border-slate-200 bg-slate-50",
 };
 
-export function TopThree({ prioritized, onComplete, onSchedule, goals = [] }: Props) {
+export function TopThree({
+  prioritized,
+  onComplete,
+  onSchedule,
+  onSnooze,
+  goals = [],
+}: Props) {
   const goalById = new Map(goals.map((g) => [g.id, g]));
+  const [snoozeOpenFor, setSnoozeOpenFor] = useState<string | null>(null);
   if (prioritized.length === 0) {
     return (
       <div className="card text-center text-sm text-slate-500">
@@ -81,10 +98,13 @@ export function TopThree({ prioritized, onComplete, onSchedule, goals = [] }: Pr
                   type="button"
                   className="btn-secondary"
                   onClick={() => onSchedule(task.id)}
-                  title="Schedule on calendar (coming soon)"
-                  disabled
+                  title={
+                    task.calendarEventId
+                      ? "Already scheduled — click to re-schedule"
+                      : "Schedule on Google Calendar"
+                  }
                 >
-                  Schedule
+                  {task.calendarEventId ? "Re-schedule" : "Schedule"}
                 </button>
               )}
               <button
@@ -94,6 +114,37 @@ export function TopThree({ prioritized, onComplete, onSchedule, goals = [] }: Pr
               >
                 Done
               </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  className="text-xs text-slate-500 hover:text-slate-900"
+                  onClick={() =>
+                    setSnoozeOpenFor((id) => (id === task.id ? null : task.id))
+                  }
+                  title="Hide until later — useful when blocked externally"
+                >
+                  Snooze ▾
+                </button>
+                {snoozeOpenFor === task.id && (
+                  <div className="absolute right-0 z-10 mt-1 w-32 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
+                    {SNOOZE_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.days}
+                        type="button"
+                        className="block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50"
+                        onClick={() => {
+                          const until = new Date();
+                          until.setDate(until.getDate() + opt.days);
+                          onSnooze(task.id, until.toISOString());
+                          setSnoozeOpenFor(null);
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </li>

@@ -6,7 +6,8 @@ This branch (`claude/focus3-app-setup-xohwm`) lays down the initial scaffold:
 
 - **Frontend MVP** — Vite + React + TypeScript + Tailwind, localStorage-persisted task model, Tier 1–4 heuristic prioritization engine, Top Three dashboard, mode switch (Both/Work/Personal).
 - **Backend stub** — Express + Anthropic SDK route at `POST /api/prioritize` that proxies to Claude when `ANTHROPIC_API_KEY` is set. Frontend currently uses its local heuristic; the backend is wired for the next iteration.
-- **Roadmap (not yet built)** — Google Calendar OAuth, PDF planner generation, Tesseract OCR scan-to-app, recurrence engine, multi-user auth, deployment configs.
+- **Now shipped** — Recurrence engine, Foundations rail (time-slotted with counter chips), Goals (6m/1y/5y/10y), Priority Matrix, Tomorrow's preview, avoidance auto-bump, snooze, Brain Dump (Claude-parsed), OCR scan-to-app (Tesseract), PDF weekly planner, Google Calendar OAuth + Schedule, AI "Suggest due dates".
+- **Still on the list** — Multi-user auth, deployment configs.
 
 ## Repo layout
 
@@ -41,6 +42,19 @@ npm run dev:backend
 ```
 
 The frontend proxies `/api/*` to `http://localhost:8787` via Vite.
+
+## Google Calendar setup (optional, for Schedule button)
+
+1. Create a project at https://console.cloud.google.com/
+2. APIs & Services → Library → enable **Google Calendar API**
+3. APIs & Services → OAuth consent screen → External; add yourself as a test user
+4. APIs & Services → Credentials → Create Credentials → OAuth client ID
+   - Application type: **Web application**
+   - Authorized redirect URI: `http://localhost:8787/api/google/callback`
+5. Paste the client id + secret into `backend/.env` as `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
+6. Restart the backend, click **Connect Calendar** in the app header, authorize.
+
+The OAuth tokens are persisted to `backend/.google-tokens.json` (gitignored). Single-user, local-only — fine for the MVP.
 
 ## Prioritization engine
 
