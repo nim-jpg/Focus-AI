@@ -1,3 +1,5 @@
+import { apiFetch } from "./api";
+
 export interface CompaniesHouseAlternate {
   number: string;
   name: string;
@@ -31,7 +33,7 @@ export async function lookupCompany(
   const params = new URLSearchParams();
   if (nameOrNumber.name) params.set("name", nameOrNumber.name);
   if (nameOrNumber.number) params.set("number", nameOrNumber.number);
-  const res = await fetch(`/api/companies-house/lookup?${params.toString()}`);
+  const res = await apiFetch(`/api/companies-house/lookup?${params.toString()}`);
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { message?: string };
     throw new CompaniesHouseError(

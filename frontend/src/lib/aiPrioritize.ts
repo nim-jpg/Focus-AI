@@ -1,5 +1,6 @@
 import type { PrioritizedTask, Task, UserPrefs } from "@/types/task";
 import { isFoundation, isDueNow } from "./recurrence";
+import { apiFetch } from "./api";
 
 interface AiResponse {
   topThree: Array<{ taskId: string; tier: 1 | 2 | 3 | 4; reasoning: string }>;
@@ -38,7 +39,7 @@ export async function aiPrioritize(
 
   let res: Response;
   try {
-    res = await fetch("/api/prioritize", {
+    res = await apiFetch("/api/prioritize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tasks: candidates, prefs }),

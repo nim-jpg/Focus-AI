@@ -17,6 +17,8 @@ import { PlannerScan, type ResolvedUpdate } from "@/components/PlannerScan";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { checkAndNotify } from "@/lib/notifications";
 import { downloadBackup, readBackupFile } from "@/lib/backup";
+import { useAuth } from "@/lib/useAuth";
+import { Login } from "@/components/Login";
 import { useGoals } from "@/lib/useGoals";
 import { useTasks } from "@/lib/useTasks";
 import { prioritize } from "@/lib/prioritize";
@@ -58,6 +60,23 @@ function loadInitialView(): View {
 }
 
 export default function App() {
+  const auth = useAuth();
+  // Auth gate — only render the app once we know the user's signed in (or auth
+  // is disabled entirely in single-user / dev mode).
+  if (auth.enabled && auth.loading) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-16 text-center text-sm text-slate-500">
+        Loading…
+      </div>
+    );
+  }
+  if (auth.enabled && !auth.user) {
+    return <Login auth={auth} />;
+  }
+  return <AppShell auth={auth} />;
+}
+
+function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
   const {
     tasks,
     prefs,
@@ -462,6 +481,16 @@ export default function App() {
           >
             ⚙ Settings
           </button>
+          {auth.enabled && auth.user && (
+            <button
+              type="button"
+              className="text-xs text-slate-500 hover:text-slate-900"
+              onClick={() => void auth.signOut()}
+              title={auth.user.email ?? "Sign out"}
+            >
+              Sign out
+            </button>
+          )}
         </div>
       </header>
 

@@ -1,4 +1,5 @@
 import type { Task } from "@/types/task";
+import { apiFetch } from "./api";
 
 export type ScanAction = "complete" | "defer" | "block" | "timeSpent" | "rename";
 
@@ -27,7 +28,7 @@ export function findTaskByShortId(tasks: Task[], shortId: string): Task | null {
 
 export async function scanPlanner(text: string, tasks: Task[]): Promise<ScanUpdate[]> {
   const shortIds = tasks.map((t) => shortIdFor(t.id));
-  const res = await fetch("/api/scan-planner", {
+  const res = await apiFetch("/api/scan-planner", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, shortIds }),

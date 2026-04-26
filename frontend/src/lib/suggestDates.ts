@@ -1,4 +1,5 @@
 import type { Task } from "@/types/task";
+import { apiFetch } from "./api";
 
 export interface DateSuggestion {
   taskId: string;
@@ -28,7 +29,7 @@ export async function suggestDueDates(tasks: Task[]): Promise<DateSuggestion[]> 
 
   let res: Response;
   try {
-    res = await fetch("/api/suggest-due-dates", {
+    res = await apiFetch("/api/suggest-due-dates", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tasks: candidates }),

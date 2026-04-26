@@ -9,6 +9,7 @@ import {
   type Urgency,
 } from "@/types/task";
 import type { NewTaskInput } from "./useTasks";
+import { apiFetch } from "./api";
 
 export class ParseUnavailableError extends Error {
   constructor(
@@ -89,7 +90,7 @@ function normalizeRaw(raw: RawTask): NewTaskInput | null {
 export async function parseBrainDump(text: string): Promise<NewTaskInput[]> {
   let res: Response;
   try {
-    res = await fetch("/api/parse-tasks", {
+    res = await apiFetch("/api/parse-tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),

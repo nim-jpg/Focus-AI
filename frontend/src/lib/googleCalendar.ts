@@ -1,4 +1,5 @@
 import type { Task } from "@/types/task";
+import { apiFetch } from "./api";
 
 export interface GoogleStatus {
   configured: boolean;
@@ -14,13 +15,13 @@ export class CalendarError extends Error {
 }
 
 export async function fetchGoogleStatus(): Promise<GoogleStatus> {
-  const res = await fetch("/api/google/status");
+  const res = await apiFetch("/api/google/status");
   if (!res.ok) throw new CalendarError(`HTTP ${res.status}`, res.status);
   return (await res.json()) as GoogleStatus;
 }
 
 export async function startGoogleConnect(): Promise<void> {
-  const res = await fetch("/api/google/auth-url");
+  const res = await apiFetch("/api/google/auth-url");
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new CalendarError(
@@ -33,7 +34,7 @@ export async function startGoogleConnect(): Promise<void> {
 }
 
 export async function disconnectGoogle(): Promise<void> {
-  await fetch("/api/google/disconnect", { method: "DELETE" });
+  await apiFetch("/api/google/disconnect", { method: "DELETE" });
 }
 
 export interface CalendarEvent {
@@ -46,7 +47,7 @@ export interface CalendarEvent {
 }
 
 export async function deleteEvent(eventId: string): Promise<void> {
-  const res = await fetch(
+  const res = await apiFetch(
     `/api/google/events/${encodeURIComponent(eventId)}`,
     { method: "DELETE" },
   );
@@ -61,7 +62,7 @@ export async function fetchEvents(from: Date, to: Date): Promise<CalendarEvent[]
     from: from.toISOString(),
     to: to.toISOString(),
   });
-  const res = await fetch(`/api/google/events?${params.toString()}`);
+  const res = await apiFetch(`/api/google/events?${params.toString()}`);
   if (!res.ok) {
     if (res.status === 401) return []; // not connected — fail silently
     throw new CalendarError(`HTTP ${res.status}`, res.status);
@@ -78,7 +79,7 @@ export async function scheduleTask(
   start: Date,
   end: Date,
 ): Promise<{ eventId: string; htmlLink?: string }> {
-  const res = await fetch("/api/google/events", {
+  const res = await apiFetch("/api/google/events", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
