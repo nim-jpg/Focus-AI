@@ -22,7 +22,12 @@ export function saveTasks(tasks: Task[]): void {
 }
 
 export function loadPrefs(): UserPrefs {
-  return safeParse<UserPrefs>(localStorage.getItem(PREFS_KEY), DEFAULT_PREFS);
+  // Merge with defaults so older saves missing newer fields don't crash.
+  const stored = safeParse<Partial<UserPrefs>>(
+    localStorage.getItem(PREFS_KEY),
+    {},
+  );
+  return { ...DEFAULT_PREFS, ...stored };
 }
 
 export function savePrefs(prefs: UserPrefs): void {

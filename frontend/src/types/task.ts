@@ -131,14 +131,20 @@ export interface Goal {
 /** App-wide user preferences. */
 export interface UserPrefs {
   workingHoursStart: string; // "09:00"
-  workingHoursEnd: string; // "17:00"
+  workingHoursEnd: string; // "18:00"
+  /** Day-of-week numbers (0=Sun..6=Sat) the user typically works. */
+  workingDays: number[];
   mode: "both" | "work" | "personal";
   googleCalendarConnected: boolean;
+  /** Whether the user has opted in to browser notifications for due/overdue tasks. */
+  notificationsEnabled: boolean;
 }
 
 export const DEFAULT_PREFS: UserPrefs = {
   workingHoursStart: "09:00",
-  workingHoursEnd: "17:00",
+  workingHoursEnd: "18:00",
+  workingDays: [1, 2, 3, 4, 5], // Mon-Fri
   mode: "both",
   googleCalendarConnected: false,
+  notificationsEnabled: false,
 };

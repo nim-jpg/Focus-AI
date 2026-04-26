@@ -13,6 +13,7 @@ import { CompanyAssist } from "@/components/CompanyAssist";
 import { WeekSchedule } from "@/components/WeekSchedule";
 import { SchedulePicker, type ScheduleChoice } from "@/components/SchedulePicker";
 import { PlannerScan, type ResolvedUpdate } from "@/components/PlannerScan";
+import { SettingsPanel } from "@/components/SettingsPanel";
 import { useGoals } from "@/lib/useGoals";
 import { useTasks } from "@/lib/useTasks";
 import { prioritize } from "@/lib/prioritize";
@@ -102,6 +103,7 @@ export default function App() {
     intendedIso: string;
   } | null>(null);
   const [pickerForTaskId, setPickerForTaskId] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   const taskBeingScheduled = pickerForTaskId
     ? tasks.find((t) => t.id === pickerForTaskId)
     : undefined;
@@ -382,6 +384,14 @@ export default function App() {
             Export PDF
           </button>
           <ModeSwitch mode={prefs.mode} onChange={(mode) => setPrefs({ mode })} />
+          <button
+            type="button"
+            className="text-xs text-slate-500 hover:text-slate-900"
+            onClick={() => setShowSettings(true)}
+            title="Working hours, days, notifications"
+          >
+            ⚙ Settings
+          </button>
         </div>
       </header>
 
@@ -483,6 +493,7 @@ export default function App() {
 
           <WeekSchedule
             tasks={tasks}
+            prefs={prefs}
             calendarConnected={googleStatus?.connected ?? false}
             onScheduleClick={openSchedulePicker}
             onUnschedule={(id) => updateTask(id, { scheduledFor: undefined })}
@@ -572,6 +583,14 @@ export default function App() {
           calendarConnected={googleStatus?.connected ?? false}
           onConfirm={confirmSchedule}
           onCancel={() => setPickerForTaskId(null)}
+        />
+      )}
+
+      {showSettings && (
+        <SettingsPanel
+          prefs={prefs}
+          onChange={setPrefs}
+          onClose={() => setShowSettings(false)}
         />
       )}
 

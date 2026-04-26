@@ -1,4 +1,4 @@
-import type { Task } from "@/types/task";
+import type { Task, UserPrefs } from "@/types/task";
 import type { CalendarEvent } from "./googleCalendar";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -8,14 +8,33 @@ interface BusyBlock {
   end: number;
 }
 
-/** Working-hours assumption — Mon-Fri 9-18 are blocked by default. */
-const DEFAULT_WORK_START = 9;
-const DEFAULT_WORK_END = 18;
+interface WorkingHours {
+  start: number; // hour 0-24
+  end: number;
+  days: number[]; // day-of-week 0=Sun..6=Sat
+}
 
-/** Slot preference rules per day-of-week (0=Sun..6=Sat). */
-function preferredSlotsFor(dayOfWeek: number): Array<{ hour: number; minute: number }> {
-  // Weekend (Sat=6, Sun=0): early morning preferred
-  if (dayOfWeek === 0 || dayOfWeek === 6) {
+function parseHour(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return (h ?? 0) + (m ?? 0) / 60;
+}
+
+function workingHoursFromPrefs(prefs?: UserPrefs): WorkingHours {
+  return {
+    start: prefs ? parseHour(prefs.workingHoursStart) : 9,
+    end: prefs ? parseHour(prefs.workingHoursEnd) : 18,
+    days: prefs?.workingDays ?? [1, 2, 3, 4, 5],
+  };
+}
+
+/** Slot preference rules — weekday-shape vs weekend-shape, anchored to working hours. */
+function preferredSlotsFor(
+  dayOfWeek: number,
+  wh: WorkingHours,
+): Array<{ hour: number; minute: number }> {
+  const isWorkingDay = wh.days.includes(dayOfWeek);
+  if (!isWorkingDay) {
+    // "weekend" shape: morning slots before any work-anchor
     return [
       { hour: 9, minute: 0 },
       { hour: 10, minute: 30 },
@@ -23,20 +42,21 @@ function preferredSlotsFor(dayOfWeek: number): Array<{ hour: number; minute: num
       { hour: 11, minute: 30 },
     ];
   }
-  // Weekday: after-work slots preferred
+  // Working day: prefer after-work, then early morning before work.
+  const afterWork = Math.ceil(wh.end);
+  const earlyMorning = Math.max(6, Math.floor(wh.start) - 2);
   return [
-    { hour: 19, minute: 0 },
-    { hour: 18, minute: 30 },
-    { hour: 20, minute: 0 },
-    { hour: 7, minute: 0 },
+    { hour: afterWork, minute: 0 },
+    { hour: afterWork, minute: 30 },
+    { hour: Math.min(22, afterWork + 1), minute: 0 },
+    { hour: earlyMorning, minute: 0 },
   ];
 }
 
-function isWorkHours(date: Date): boolean {
-  const dow = date.getDay();
-  if (dow === 0 || dow === 6) return false;
-  const h = date.getHours();
-  return h >= DEFAULT_WORK_START && h < DEFAULT_WORK_END;
+function isWorkHours(date: Date, wh: WorkingHours): boolean {
+  if (!wh.days.includes(date.getDay())) return false;
+  const t = date.getHours() + date.getMinutes() / 60;
+  return t >= wh.start && t < wh.end;
 }
 
 function overlaps(start: number, end: number, busy: BusyBlock[]): boolean {
@@ -80,9 +100,11 @@ export function suggestSessionTimes(
   durationMinutes: number,
   weekStart: Date,
   busy: BusyBlock[],
+  prefs?: UserPrefs,
 ): Date[] {
   if (count <= 0) return [];
   const n = Math.min(count, 7);
+  const wh = workingHoursFromPrefs(prefs);
 
   const placed: Date[] = [];
   const localBusy = [...busy];
@@ -90,12 +112,12 @@ export function suggestSessionTimes(
   const tryDayWithSlot = (dayOffset: number): Date | null => {
     const date = new Date(weekStart.getTime() + dayOffset * DAY_MS);
     const dow = date.getDay();
-    const slots = preferredSlotsFor(dow);
+    const slots = preferredSlotsFor(dow, wh);
     for (const slot of slots) {
       const candidate = new Date(date);
       candidate.setHours(slot.hour, slot.minute, 0, 0);
       if (candidate.getTime() < Date.now()) continue;
-      if (isWorkHours(candidate)) continue;
+      if (isWorkHours(candidate, wh)) continue;
       const start = candidate.getTime();
       const end = start + durationMinutes * 60 * 1000;
       if (overlaps(start, end, localBusy)) continue;

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Task } from "@/types/task";
+import type { Task, UserPrefs } from "@/types/task";
 import { fetchEvents, type CalendarEvent } from "@/lib/googleCalendar";
 import { busyWindowsForWeek, suggestSessionTimes } from "@/lib/autoSchedule";
 import { ThemeBadge } from "./ThemeBadge";
 
 interface Props {
   tasks: Task[];
+  prefs: UserPrefs;
   calendarConnected: boolean;
   onScheduleClick: (taskId: string) => void;
   onUnschedule: (taskId: string) => void;
@@ -52,6 +53,7 @@ interface Block {
 
 export function WeekSchedule({
   tasks,
+  prefs,
   calendarConnected,
   onScheduleClick,
   onUnschedule,
@@ -190,6 +192,7 @@ export function WeekSchedule({
       task.estimatedMinutes ?? 60,
       weekStart,
       busy,
+      prefs,
     );
     if (slots.length === 0) return;
     const next = [
@@ -209,6 +212,18 @@ export function WeekSchedule({
   const gridHeight = totalHours * HOUR_HEIGHT;
   const minToY = (min: number) =>
     ((min - gridStartHour * 60) / 60) * HOUR_HEIGHT;
+
+  // Working-hours tint: grey out the user's typical work block per working day.
+  const workStartH = parseFloat(prefs.workingHoursStart.split(":")[0]!) +
+    parseFloat(prefs.workingHoursStart.split(":")[1] ?? "0") / 60;
+  const workEndH = parseFloat(prefs.workingHoursEnd.split(":")[0]!) +
+    parseFloat(prefs.workingHoursEnd.split(":")[1] ?? "0") / 60;
+  const workTopY = minToY(workStartH * 60);
+  const workBottomY = minToY(workEndH * 60);
+  const isWorkingDayIdx = (idx: number) => {
+    const dayDate = new Date(weekStart.getTime() + idx * DAY_MS);
+    return prefs.workingDays.includes(dayDate.getDay());
+  };
 
   // Current-time indicator (only on today's column)
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
@@ -392,6 +407,20 @@ export function WeekSchedule({
                 isToday ? "bg-emerald-50/30" : ""
               }`}
             >
+              {/* Working-hours tint */}
+              {isWorkingDayIdx(dayIdx) &&
+                workTopY < gridHeight &&
+                workBottomY > 0 && (
+                  <div
+                    className="absolute left-0 right-0 bg-slate-100/60"
+                    style={{
+                      top: `${Math.max(0, workTopY)}px`,
+                      height: `${Math.max(0, Math.min(gridHeight, workBottomY) - Math.max(0, workTopY))}px`,
+                    }}
+                    title="Working hours"
+                  />
+                )}
+
               {/* Hour gridlines */}
               {Array.from({ length: totalHours }).map((_, i) => (
                 <div
