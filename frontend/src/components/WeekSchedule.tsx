@@ -21,14 +21,17 @@ interface Props {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const SHORT_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const HOUR_HEIGHT = 28; // pixels per hour
 
-function startOfWeek(d: Date): Date {
+/**
+ * The visible 7-day window now anchors on TODAY (not Monday). Past is past —
+ * the planner's job is to focus the user forward. Prev/next still page by 7
+ * days from wherever the anchor is.
+ */
+function startOfDay(d: Date): Date {
   const c = new Date(d);
   c.setHours(0, 0, 0, 0);
-  const day = (c.getDay() + 6) % 7;
-  c.setDate(c.getDate() - day);
   return c;
 }
 
@@ -71,7 +74,7 @@ export function WeekSchedule({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [weekStartDate, setWeekStartDate] = useState<Date>(() =>
-    startOfWeek(new Date()),
+    startOfDay(new Date()),
   );
 
   const weekStart = weekStartDate;
@@ -212,7 +215,7 @@ export function WeekSchedule({
     setWeekStartDate(new Date(weekStart.getTime() - 7 * DAY_MS));
   const goNext = () =>
     setWeekStartDate(new Date(weekStart.getTime() + 7 * DAY_MS));
-  const goToday = () => setWeekStartDate(startOfWeek(new Date()));
+  const goToday = () => setWeekStartDate(startOfDay(new Date()));
 
   const totalHours = gridEndHour - gridStartHour;
   const gridHeight = totalHours * HOUR_HEIGHT;
@@ -222,12 +225,18 @@ export function WeekSchedule({
   // Drag-to-reschedule: native HTML5 drag, no third-party deps.
   // We snap drops to 15-minute intervals.
   const SNAP_MIN = 15;
+  const EDGE_HOVER_MS = 800; // hold near the edge this long to advance the week
+  const ADVANCE_COOLDOWN_MS = 5000; // pause auto-advance for 5s after a jump
 
   type DragPayload =
     | { kind: "task"; taskId: string }
     | { kind: "session"; taskId: string; iso: string };
 
   const [dragging, setDragging] = useState<DragPayload | null>(null);
+  const edgeTimerRef = useState<{ t: ReturnType<typeof setTimeout> | null }>({
+    t: null,
+  })[0];
+  const advancePausedUntilRef = useState<{ ts: number }>({ ts: 0 })[0];
 
   const handleDragStart =
     (payload: DragPayload) => (e: React.DragEvent<HTMLDivElement>) => {
@@ -237,7 +246,31 @@ export function WeekSchedule({
       e.dataTransfer.setData("text/plain", JSON.stringify(payload));
     };
 
-  const handleDragEnd = () => setDragging(null);
+  const handleDragEnd = () => {
+    setDragging(null);
+    if (edgeTimerRef.t) {
+      clearTimeout(edgeTimerRef.t);
+      edgeTimerRef.t = null;
+    }
+  };
+
+  const armEdgeAdvance = (direction: "prev" | "next") => {
+    if (edgeTimerRef.t) return; // already armed
+    if (Date.now() < advancePausedUntilRef.ts) return; // cooling down
+    edgeTimerRef.t = setTimeout(() => {
+      edgeTimerRef.t = null;
+      advancePausedUntilRef.ts = Date.now() + ADVANCE_COOLDOWN_MS;
+      if (direction === "next") goNext();
+      else goPrev();
+    }, EDGE_HOVER_MS);
+  };
+
+  const cancelEdgeAdvance = () => {
+    if (edgeTimerRef.t) {
+      clearTimeout(edgeTimerRef.t);
+      edgeTimerRef.t = null;
+    }
+  };
 
   const handleColumnDrop =
     (dayIdx: number) => (e: React.DragEvent<HTMLDivElement>) => {
@@ -356,7 +389,33 @@ export function WeekSchedule({
         </div>
       )}
 
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
+      {/* Edge advance zones — show while dragging, trigger week jump after a hover */}
+      {dragging && (
+        <>
+          <div
+            className="pointer-events-auto absolute inset-y-0 left-0 z-30 w-6 bg-gradient-to-r from-slate-300/60 to-transparent"
+            onDragEnter={() => armEdgeAdvance("prev")}
+            onDragOver={(e) => {
+              e.preventDefault();
+              armEdgeAdvance("prev");
+            }}
+            onDragLeave={cancelEdgeAdvance}
+            title="Hold here to jump to previous week"
+          />
+          <div
+            className="pointer-events-auto absolute inset-y-0 right-0 z-30 w-6 bg-gradient-to-l from-slate-300/60 to-transparent"
+            onDragEnter={() => armEdgeAdvance("next")}
+            onDragOver={(e) => {
+              e.preventDefault();
+              armEdgeAdvance("next");
+            }}
+            onDragLeave={cancelEdgeAdvance}
+            title="Hold here to jump to next week"
+          />
+        </>
+      )}
+
       {/* Day headers */}
       <div
         className="grid border-b border-slate-200 text-xs"
@@ -366,12 +425,13 @@ export function WeekSchedule({
         }}
       >
         <div />
-        {DAY_LABELS.map((label, idx) => {
+        {Array.from({ length: 7 }).map((_, idx) => {
           const dayDate = new Date(weekStart.getTime() + idx * DAY_MS);
           const isToday = idx === todayIdx;
+          const label = SHORT_DAYS[dayDate.getDay()];
           return (
             <div
-              key={label}
+              key={idx}
               className={`border-l border-slate-200 px-2 py-1 ${
                 isToday ? "bg-emerald-50/50" : ""
               }`}
@@ -398,7 +458,7 @@ export function WeekSchedule({
           }}
         >
           <div className="px-1 py-1 text-right text-slate-400">all-day</div>
-          {DAY_LABELS.map((_, idx) => {
+          {Array.from({ length: 7 }).map((_, idx) => {
             const dayBlocks = allDayBlocks.filter((b) => b.dayIdx === idx);
             return (
               <div
@@ -448,7 +508,7 @@ export function WeekSchedule({
         </div>
 
         {/* Day columns */}
-        {DAY_LABELS.map((_, dayIdx) => {
+        {Array.from({ length: 7 }).map((_, dayIdx) => {
           const isToday = dayIdx === todayIdx;
           const dayBlocks = timedBlocks.filter((b) => b.dayIdx === dayIdx);
           return (
@@ -479,14 +539,20 @@ export function WeekSchedule({
                   />
                 )}
 
-              {/* Hour gridlines */}
-              {Array.from({ length: totalHours }).map((_, i) => (
-                <div
-                  key={i}
-                  className="absolute left-0 right-0 border-t border-dashed border-slate-100"
-                  style={{ top: `${i * HOUR_HEIGHT}px` }}
-                />
-              ))}
+              {/* Hour gridlines — faint solid lines, slightly stronger every 6 hours */}
+              {Array.from({ length: totalHours }).map((_, i) => {
+                const hour = gridStartHour + i;
+                const major = hour % 6 === 0;
+                return (
+                  <div
+                    key={i}
+                    className={`absolute left-0 right-0 border-t ${
+                      major ? "border-slate-300" : "border-slate-200"
+                    }`}
+                    style={{ top: `${i * HOUR_HEIGHT}px` }}
+                  />
+                );
+              })}
 
               {/* Now-line on today */}
               {isToday && showNowLine && (

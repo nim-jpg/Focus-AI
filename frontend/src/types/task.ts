@@ -140,6 +140,9 @@ export interface UserPrefs {
   googleCalendarConnected: boolean;
   /** Whether the user has opted in to browser notifications for due/overdue tasks. */
   notificationsEnabled: boolean;
+  /** Themes whose tasks should be EXCLUDED from the printed PDF planner.
+   *  Defaults to ["medication"] — sensitive content stays off paper unless the user opts in. */
+  pdfExcludeThemes: Theme[];
 }
 
 export const DEFAULT_PREFS: UserPrefs = {
@@ -149,4 +152,5 @@ export const DEFAULT_PREFS: UserPrefs = {
   mode: "both",
   googleCalendarConnected: false,
   notificationsEnabled: false,
+  pdfExcludeThemes: ["medication"],
 };

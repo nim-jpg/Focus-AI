@@ -82,17 +82,17 @@ export function nextDueAt(task: Task, now: Date = new Date()): Date | null {
   return new Date(last.getTime() + INTERVAL_DAYS[task.recurrence] * DAY);
 }
 
-const FOUNDATION_THEMES = new Set(["medication", "fitness", "diet"]);
-
 /**
- * A "foundation" is a daily-recurring foundational habit (meds, daily movement,
- * daily nutrition). Foundations live in their own rail and never crowd the Top
- * Three — Top Three is reserved for meaningful, often-avoided work that drives
- * long-term goals.
+ * A "foundation" is anything you do every day. It lives in the Foundations
+ * rail and never crowds the Top Three — Top Three is reserved for meaningful,
+ * often-avoided work that drives long-term goals.
+ *
+ * The treatAsFoundation flag is kept as an explicit override for non-daily
+ * tasks the user wants treated as foundations.
  */
 export function isFoundation(task: Task): boolean {
   if (task.treatAsFoundation) return true;
-  return task.recurrence === "daily" && FOUNDATION_THEMES.has(task.theme);
+  return task.recurrence === "daily";
 }
 
 /** Counter-style foundations (e.g. drink 8 glasses) — tap to increment, not tick. */
