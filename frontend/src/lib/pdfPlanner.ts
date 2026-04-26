@@ -118,6 +118,18 @@ function pickKeyTasks(
  */
 export type AiRankMap = Map<string, 1 | 2 | 3 | 4>;
 
+/**
+ * Far-future yearly / quarterly filings (annual accounts, VAT returns,
+ * etc.) shouldn't pad the printable stretch list every week — the user has
+ * weeks/months of runway. They reappear when the deadline is genuinely close.
+ */
+function isFarFutureFiling(t: Task): boolean {
+  if (t.recurrence !== "yearly" && t.recurrence !== "quarterly") return false;
+  if (!t.dueDate) return false;
+  const daysOut = (new Date(t.dueDate).getTime() - Date.now()) / 86400000;
+  return daysOut > 30;
+}
+
 function pickStretchTasks(
   tasks: Task[],
   prefs: UserPrefs,
@@ -126,12 +138,16 @@ function pickStretchTasks(
   count = 8,
   aiRanking?: AiRankMap,
 ): Task[] {
+  const baseFilter = (t: Task): boolean =>
+    !excludeIds.has(t.id) &&
+    isSignificantWorkItem(t) &&
+    !isFarFutureFiling(t);
   if (aiRanking && aiRanking.size > 0) {
     // Use Claude's ranking when available — keeps the PDF stretch list in
     // step with the same priority view the user is acting on in the app.
     // Tasks not in the AI cache are appended via the local heuristic.
     const ranked = tasks
-      .filter((t) => !excludeIds.has(t.id) && isSignificantWorkItem(t))
+      .filter(baseFilter)
       .filter((t) => aiRanking.has(t.id))
       .sort(
         (a, b) =>
@@ -141,17 +157,12 @@ function pickStretchTasks(
     const seen = new Set(ranked.map((t) => t.id));
     const filler = prioritize(tasks, { prefs, limit: 32, now: weekStart })
       .map((p) => p.task)
-      .filter(
-        (t) =>
-          !excludeIds.has(t.id) &&
-          !seen.has(t.id) &&
-          isSignificantWorkItem(t),
-      );
+      .filter((t) => !seen.has(t.id) && baseFilter(t));
     return [...ranked, ...filler].slice(0, count);
   }
   const candidates = prioritize(tasks, { prefs, limit: 32, now: weekStart })
     .map((p) => p.task)
-    .filter((t) => !excludeIds.has(t.id) && isSignificantWorkItem(t));
+    .filter(baseFilter);
   return candidates.slice(0, count);
 }
 
