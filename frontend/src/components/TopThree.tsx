@@ -90,7 +90,11 @@ export function TopThree({
               <p className="mt-1 text-xs text-slate-500">
                 {task.estimatedMinutes ?? 30} min ·{" "}
                 {task.dueDate
-                  ? `due ${new Date(task.dueDate).toLocaleDateString()}`
+                  ? `due ${new Date(task.dueDate).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      year: "2-digit",
+                    })}`
                   : "no deadline"}
               </p>
             </div>

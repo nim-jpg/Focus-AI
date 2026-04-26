@@ -46,6 +46,14 @@ export async function enrichTaskFromCompaniesHouse(
   const patch: Partial<Task> = {};
   if (dueDate && !task.dueDate) {
     patch.dueDate = new Date(dueDate).toISOString();
+    // Brain-dump AI may have flagged the task high/critical when there was
+    // no date (urgency-by-default). Now that we have an authoritative
+    // filing date from Companies House, downgrade if it's comfortably far
+    // out — UK filings give months of runway, not days.
+    const daysOut = (new Date(dueDate).getTime() - Date.now()) / 86400000;
+    if (daysOut > 30 && (task.urgency === "high" || task.urgency === "critical")) {
+      patch.urgency = "normal";
+    }
   }
   // Lock the matched company so future lookups skip the fuzzy search.
   if (!task.companyHouseNumber) {

@@ -4,13 +4,17 @@ import {
   THEMES,
   type Goal,
   type GoalHorizon,
+  type Task,
   type Theme,
 } from "@/types/task";
 import type { NewGoalInput } from "@/lib/useGoals";
 import { ThemeBadge } from "./ThemeBadge";
+import { suggestGoalTasks, type GoalTaskMatch } from "@/lib/suggestGoalTasks";
 
 interface Props {
   goals: Goal[];
+  /** All open tasks — used to find unlinked candidates for AI suggestion. */
+  tasks: Task[];
   taskCountByGoal: Map<string, number>;
   progressByGoal?: Map<
     string,
@@ -21,6 +25,8 @@ interface Props {
   onRemove: (id: string) => void;
   /** Open the new-task modal pre-linked to this goal. */
   onAddTaskForGoal?: (goalId: string) => void;
+  /** Add the goal id to a task's goalIds (idempotent). */
+  onLinkTaskToGoal?: (taskId: string, goalId: string) => void;
 }
 
 const HORIZON_LABELS: Record<GoalHorizon, string> = {
@@ -52,15 +58,47 @@ function relativeDays(iso?: string): string {
 
 export function Goals({
   goals,
+  tasks,
   taskCountByGoal,
   progressByGoal,
   onAdd,
   onUpdate,
   onRemove,
   onAddTaskForGoal,
+  onLinkTaskToGoal,
 }: Props) {
   const [draft, setDraft] = useState<NewGoalInput>(blank);
   const [open, setOpen] = useState(false);
+  // Per-goal AI-suggestion state.
+  const [suggestState, setSuggestState] = useState<
+    Record<string, {
+      loading: boolean;
+      matches?: GoalTaskMatch[];
+      error?: string;
+    }>
+  >({});
+
+  const runSuggest = async (goal: Goal) => {
+    setSuggestState((s) => ({ ...s, [goal.id]: { loading: true } }));
+    const candidates = tasks.filter(
+      (t) => t.status !== "completed" && !(t.goalIds ?? []).includes(goal.id),
+    );
+    try {
+      const matches = await suggestGoalTasks(goal, candidates);
+      setSuggestState((s) => ({
+        ...s,
+        [goal.id]: { loading: false, matches },
+      }));
+    } catch (err) {
+      setSuggestState((s) => ({
+        ...s,
+        [goal.id]: {
+          loading: false,
+          error: err instanceof Error ? err.message : "AI unavailable",
+        },
+      }));
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -229,6 +267,84 @@ export function Goals({
                         {g.notes && (
                           <p className="mt-1 text-sm text-slate-600">{g.notes}</p>
                         )}
+                        {/* AI-suggested task allocation. Surfaces when no
+                            tasks are linked yet — one click asks Claude to
+                            pick existing tasks that ladder to this goal. */}
+                        {onLinkTaskToGoal && count === 0 && (() => {
+                          const ss = suggestState[g.id];
+                          const matches = ss?.matches ?? [];
+                          const hasResult = !!ss && !ss.loading;
+                          return (
+                            <div className="mt-2 rounded-md border border-dashed border-slate-200 bg-slate-50 p-2">
+                              {!ss && (
+                                <button
+                                  type="button"
+                                  className="text-xs font-medium text-indigo-700 hover:text-indigo-900"
+                                  onClick={() => void runSuggest(g)}
+                                >
+                                  ✨ Find matching tasks with AI
+                                </button>
+                              )}
+                              {ss?.loading && (
+                                <p className="text-xs italic text-slate-500">
+                                  asking Claude…
+                                </p>
+                              )}
+                              {ss?.error && (
+                                <p className="text-xs text-amber-700">
+                                  {ss.error}
+                                </p>
+                              )}
+                              {hasResult && matches.length === 0 && !ss?.error && (
+                                <p className="text-xs text-slate-500">
+                                  No matches in your current tasks. Add a new
+                                  one with the + Task button.
+                                </p>
+                              )}
+                              {hasResult && matches.length > 0 && (
+                                <ul className="space-y-1.5">
+                                  {matches.map((m) => {
+                                    const t = tasks.find(
+                                      (x) => x.id === m.taskId,
+                                    );
+                                    if (!t) return null;
+                                    const linked = (t.goalIds ?? []).includes(
+                                      g.id,
+                                    );
+                                    return (
+                                      <li
+                                        key={m.taskId}
+                                        className="flex items-start gap-2 text-xs"
+                                      >
+                                        <span className="mt-0.5 inline-block w-12 flex-none rounded-full bg-white px-1.5 py-0.5 text-center text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                                          {m.confidence}
+                                        </span>
+                                        <div className="min-w-0 flex-1">
+                                          <p className="font-medium text-slate-700">
+                                            {t.title}
+                                          </p>
+                                          <p className="text-[11px] text-slate-500">
+                                            {m.reason}
+                                          </p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          className="flex-none rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800 hover:border-emerald-500 disabled:opacity-50"
+                                          disabled={linked}
+                                          onClick={() =>
+                                            onLinkTaskToGoal(t.id, g.id)
+                                          }
+                                        >
+                                          {linked ? "Linked" : "Link"}
+                                        </button>
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                       <div className="flex flex-col gap-1 text-xs">
                         {onAddTaskForGoal && (

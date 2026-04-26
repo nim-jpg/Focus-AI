@@ -68,9 +68,11 @@ interface Block {
 }
 
 /**
- * Greedy column-assignment for overlapping blocks. Returns the same blocks
- * with `layoutCol` and `layoutCols` set. Matches the standard Google-Calendar
- * approach: events that overlap split the day-column width N ways.
+ * Cascade-indent layout for overlapping blocks. Events that overlap each
+ * keep close-to-full width but later starts shift right by a fixed indent,
+ * so each block leaves a visible "tab" of the one underneath. Z-order
+ * follows start time (earlier = below, later = on top), so the leftmost
+ * sliver of every earlier block is always reachable for hover/click.
  */
 function layoutOverlappingBlocks(blocks: Block[]): { blocks: Block[] } {
   if (blocks.length === 0) return { blocks: [] };
@@ -84,29 +86,12 @@ function layoutOverlappingBlocks(blocks: Block[]): { blocks: Block[] } {
 
   const finalize = () => {
     if (cluster.length === 0) return;
-    const cols: Block[][] = [];
-    for (const b of cluster) {
-      let placed = false;
-      for (let ci = 0; ci < cols.length; ci++) {
-        const last = cols[ci]![cols[ci]!.length - 1]!;
-        if (last.endMin <= b.startMin) {
-          cols[ci]!.push(b);
-          b.layoutCol = ci;
-          // Index within this column for cascading indent
-          (b as Block & { layoutStackIdx?: number }).layoutStackIdx =
-            cols[ci]!.length - 1;
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) {
-        b.layoutCol = cols.length;
-        (b as Block & { layoutStackIdx?: number }).layoutStackIdx = 0;
-        cols.push([b]);
-      }
-    }
-    const total = cols.length;
-    for (const b of cluster) b.layoutCols = total;
+    const total = cluster.length;
+    cluster.forEach((b, idx) => {
+      b.layoutCol = idx;
+      b.layoutStackIdx = idx;
+      b.layoutCols = total;
+    });
     out.push(...cluster);
     cluster = [];
     clusterEnd = -1;
@@ -792,7 +777,7 @@ export function WeekSchedule({
               {/* Blocks */}
               {dayBlocks.map((b, i) => {
                 const top = Math.max(0, minToY(b.startMin));
-                const height = Math.max(
+                const slotHeight = Math.max(
                   16,
                   minToY(b.endMin) - minToY(b.startMin),
                 );
@@ -821,6 +806,17 @@ export function WeekSchedule({
                   (b.task?.title
                     ? `${b.task.title}${b.kind === "session" ? ` (${b.sessionIdx}/${b.sessionTotal})` : ""}`
                     : "");
+                const startIso = new Date(
+                  weekStart.getTime() +
+                    b.dayIdx * DAY_MS +
+                    b.startMin * 60 * 1000,
+                ).toISOString();
+                const endIso = new Date(
+                  weekStart.getTime() +
+                    b.dayIdx * DAY_MS +
+                    b.endMin * 60 * 1000,
+                ).toISOString();
+                const timeRange = `${fmtTime(startIso)} – ${fmtTime(endIso)}`;
                 const draggable =
                   b.kind === "task" ||
                   (b.kind === "session" && Boolean(b.instanceIso));
@@ -839,59 +835,61 @@ export function WeekSchedule({
                       onDragEnd: handleDragEnd,
                     }
                   : {};
-                // Side-by-side layout when overlapping. layoutCols defaults
-                // to 1 so non-overlapping blocks fill the column width.
-                const cols = b.layoutCols ?? 1;
-                const col = b.layoutCol ?? 0;
-                const widthPct = 100 / cols;
-                const leftPct = (col / cols) * 100;
-                // Cascading indent: when several blocks stack in the same
-                // layout column, each successive one shifts right by 5px so
-                // a sliver of every block remains hover-reachable.
+                // Cascade-indent layout for overlaps: each later-starting
+                // block shifts right by INDENT_PX so a sliver of every
+                // earlier block stays visible & clickable. Z-order matches
+                // start order (later on top) — hover lifts to the front.
+                const INDENT_PX = 14;
                 const stackIdx = b.layoutStackIdx ?? 0;
-                const stackOffsetPx = Math.min(stackIdx, 3) * 5;
+                const leftPx = 1 + stackIdx * INDENT_PX;
+                // Block grows tall enough to fit its content by default
+                // (start-end + title + theme + actions) regardless of
+                // duration. Tall sessions still expand to fill their slot.
+                const minHeight = Math.max(slotHeight, 56);
 
                 return (
                   <div
                     key={i}
-                    className={`group absolute z-10 overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight transition-all hover:z-40 hover:!left-0 hover:!right-0 hover:!w-auto hover:overflow-visible hover:!h-auto hover:!max-h-none hover:min-h-fit hover:shadow-lg ${colour} ${
+                    className={`group absolute overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight transition-all hover:!left-0 hover:!right-0 hover:!w-auto hover:overflow-visible hover:!min-h-fit hover:shadow-lg ${colour} ${
                       draggable ? "cursor-move" : ""
                     }`}
                     style={{
                       top: `${top}px`,
-                      height: `${Math.max(36, height)}px`,
-                      maxHeight: `${Math.max(36, height)}px`,
-                      left: `calc(${leftPct}% + ${1 + stackOffsetPx}px)`,
-                      width: `calc(${widthPct}% - ${2 + stackOffsetPx}px)`,
+                      minHeight: `${minHeight}px`,
+                      left: `${leftPx}px`,
+                      right: `1px`,
+                      // Later-starting blocks render above earlier ones so
+                      // their cascaded body isn't hidden. Hover bumps to top.
+                      zIndex: 10 + stackIdx,
                       ...(inlineBg ?? {}),
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.zIndex = "60";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.zIndex = String(10 + stackIdx);
                     }}
                     title={
                       b.event?.calendarName
-                        ? `${title} · ${b.event.calendarName}`
+                        ? `${timeRange} · ${title} · ${b.event.calendarName}`
                         : draggable
-                        ? `${title} — drag to a new time`
-                        : title
+                        ? `${timeRange} · ${title} — drag to a new time`
+                        : `${timeRange} · ${title}`
                     }
                     {...dragHandlers}
                   >
                     <div className="font-mono text-[9px] opacity-70">
-                      {fmtTime(
-                        new Date(
-                          weekStart.getTime() +
-                            b.dayIdx * DAY_MS +
-                            b.startMin * 60 * 1000,
-                        ).toISOString(),
-                      )}
+                      {timeRange}
                     </div>
-                    <div className="truncate group-hover:whitespace-normal group-hover:overflow-visible">
+                    <div className="whitespace-normal break-words">
                       {title}
                     </div>
-                    {b.task && height >= 36 && (
+                    {b.task && (
                       <div className="mt-0.5 flex items-center gap-1">
                         <ThemeBadge theme={b.task.theme} />
                       </div>
                     )}
-                    {b.task && height >= 28 && (
+                    {b.task && (
                       <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[9px]">
                         {b.kind === "task" && b.task.scheduledFor && (
                           <button
@@ -927,12 +925,12 @@ export function WeekSchedule({
                         )}
                       </div>
                     )}
-                    {b.event && b.event.calendarName && height >= 28 && (
+                    {b.event && b.event.calendarName && (
                       <div className="mt-0.5 truncate text-[9px] opacity-80">
                         {b.event.calendarName}
                       </div>
                     )}
-                    {b.event && height >= 28 && (
+                    {b.event && (
                       <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[9px]">
                         {b.event.htmlLink && (
                           <a

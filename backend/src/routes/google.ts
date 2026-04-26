@@ -10,7 +10,18 @@ interface StoredTokens extends Auth.Credentials {
   email?: string;
 }
 
-const SCOPES = ["https://www.googleapis.com/auth/calendar.events"];
+// Scopes:
+//  - calendar.events: read/write events on calendars
+//  - calendar.readonly: list the user's calendars (for the multi-calendar
+//    picker + per-calendar privacy/shadow modes)
+//  - email + profile: read the user's email so the connected status shows
+//    "Calendar: you@example.com" instead of "(unknown)"
+const SCOPES = [
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+];
 
 function makeClient(): Auth.OAuth2Client | null {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -225,7 +236,10 @@ googleRouter.get("/calendars", async (req, res) => {
   }
   try {
     const calendar = google.calendar({ version: "v3", auth: client });
-    const list = await calendar.calendarList.list({ maxResults: 50 });
+    const list = await calendar.calendarList.list({
+      maxResults: 250,
+      showHidden: true,
+    });
     const calendars = (list.data.items ?? []).map((c) => ({
       id: c.id ?? "",
       name: c.summary ?? "",
@@ -261,12 +275,13 @@ googleRouter.get("/events", async (req, res) => {
     // This includes shared / family calendars (e.g. a partner's), birthdays,
     // holidays, etc. — not just the primary.
     const list = await calendar.calendarList.list({
-      maxResults: 50,
-      showHidden: false,
+      maxResults: 250,
+      showHidden: true,
     });
-    const calendars = (list.data.items ?? []).filter(
-      (c) => c.id && c.selected !== false,
-    );
+    // Surface every calendar the user has subscribed to, including hidden ones.
+    // Selection state is just whether they checked the box in Google Calendar's
+    // own UI — we still want to read events from them by default.
+    const calendars = (list.data.items ?? []).filter((c) => Boolean(c.id));
 
     // Fetch events from each calendar in parallel.
     const perCalendar = await Promise.all(
