@@ -9,6 +9,9 @@ import { TomorrowPreview } from "@/components/TomorrowPreview";
 import { Goals } from "@/components/Goals";
 import { PriorityMatrix } from "@/components/PriorityMatrix";
 import { SuggestDates } from "@/components/SuggestDates";
+import { CompanyAssist } from "@/components/CompanyAssist";
+import { DaySchedule } from "@/components/DaySchedule";
+import { PlannerScan, type ResolvedUpdate } from "@/components/PlannerScan";
 import { useGoals } from "@/lib/useGoals";
 import { useTasks } from "@/lib/useTasks";
 import { prioritize } from "@/lib/prioritize";
@@ -101,6 +104,16 @@ export default function App() {
   }, []);
 
   const handleScheduleTask = async (taskId: string) => {
+    if (!googleStatus?.connected) {
+      if (!googleStatus?.configured) {
+        setCalendarMsg(
+          "Calendar isn't set up yet — see the README for the Google Cloud OAuth steps.",
+        );
+      } else {
+        setCalendarMsg("Connect Google Calendar first (header → Connect Calendar).");
+      }
+      return;
+    }
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
     setCalendarMsg(null);
@@ -119,9 +132,48 @@ export default function App() {
       setCalendarMsg(`Couldn't schedule — ${reason}`);
     }
   };
+  const applyScanUpdate = (u: ResolvedUpdate) => {
+    switch (u.action) {
+      case "complete":
+        toggleComplete(u.taskId);
+        break;
+      case "defer": {
+        const days =
+          typeof u.value === "number" ? u.value : Number(u.value) || 7;
+        const until = new Date();
+        until.setDate(until.getDate() + days);
+        updateTask(u.taskId, { snoozedUntil: until.toISOString() });
+        break;
+      }
+      case "block": {
+        const until = new Date();
+        until.setDate(until.getDate() + 14);
+        updateTask(u.taskId, { snoozedUntil: until.toISOString() });
+        break;
+      }
+      case "timeSpent": {
+        const minutes =
+          typeof u.value === "number" ? u.value : Number(u.value) || undefined;
+        if (minutes) updateTask(u.taskId, { estimatedMinutes: minutes });
+        break;
+      }
+      case "rename": {
+        if (typeof u.value === "string" && u.value.trim()) {
+          updateTask(u.taskId, { title: u.value.trim() });
+        }
+        break;
+      }
+    }
+  };
+
   const startEdit = (id: string) => {
     setEditingId(id);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    // Scroll to the form after React renders it with the populated values.
+    setTimeout(() => {
+      document
+        .getElementById("task-form-section")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   };
 
   const local = useMemo(
@@ -223,6 +275,14 @@ export default function App() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {googleStatus && !googleStatus.configured && (
+            <span
+              className="text-xs text-slate-500"
+              title="Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to backend/.env. See README."
+            >
+              Calendar: setup needed
+            </span>
+          )}
           {googleStatus?.configured && !googleStatus.connected && (
             <button
               type="button"
@@ -239,12 +299,12 @@ export default function App() {
           {googleStatus?.connected && (
             <button
               type="button"
-              className="text-xs text-slate-500 hover:text-slate-900"
+              className="text-xs text-emerald-700 hover:text-emerald-900"
               onClick={async () => {
                 await disconnectGoogle();
                 setGoogleStatus(await fetchGoogleStatus());
               }}
-              title={googleStatus.email ?? "Calendar connected"}
+              title={`Click to disconnect — ${googleStatus.email ?? "connected"}`}
             >
               Calendar: {googleStatus.email ?? "connected"}
             </button>
@@ -269,6 +329,14 @@ export default function App() {
         onComplete={toggleComplete}
         onIncrement={incrementCounter}
         onEdit={startEdit}
+      />
+
+      <DaySchedule
+        tasks={tasks}
+        calendarConnected={googleStatus?.connected ?? false}
+        onPushToCalendar={handleScheduleTask}
+        onScheduleLocal={(id, isoTime) => updateTask(id, { scheduledFor: isoTime })}
+        onUnschedule={(id) => updateTask(id, { scheduledFor: undefined })}
       />
 
       <section>
@@ -330,11 +398,10 @@ export default function App() {
         <TopThree
           prioritized={prioritized}
           onComplete={handleTopThreeComplete}
-          onSchedule={
-            googleStatus?.connected ? handleScheduleTask : undefined
-          }
+          onSchedule={handleScheduleTask}
           onSnooze={(id, until) => updateTask(id, { snoozedUntil: until })}
           goals={goals}
+          calendarConnected={googleStatus?.connected ?? false}
         />
       </section>
 
@@ -343,6 +410,12 @@ export default function App() {
       <SuggestDates
         tasks={tasks}
         onApply={(id, dueDate) => updateTask(id, { dueDate })}
+      />
+
+      <CompanyAssist
+        tasks={tasks}
+        onUpdateTask={updateTask}
+        onAddTask={addTask}
       />
 
       <PriorityMatrix tasks={tasks} onEdit={startEdit} />
@@ -355,10 +428,13 @@ export default function App() {
         onRemove={removeGoal}
       />
 
-      <section className="space-y-3">
+      <section id="task-form-section" className="space-y-3 scroll-mt-4">
         <h2 className="text-lg font-semibold">
           {editingTask ? `Edit "${editingTask.title}"` : "Add tasks"}
         </h2>
+        {!editingTask && (
+          <PlannerScan tasks={tasks} onApply={applyScanUpdate} />
+        )}
         {!editingTask && <BrainDump onAdd={addTask} />}
         <TaskForm
           key={editingId ?? "new"}

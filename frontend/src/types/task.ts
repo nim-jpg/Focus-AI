@@ -81,6 +81,8 @@ export interface Task {
   goalIds?: string[];
   /** ISO timestamp the task is hidden until. Used for "blocked externally, recheck in N days". */
   snoozedUntil?: string;
+  /** ISO timestamp this task is locally scheduled for (e.g. drag onto a time slot in the day overlay). Independent of Google Calendar. */
+  scheduledFor?: string;
   /** Optional Google Calendar event id once scheduled. */
   calendarEventId?: string;
 }

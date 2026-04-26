@@ -36,6 +36,29 @@ export async function disconnectGoogle(): Promise<void> {
   await fetch("/api/google/disconnect", { method: "DELETE" });
 }
 
+export interface CalendarEvent {
+  id: string;
+  summary: string;
+  start: string | null;
+  end: string | null;
+  allDay: boolean;
+  htmlLink: string | null;
+}
+
+export async function fetchEvents(from: Date, to: Date): Promise<CalendarEvent[]> {
+  const params = new URLSearchParams({
+    from: from.toISOString(),
+    to: to.toISOString(),
+  });
+  const res = await fetch(`/api/google/events?${params.toString()}`);
+  if (!res.ok) {
+    if (res.status === 401) return []; // not connected — fail silently
+    throw new CalendarError(`HTTP ${res.status}`, res.status);
+  }
+  const data = (await res.json()) as { events: CalendarEvent[] };
+  return data.events ?? [];
+}
+
 /**
  * Schedule a task as a calendar event today. We block its estimated minutes
  * starting in 30 minutes from now (a sensible "next available slot" default).

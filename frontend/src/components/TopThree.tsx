@@ -5,9 +5,10 @@ import { ThemeBadge } from "./ThemeBadge";
 interface Props {
   prioritized: PrioritizedTask[];
   onComplete: (id: string) => void;
-  onSchedule?: (id: string) => void;
+  onSchedule: (id: string) => void;
   onSnooze: (id: string, untilIso: string) => void;
   goals?: Goal[];
+  calendarConnected?: boolean;
 }
 
 const SNOOZE_OPTIONS: Array<{ label: string; days: number }> = [
@@ -38,6 +39,7 @@ export function TopThree({
   onSchedule,
   onSnooze,
   goals = [],
+  calendarConnected = false,
 }: Props) {
   const goalById = new Map(goals.map((g) => [g.id, g]));
   const [snoozeOpenFor, setSnoozeOpenFor] = useState<string | null>(null);
@@ -93,20 +95,20 @@ export function TopThree({
               </p>
             </div>
             <div className="flex flex-col gap-2">
-              {onSchedule && (
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => onSchedule(task.id)}
-                  title={
-                    task.calendarEventId
-                      ? "Already scheduled — click to re-schedule"
-                      : "Schedule on Google Calendar"
-                  }
-                >
-                  {task.calendarEventId ? "Re-schedule" : "Schedule"}
-                </button>
-              )}
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => onSchedule(task.id)}
+                title={
+                  !calendarConnected
+                    ? "Connect Google Calendar in the header to enable"
+                    : task.calendarEventId
+                    ? "Already scheduled — click to re-schedule"
+                    : "Schedule on Google Calendar"
+                }
+              >
+                {task.calendarEventId ? "Re-schedule" : "Schedule"}
+              </button>
               <button
                 type="button"
                 className="btn-primary"

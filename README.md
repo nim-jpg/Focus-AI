@@ -56,6 +56,21 @@ The frontend proxies `/api/*` to `http://localhost:8787` via Vite.
 
 The OAuth tokens are persisted to `backend/.google-tokens.json` (gitignored). Single-user, local-only — fine for the MVP.
 
+## Companies House setup (optional, for Company Assist)
+
+When a task title contains "<Name> Ltd / Limited / PLC / LLP", Focus3 can look up the real Companies House confirmation statement and accounts due dates instead of guessing.
+
+1. Register at https://developer.company-information.service.gov.uk/
+2. Create an **Application** (type: Live)
+3. Generate an **API key** for that application
+4. Paste it into `backend/.env` as `COMPANIES_HOUSE_API_KEY`
+5. Restart backend. The "Company assist" section will appear under Tomorrow's preview when matching tasks exist.
+
+## Planner round-trip (PDF + scan-back)
+
+- **Export PDF** (header) downloads a 7-day planner with Foundations strip, per-day Top Three, weekly-due items, and printable checkboxes. Each task is stamped with a short ID (e.g. `#abc123`).
+- After ticking, deferring, or annotating the printed pages, scan a photo back into the app via **"📥 Scan back a marked-up planner"** (Add tasks section). Tesseract OCRs it, Claude maps the marks back to the right tasks via the ID stamps, and you review-and-apply the updates so your task log stays accurate.
+
 ## Prioritization engine
 
 `frontend/src/lib/prioritize.ts` implements the Tier 1–4 logic from the product spec:

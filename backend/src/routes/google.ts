@@ -152,6 +152,44 @@ googleRouter.post("/events", async (req, res) => {
   }
 });
 
+googleRouter.get("/events", async (req, res) => {
+  const client = await getAuthorizedClient();
+  if (!client) {
+    res.status(401).json({ error: "not_connected" });
+    return;
+  }
+  const from = typeof req.query.from === "string" ? req.query.from : new Date().toISOString();
+  const to =
+    typeof req.query.to === "string"
+      ? req.query.to
+      : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  try {
+    const calendar = google.calendar({ version: "v3", auth: client });
+    const result = await calendar.events.list({
+      calendarId: "primary",
+      timeMin: from,
+      timeMax: to,
+      singleEvents: true,
+      orderBy: "startTime",
+      maxResults: 50,
+    });
+    const events = (result.data.items ?? []).map((ev) => ({
+      id: ev.id,
+      summary: ev.summary ?? "(no title)",
+      start: ev.start?.dateTime ?? ev.start?.date ?? null,
+      end: ev.end?.dateTime ?? ev.end?.date ?? null,
+      allDay: Boolean(ev.start?.date && !ev.start?.dateTime),
+      htmlLink: ev.htmlLink ?? null,
+    }));
+    res.json({ events });
+  } catch (err) {
+    res.status(500).json({
+      error: "list_events_failed",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
 googleRouter.delete("/disconnect", async (_req, res) => {
   try {
     await fs.unlink(TOKENS_FILE);

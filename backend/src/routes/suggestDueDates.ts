@@ -3,22 +3,23 @@ import Anthropic from "@anthropic-ai/sdk";
 
 export const suggestDueDatesRouter = Router();
 
-const SYSTEM_PROMPT = `You suggest due dates for tasks where one is missing but can be inferred.
+const SYSTEM_PROMPT = `You suggest due dates for tasks where one is missing AND can be inferred from text alone.
 
-Use these signals (in this order):
-1. Explicit date hints in the task title or description ("by Friday", "EOM", "in March", "Q2").
-2. Well-known recurring deadlines tied to a domain term:
-   - "confirmation statement" (UK Companies House): annual; if no anniversary date is given, suggest 12 months from today as a placeholder and mark confidence "low".
-   - "Self Assessment" / "tax return" (UK): 31 January following the tax year.
-   - "VAT return" (UK): standard quarters Jan/Apr/Jul/Oct, due 1 month + 7 days after quarter end.
-   - "P11D": 6 July following the tax year.
-   - Credit card / bill mentions: try to extract the day-of-month.
-3. Domain priors only when confident. If unsure, do NOT suggest.
+ONLY suggest a date when one of these signals is present:
+1. Explicit date hint in the title or description: "by Friday", "EOM", "in March", "Q2", "next Tuesday", "the 15th", a specific date, etc.
+2. A standard recurring deadline that depends only on the calendar (NOT on company-specific data):
+   - "Self Assessment" / "tax return" (UK): 31 January following the tax year
+   - "VAT return" (UK): standard quarter ending → due 1 month + 7 days after
+   - "P11D": 6 July following the tax year
+
+DO NOT guess for these — they require external lookup and the app handles them separately:
+   - "confirmation statement", "annual accounts", "annual return" — these depend on the company's incorporation date and must come from Companies House. Skip these tasks entirely; do not invent a date.
+   - Anything tied to a specific person/company/account whose schedule isn't in the task text.
 
 For each task you can confidently date, emit:
-{ "taskId": "<id>", "dueDate": "YYYY-MM-DD", "confidence": "high"|"medium"|"low", "reasoning": "<one short sentence>" }
+{ "taskId": "<id>", "dueDate": "YYYY-MM-DD", "confidence": "high"|"medium", "reasoning": "<one short sentence pointing to the text hint>" }
 
-Skip tasks that already have dueDate set, or where you have no clear signal.
+If you can't infer a date with confidence, omit the task from suggestions. It is much better to skip than to guess.
 
 Respond with strict JSON only:
 { "suggestions": [ { ... } ] }`;
