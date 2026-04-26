@@ -29,6 +29,8 @@ export function TimeField({
   const set = (nh: number, nm: number) => onChange(format(nh, nm));
 
   // Each unit (hour, minute) is a stacked column: ▴ above, number, ▾ below.
+  // Buttons sized to a comfortable click target (≥24px wide) without making
+  // the field huge.
   const Unit = ({
     val,
     onUp,
@@ -45,7 +47,7 @@ export function TimeField({
     <div className="flex flex-col items-center">
       <button
         type="button"
-        className="text-[9px] leading-none text-slate-500 hover:text-slate-900"
+        className="flex h-5 w-7 items-center justify-center rounded text-xs leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-900"
         onClick={onUp}
         aria-label={`${label} +`}
       >
@@ -65,7 +67,7 @@ export function TimeField({
       />
       <button
         type="button"
-        className="text-[9px] leading-none text-slate-500 hover:text-slate-900"
+        className="flex h-5 w-7 items-center justify-center rounded text-xs leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-900"
         onClick={onDown}
         aria-label={`${label} −`}
       >
@@ -75,7 +77,7 @@ export function TimeField({
   );
 
   return (
-    <div className="mt-1 inline-flex items-center gap-0.5 rounded-md border border-slate-200 bg-white px-1.5 py-1">
+    <div className="mt-1 inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 py-1">
       <Unit
         val={h}
         label="Hour"
@@ -94,7 +96,7 @@ export function TimeField({
       {allowEmpty && value && (
         <button
           type="button"
-          className="ml-1 text-xs text-slate-400 hover:text-red-600"
+          className="ml-1 flex h-5 w-5 items-center justify-center rounded text-xs text-slate-400 hover:bg-red-50 hover:text-red-600"
           onClick={() => onChange("")}
           aria-label="Clear time"
           title="Clear"
