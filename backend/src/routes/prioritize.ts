@@ -11,14 +11,29 @@ Tier EVERY task in \`tasks\` using:
 - Tier 3 (Balance): spread across themes; don't crowd one theme; flag avoidance >2 weeks when deadline <2 weeks.
 - Tier 4 (Background): household, nice-to-haves, long-term unless deadline imminent.
 
+Also suggest a corrected urgency for each task if the current value
+mis-states reality:
+- "critical" / "high": only if the deadline is within ~14 days OR the
+  task is an explicit blocker the user flagged.
+- A task whose dueDate is more than ~6 months out is NEVER high or
+  critical — relax to "normal" (or "low" if it's truly background).
+- A task with no dueDate AND no blocker flag should rarely be high.
+- HOWEVER: if the user has typed urgency hints in the title or
+  description ("URGENT", "asap", "critical", "blocker"), respect them.
+- If the user's current urgency is already correct, you may omit the
+  field — only emit \`urgency\` when you want to change it.
+
+Read the user's title AND description as your primary signal. The
+description often contains the real "why" or external pressures the
+fields don't capture — let it inform tier and urgency.
+
 Incremental ranking:
 - The request may include an \`existing\` array showing tasks you've already
   ranked previously, with their tier. Treat those tiers as locked — DO NOT
   re-tier them and DO NOT include them in your output.
-- Slot the new \`tasks\` into tiers consistent with the existing ranking. If
-  a new task is plainly more urgent than something in Tier 2, give it Tier 1.
-  If it's just nice-to-have, Tier 4.
-- Output ONLY the new tasks, with their assigned tier and reasoning.
+- Slot the new \`tasks\` into tiers consistent with the existing ranking.
+- Output ONLY the new tasks, with their assigned tier, reasoning, and
+  optional urgency correction.
 
 Rules:
 - Output a tier and one short concrete reasoning sentence for EVERY task in \`tasks\`.
@@ -27,7 +42,7 @@ Rules:
 - The frontend filters by mode (work / personal / both) AFTER ranking, so don't drop tasks just because they're off-mode.
 
 Respond with strict JSON, no prose, no markdown fences:
-{ "ranked": [ { "taskId": "<id>", "tier": 1, "reasoning": "..." } ] }`;
+{ "ranked": [ { "taskId": "<id>", "tier": 1, "reasoning": "...", "urgency": "normal" } ] }`;
 
 interface InboundTask {
   id: string;
@@ -41,7 +56,12 @@ interface PrioritizeRequest {
 }
 
 interface ClaudeResponse {
-  ranked: Array<{ taskId: string; tier: 1 | 2 | 3 | 4; reasoning: string }>;
+  ranked: Array<{
+    taskId: string;
+    tier: 1 | 2 | 3 | 4;
+    reasoning: string;
+    urgency?: "low" | "normal" | "high" | "critical";
+  }>;
 }
 
 function extractJson(text: string): unknown {
