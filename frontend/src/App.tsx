@@ -828,12 +828,9 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             configured: googleStatus?.configured ?? true,
             connected: googleStatus?.connected ?? false,
             email: googleStatus?.email ?? null,
-            onConnect: () =>
-              startGoogleConnect().catch((err) =>
-                setCalendarMsg(
-                  `Connect failed — ${err instanceof Error ? err.message : String(err)}`,
-                ),
-              ),
+            // Re-throw so SettingsPanel can render the error inline (the
+            // global `calendarMsg` banner sits behind the modal).
+            onConnect: () => startGoogleConnect(),
             onDisconnect: async () => {
               await disconnectGoogle();
               setGoogleStatus(await fetchGoogleStatus());

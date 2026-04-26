@@ -89,6 +89,7 @@ export function Goals({
     setMatchError(null);
     setAppliedMatches(null);
     const applied: AppliedMatch[] = [];
+    let goalsConsidered = 0;
     try {
       // Process goals sequentially to keep request volume modest and to
       // share the same `tasks` snapshot across calls.
@@ -98,17 +99,26 @@ export function Goals({
             t.status !== "completed" && !(t.goalIds ?? []).includes(g.id),
         );
         if (candidates.length === 0) continue;
+        goalsConsidered += 1;
         const matches = await suggestGoalTasks(g, candidates);
         for (const m of matches) {
-          // Skip very-low-confidence picks to avoid noisy auto-linking.
-          if (m.confidence === "low") continue;
+          // Auto-link every match the model returns (any confidence). The
+          // user can unlink anything they don't want from the result banner
+          // or the per-goal chips below.
           onLinkTaskToGoal(m.taskId, g.id);
           applied.push({ ...m, goalId: g.id });
         }
       }
       setAppliedMatches(applied);
+      if (applied.length === 0 && goalsConsidered === 0) {
+        setMatchError(
+          "Every open task is already linked to every goal — nothing to match.",
+        );
+      }
     } catch (err) {
-      setMatchError(err instanceof Error ? err.message : "AI unavailable");
+      const msg = err instanceof Error ? err.message : "AI unavailable";
+      console.error("[Goals] match failed:", err);
+      setMatchError(msg);
     } finally {
       setMatchBusy(false);
     }
