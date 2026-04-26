@@ -37,12 +37,29 @@ export async function aiPrioritize(
     return true;
   });
 
+  // Slim payload: send only the fields Claude actually uses for ranking.
+  // Long descriptions / completion logs were inflating tokens and pushing
+  // the response past the model's max_tokens cap.
+  const slimTasks = candidates.map((t) => ({
+    id: t.id,
+    title: t.title,
+    theme: t.theme,
+    urgency: t.urgency,
+    dueDate: t.dueDate,
+    description: t.description?.slice(0, 200),
+    isBlocker: t.isBlocker,
+    recurrence: t.recurrence,
+    avoidanceWeeks: t.avoidanceWeeks,
+    goalIds: t.goalIds,
+    estimatedMinutes: t.estimatedMinutes,
+  }));
+
   let res: Response;
   try {
     res = await apiFetch("/api/prioritize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tasks: candidates, prefs }),
+      body: JSON.stringify({ tasks: slimTasks, prefs }),
     });
   } catch (err) {
     throw new AiUnavailableError(
