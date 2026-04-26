@@ -86,6 +86,40 @@ export default function App() {
     return map;
   }, [tasks]);
 
+  // Per-goal progress: completed tasks linked to the goal in the last 30 days,
+  // and the most-recent activity timestamp.
+  const goalProgress = useMemo(() => {
+    const out = new Map<
+      string,
+      { doneLast30: number; lastActivityIso?: string }
+    >();
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    for (const t of tasks) {
+      const goalIds = t.goalIds ?? [];
+      if (goalIds.length === 0) continue;
+      const updated = new Date(t.updatedAt).getTime();
+      const lastDone = t.lastCompletedAt
+        ? new Date(t.lastCompletedAt).getTime()
+        : null;
+      const completedRecently =
+        t.status === "completed" && updated >= cutoff;
+      const recurringDoneRecently = lastDone !== null && lastDone >= cutoff;
+      for (const gid of goalIds) {
+        const cur = out.get(gid) ?? { doneLast30: 0 };
+        if (completedRecently || recurringDoneRecently) cur.doneLast30 += 1;
+        const candidateActivity = lastDone ?? updated;
+        if (
+          !cur.lastActivityIso ||
+          candidateActivity > new Date(cur.lastActivityIso).getTime()
+        ) {
+          cur.lastActivityIso = new Date(candidateActivity).toISOString();
+        }
+        out.set(gid, cur);
+      }
+    }
+    return out;
+  }, [tasks]);
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const editingTask = editingId ? tasks.find((t) => t.id === editingId) : undefined;
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
@@ -512,6 +546,17 @@ export default function App() {
             onSetSessionTimes={(id, isoTimes) =>
               updateTask(id, { sessionTimes: isoTimes })
             }
+            onMoveTask={(id, newIso) =>
+              updateTask(id, { scheduledFor: newIso })
+            }
+            onMoveSession={(id, oldIso, newIso) => {
+              const t = tasks.find((x) => x.id === id);
+              if (!t || !t.sessionTimes) return;
+              const next = t.sessionTimes.map((iso) =>
+                iso === oldIso ? newIso : iso,
+              );
+              updateTask(id, { sessionTimes: next });
+            }}
           />
 
           <TomorrowPreview
@@ -579,6 +624,7 @@ export default function App() {
         <Goals
           goals={goals}
           taskCountByGoal={taskCountByGoal}
+          progressByGoal={goalProgress}
           onAdd={addGoal}
           onUpdate={updateGoal}
           onRemove={removeGoal}

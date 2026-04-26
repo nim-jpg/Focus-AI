@@ -11,6 +11,10 @@ interface Props {
   onScheduleClick: (taskId: string) => void;
   onUnschedule: (taskId: string) => void;
   onSetSessionTimes: (taskId: string, isoTimes: string[]) => void;
+  /** Move a task's scheduledFor to a new ISO timestamp. */
+  onMoveTask: (taskId: string, newIso: string) => void;
+  /** Move a session within a task to a new ISO timestamp. */
+  onMoveSession: (taskId: string, oldIso: string, newIso: string) => void;
   /** Optional: hour grid bounds (defaults to 6-23 if not passed). */
   gridStartHour?: number;
   gridEndHour?: number;
@@ -58,6 +62,8 @@ export function WeekSchedule({
   onScheduleClick,
   onUnschedule,
   onSetSessionTimes,
+  onMoveTask,
+  onMoveSession,
   gridStartHour = 6,
   gridEndHour = 23,
 }: Props) {
@@ -213,6 +219,43 @@ export function WeekSchedule({
   const minToY = (min: number) =>
     ((min - gridStartHour * 60) / 60) * HOUR_HEIGHT;
 
+  // Drag-to-reschedule: native HTML5 drag, no third-party deps.
+  // We snap drops to 15-minute intervals.
+  const SNAP_MIN = 15;
+
+  type DragPayload =
+    | { kind: "task"; taskId: string }
+    | { kind: "session"; taskId: string; iso: string };
+
+  const [dragging, setDragging] = useState<DragPayload | null>(null);
+
+  const handleDragStart =
+    (payload: DragPayload) => (e: React.DragEvent<HTMLDivElement>) => {
+      setDragging(payload);
+      e.dataTransfer.effectAllowed = "move";
+      // Some browsers require setData to start a drag.
+      e.dataTransfer.setData("text/plain", JSON.stringify(payload));
+    };
+
+  const handleDragEnd = () => setDragging(null);
+
+  const handleColumnDrop =
+    (dayIdx: number) => (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      if (!dragging) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const yPx = e.clientY - rect.top;
+      const totalMin = (yPx / HOUR_HEIGHT) * 60 + gridStartHour * 60;
+      const snapped = Math.max(0, Math.round(totalMin / SNAP_MIN) * SNAP_MIN);
+      const dropDate = new Date(weekStart.getTime() + dayIdx * DAY_MS);
+      dropDate.setHours(0, 0, 0, 0);
+      dropDate.setMinutes(snapped);
+      const newIso = dropDate.toISOString();
+      if (dragging.kind === "task") onMoveTask(dragging.taskId, newIso);
+      else onMoveSession(dragging.taskId, dragging.iso, newIso);
+      setDragging(null);
+    };
+
   // Working-hours tint: grey out the user's typical work block per working day.
   const workStartH = parseFloat(prefs.workingHoursStart.split(":")[0]!) +
     parseFloat(prefs.workingHoursStart.split(":")[1] ?? "0") / 60;
@@ -313,10 +356,14 @@ export function WeekSchedule({
         </div>
       )}
 
+      <div className="overflow-x-auto">
       {/* Day headers */}
       <div
         className="grid border-b border-slate-200 text-xs"
-        style={{ gridTemplateColumns: `48px repeat(7, 1fr)` }}
+        style={{
+          gridTemplateColumns: `48px repeat(7, minmax(110px, 1fr))`,
+          minWidth: "820px",
+        }}
       >
         <div />
         {DAY_LABELS.map((label, idx) => {
@@ -345,7 +392,10 @@ export function WeekSchedule({
       {allDayBlocks.length > 0 && (
         <div
           className="grid border-b border-slate-200 text-[10px]"
-          style={{ gridTemplateColumns: `48px repeat(7, 1fr)` }}
+          style={{
+            gridTemplateColumns: `48px repeat(7, minmax(110px, 1fr))`,
+            minWidth: "820px",
+          }}
         >
           <div className="px-1 py-1 text-right text-slate-400">all-day</div>
           {DAY_LABELS.map((_, idx) => {
@@ -376,7 +426,8 @@ export function WeekSchedule({
       <div
         className="relative grid"
         style={{
-          gridTemplateColumns: `48px repeat(7, 1fr)`,
+          gridTemplateColumns: `48px repeat(7, minmax(110px, 1fr))`,
+          minWidth: "820px",
           height: `${gridHeight}px`,
         }}
       >
@@ -405,7 +456,14 @@ export function WeekSchedule({
               key={dayIdx}
               className={`relative border-l border-slate-200 ${
                 isToday ? "bg-emerald-50/30" : ""
-              }`}
+              } ${dragging ? "ring-1 ring-inset ring-slate-300" : ""}`}
+              onDragOver={(e) => {
+                if (dragging) {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                }
+              }}
+              onDrop={handleColumnDrop(dayIdx)}
             >
               {/* Working-hours tint */}
               {isWorkingDayIdx(dayIdx) &&
@@ -458,12 +516,37 @@ export function WeekSchedule({
                   (b.task?.title
                     ? `${b.task.title}${b.kind === "session" ? ` (${b.sessionIdx}/${b.sessionTotal})` : ""}`
                     : "");
+                const draggable =
+                  b.kind === "task" ||
+                  (b.kind === "session" && Boolean(b.instanceIso));
+                const dragHandlers = draggable
+                  ? {
+                      draggable: true,
+                      onDragStart: handleDragStart(
+                        b.kind === "task"
+                          ? { kind: "task", taskId: b.task!.id }
+                          : {
+                              kind: "session",
+                              taskId: b.task!.id,
+                              iso: b.instanceIso!,
+                            },
+                      ),
+                      onDragEnd: handleDragEnd,
+                    }
+                  : {};
                 return (
                   <div
                     key={i}
-                    className={`absolute left-0.5 right-0.5 z-10 overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight ${colour}`}
+                    className={`absolute left-0.5 right-0.5 z-10 overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight ${colour} ${
+                      draggable ? "cursor-move" : ""
+                    }`}
                     style={{ top: `${top}px`, height: `${height}px` }}
-                    title={title}
+                    title={
+                      draggable
+                        ? `${title} — drag to a new time`
+                        : title
+                    }
+                    {...dragHandlers}
                   >
                     <div className="font-mono text-[9px] opacity-70">
                       {fmtTime(
@@ -553,6 +636,7 @@ export function WeekSchedule({
             </div>
           );
         })}
+      </div>
       </div>
     </section>
   );

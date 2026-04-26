@@ -12,6 +12,10 @@ import { ThemeBadge } from "./ThemeBadge";
 interface Props {
   goals: Goal[];
   taskCountByGoal: Map<string, number>;
+  progressByGoal?: Map<
+    string,
+    { doneLast30: number; lastActivityIso?: string }
+  >;
   onAdd: (input: NewGoalInput) => void;
   onUpdate: (id: string, patch: Partial<Goal>) => void;
   onRemove: (id: string) => void;
@@ -33,7 +37,25 @@ const blank: NewGoalInput = {
   notes: "",
 };
 
-export function Goals({ goals, taskCountByGoal, onAdd, onUpdate, onRemove }: Props) {
+function relativeDays(iso?: string): string {
+  if (!iso) return "no activity yet";
+  const ms = Date.now() - new Date(iso).getTime();
+  const days = Math.floor(ms / (24 * 60 * 60 * 1000));
+  if (days <= 0) return "active today";
+  if (days === 1) return "active yesterday";
+  if (days < 7) return `active ${days} days ago`;
+  if (days < 30) return `active ${Math.floor(days / 7)}w ago`;
+  return `quiet for ${Math.floor(days / 30)}mo`;
+}
+
+export function Goals({
+  goals,
+  taskCountByGoal,
+  progressByGoal,
+  onAdd,
+  onUpdate,
+  onRemove,
+}: Props) {
   const [draft, setDraft] = useState<NewGoalInput>(blank);
   const [open, setOpen] = useState(false);
 
@@ -147,6 +169,13 @@ export function Goals({ goals, taskCountByGoal, onAdd, onUpdate, onRemove }: Pro
               <ul className="space-y-2">
                 {items.map((g) => {
                   const count = taskCountByGoal.get(g.id) ?? 0;
+                  const prog = progressByGoal?.get(g.id);
+                  const done30 = prog?.doneLast30 ?? 0;
+                  const activityLabel = relativeDays(prog?.lastActivityIso);
+                  const isStale =
+                    prog?.lastActivityIso &&
+                    Date.now() - new Date(prog.lastActivityIso).getTime() >
+                      30 * 24 * 60 * 60 * 1000;
                   return (
                     <li
                       key={g.id}
@@ -157,7 +186,29 @@ export function Goals({ goals, taskCountByGoal, onAdd, onUpdate, onRemove }: Pro
                           <span className="font-medium">{g.title}</span>
                           <ThemeBadge theme={g.theme} />
                           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                            {count} {count === 1 ? "task" : "tasks"}
+                            {count} open {count === 1 ? "task" : "tasks"}
+                          </span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs ${
+                              done30 > 0
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-slate-100 text-slate-500"
+                            }`}
+                            title="Tasks linked to this goal completed in the last 30 days"
+                          >
+                            {done30} done in 30d
+                          </span>
+                          <span
+                            className={`text-xs ${
+                              isStale ? "text-amber-700" : "text-slate-500"
+                            }`}
+                            title={
+                              prog?.lastActivityIso
+                                ? new Date(prog.lastActivityIso).toLocaleString()
+                                : "no linked-task activity yet"
+                            }
+                          >
+                            {activityLabel}
                           </span>
                         </div>
                         {g.notes && (
