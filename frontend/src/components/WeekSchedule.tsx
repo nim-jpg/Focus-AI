@@ -9,18 +9,20 @@ interface Props {
   calendarConnected: boolean;
   onScheduleClick: (taskId: string) => void;
   onUnschedule: (taskId: string) => void;
-  /** Set sessionTimes[] on a task — used by the auto-schedule action. */
   onSetSessionTimes: (taskId: string, isoTimes: string[]) => void;
+  /** Optional: hour grid bounds (defaults to 6-23 if not passed). */
+  gridStartHour?: number;
+  gridEndHour?: number;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const HOUR_HEIGHT = 28; // pixels per hour
 
 function startOfWeek(d: Date): Date {
   const c = new Date(d);
   c.setHours(0, 0, 0, 0);
-  // Treat Monday as start of week
-  const day = (c.getDay() + 6) % 7; // 0 = Mon
+  const day = (c.getDay() + 6) % 7;
   c.setDate(c.getDate() - day);
   return c;
 }
@@ -34,14 +36,18 @@ function fmtTime(iso: string | null, allDay = false): string {
   });
 }
 
-interface DayItem {
+interface Block {
   kind: "event" | "task" | "session";
-  start: Date;
+  dayIdx: number;
+  startMin: number; // minutes from midnight
+  endMin: number;
   event?: CalendarEvent;
   task?: Task;
-  /** Index of this session within task.sessionTimes for display ("2/3"). */
   sessionIdx?: number;
   sessionTotal?: number;
+  allDay?: boolean;
+  /** ISO of the specific session/task instance, used for "remove" actions. */
+  instanceIso?: string;
 }
 
 export function WeekSchedule({
@@ -50,6 +56,8 @@ export function WeekSchedule({
   onScheduleClick,
   onUnschedule,
   onSetSessionTimes,
+  gridStartHour = 6,
+  gridEndHour = 23,
 }: Props) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
@@ -86,35 +94,53 @@ export function WeekSchedule({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calendarConnected, weekStart.getTime()]);
 
-  // Bucket events + scheduled tasks per day-of-week (0=Mon..6=Sun)
-  const buckets: DayItem[][] = useMemo(() => {
-    const out: DayItem[][] = [[], [], [], [], [], [], []];
+  // Convert events + tasks + sessions into positioned Blocks.
+  const blocks: Block[] = useMemo(() => {
+    const out: Block[] = [];
+
+    const dayIdxFor = (d: Date) =>
+      Math.floor((d.getTime() - weekStart.getTime()) / DAY_MS);
+    const minutesOf = (d: Date) => d.getHours() * 60 + d.getMinutes();
+
     for (const ev of events) {
       if (!ev.start) continue;
-      const d = new Date(ev.start);
-      const dayIdx = Math.floor((d.getTime() - weekStart.getTime()) / DAY_MS);
+      const sd = new Date(ev.start);
+      const ed = ev.end ? new Date(ev.end) : new Date(sd.getTime() + 60 * 60 * 1000);
+      const dayIdx = dayIdxFor(sd);
       if (dayIdx < 0 || dayIdx > 6) continue;
-      out[dayIdx]!.push({ kind: "event", start: d, event: ev });
+      out.push({
+        kind: "event",
+        dayIdx,
+        startMin: ev.allDay ? 0 : minutesOf(sd),
+        endMin: ev.allDay ? 24 * 60 : minutesOf(ed),
+        event: ev,
+        allDay: ev.allDay,
+      });
     }
+
     for (const t of tasks) {
       if (t.status === "completed") continue;
       if (t.recurrence === "daily") continue;
+      const dur = (t.estimatedMinutes ?? 60);
 
-      // Multi-session tasks render one entry per scheduled session.
       const sessions = t.sessionTimes ?? [];
       if (sessions.length > 0) {
         const sorted = [...sessions]
-          .map((iso) => new Date(iso))
-          .sort((a, b) => a.getTime() - b.getTime());
-        sorted.forEach((d, sIdx) => {
-          const dayIdx = Math.floor((d.getTime() - weekStart.getTime()) / DAY_MS);
+          .map((iso) => ({ iso, d: new Date(iso) }))
+          .sort((a, b) => a.d.getTime() - b.d.getTime());
+        sorted.forEach((entry, sIdx) => {
+          const dayIdx = dayIdxFor(entry.d);
           if (dayIdx < 0 || dayIdx > 6) return;
-          out[dayIdx]!.push({
+          const start = minutesOf(entry.d);
+          out.push({
             kind: "session",
-            start: d,
+            dayIdx,
+            startMin: start,
+            endMin: start + dur,
             task: t,
             sessionIdx: sIdx + 1,
             sessionTotal: sorted.length,
+            instanceIso: entry.iso,
           });
         });
         continue;
@@ -123,11 +149,18 @@ export function WeekSchedule({
       const iso = t.scheduledFor ?? t.dueDate;
       if (!iso) continue;
       const d = new Date(iso);
-      const dayIdx = Math.floor((d.getTime() - weekStart.getTime()) / DAY_MS);
+      const dayIdx = dayIdxFor(d);
       if (dayIdx < 0 || dayIdx > 6) continue;
-      out[dayIdx]!.push({ kind: "task", start: d, task: t });
+      const start = minutesOf(d);
+      out.push({
+        kind: "task",
+        dayIdx,
+        startMin: start,
+        endMin: start + dur,
+        task: t,
+      });
     }
-    out.forEach((arr) => arr.sort((a, b) => a.start.getTime() - b.start.getTime()));
+
     return out;
   }, [events, tasks, weekStart]);
 
@@ -135,7 +168,6 @@ export function WeekSchedule({
   today.setHours(0, 0, 0, 0);
   const todayIdx = Math.floor((today.getTime() - weekStart.getTime()) / DAY_MS);
 
-  // Multi-session tasks that don't yet have enough sessions scheduled this week.
   const pendingMultiSession = useMemo(
     () =>
       tasks.filter(
@@ -150,8 +182,7 @@ export function WeekSchedule({
   const autoScheduleSessionsFor = (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task || !task.sessionsPerWeek) return;
-    const need =
-      task.sessionsPerWeek - (task.sessionTimes?.length ?? 0);
+    const need = task.sessionsPerWeek - (task.sessionTimes?.length ?? 0);
     if (need <= 0) return;
     const busy = busyWindowsForWeek(weekStart, weekEnd, tasks, events, taskId);
     const slots = suggestSessionTimes(
@@ -174,6 +205,19 @@ export function WeekSchedule({
     setWeekStartDate(new Date(weekStart.getTime() + 7 * DAY_MS));
   const goToday = () => setWeekStartDate(startOfWeek(new Date()));
 
+  const totalHours = gridEndHour - gridStartHour;
+  const gridHeight = totalHours * HOUR_HEIGHT;
+  const minToY = (min: number) =>
+    ((min - gridStartHour * 60) / 60) * HOUR_HEIGHT;
+
+  // Current-time indicator (only on today's column)
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  const showNowLine =
+    todayIdx >= 0 && todayIdx < 7 && nowMin >= gridStartHour * 60 && nowMin <= gridEndHour * 60;
+
+  const allDayBlocks = blocks.filter((b) => b.allDay);
+  const timedBlocks = blocks.filter((b) => !b.allDay);
+
   return (
     <section>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -181,8 +225,8 @@ export function WeekSchedule({
           <h2 className="text-sm font-semibold text-slate-700">Week schedule</h2>
           <p className="text-xs text-slate-500">
             {calendarConnected
-              ? "Google Calendar events overlaid with locally-scheduled tasks."
-              : "Connect Calendar (header) to see your real events overlaid."}
+              ? "Hour-positioned grid: Google events (blue), scheduled tasks (green), sessions (violet)."
+              : "Connect Calendar (header) to overlay your real events."}
             {error && (
               <span className="ml-2 text-amber-700">· error: {error}</span>
             )}
@@ -251,133 +295,201 @@ export function WeekSchedule({
               );
             })}
           </ul>
-          <p className="mt-1 text-[11px] text-amber-700">
-            Slots prefer weekend mornings + weekday evenings, avoiding 9-6 work hours and existing events.
-          </p>
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-7">
+      {/* Day headers */}
+      <div
+        className="grid border-b border-slate-200 text-xs"
+        style={{ gridTemplateColumns: `48px repeat(7, 1fr)` }}
+      >
+        <div />
         {DAY_LABELS.map((label, idx) => {
           const dayDate = new Date(weekStart.getTime() + idx * DAY_MS);
-          const items = buckets[idx]!;
           const isToday = idx === todayIdx;
           return (
             <div
               key={label}
-              className={`flex min-h-[480px] flex-col rounded-md border p-2 ${
-                isToday
-                  ? "border-emerald-300 bg-emerald-50/40"
-                  : "border-slate-200 bg-white"
+              className={`border-l border-slate-200 px-2 py-1 ${
+                isToday ? "bg-emerald-50/50" : ""
               }`}
             >
-              <div className="mb-2 flex items-baseline justify-between border-b border-slate-200/60 pb-1">
-                <span className="text-sm font-semibold text-slate-700">
-                  {label}
-                </span>
-                <span className="text-xs text-slate-500">
-                  {dayDate.toLocaleDateString(undefined, {
-                    day: "numeric",
-                    month: "short",
-                  })}
-                </span>
+              <div className="font-semibold text-slate-700">{label}</div>
+              <div className="text-[10px] text-slate-500">
+                {dayDate.toLocaleDateString(undefined, {
+                  day: "numeric",
+                  month: "short",
+                })}
               </div>
-              {items.length === 0 ? (
-                <p className="text-xs italic text-slate-400">empty</p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {items.map((it, i) => {
-                    if (it.kind === "event" && it.event) {
-                      return (
-                        <li
-                          key={`ev-${it.event.id}-${i}`}
-                          className="rounded border border-blue-200 bg-blue-50/70 px-2 py-1.5 text-xs text-blue-900"
-                          title={it.event.summary}
-                        >
-                          <div className="font-mono text-[10px] text-blue-700">
-                            {fmtTime(it.event.start, it.event.allDay)}
-                          </div>
-                          <div className="mt-0.5 leading-tight">
-                            {it.event.summary}
-                          </div>
-                        </li>
-                      );
-                    }
-                    if (it.kind === "task" && it.task) {
-                      const local = Boolean(it.task.scheduledFor);
-                      return (
-                        <li
-                          key={`t-${it.task.id}-${i}`}
-                          className="rounded border border-emerald-200 bg-emerald-50/60 px-2 py-1.5 text-xs text-emerald-900"
-                          title={it.task.title}
-                        >
-                          <div className="font-mono text-[10px] text-emerald-700">
-                            {fmtTime(it.start.toISOString())}
-                          </div>
-                          <div className="mt-0.5 leading-tight">
-                            {it.task.title}
-                          </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
-                            <ThemeBadge theme={it.task.theme} />
-                            {local && (
-                              <button
-                                type="button"
-                                className="text-emerald-700 hover:underline"
-                                onClick={() => onUnschedule(it.task!.id)}
-                              >
-                                unschedule
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              className="text-slate-600 hover:underline"
-                              onClick={() => onScheduleClick(it.task!.id)}
-                            >
-                              re-time
-                            </button>
-                          </div>
-                        </li>
-                      );
-                    }
-                    if (it.kind === "session" && it.task) {
-                      return (
-                        <li
-                          key={`s-${it.task.id}-${i}`}
-                          className="rounded border border-violet-200 bg-violet-50/70 px-2 py-1.5 text-xs text-violet-900"
-                          title={`${it.task.title} (session ${it.sessionIdx}/${it.sessionTotal})`}
-                        >
-                          <div className="font-mono text-[10px] text-violet-700">
-                            {fmtTime(it.start.toISOString())}
-                          </div>
-                          <div className="mt-0.5 leading-tight">
-                            {it.task.title}{" "}
-                            <span className="text-violet-700">
-                              ({it.sessionIdx}/{it.sessionTotal})
-                            </span>
-                          </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
-                            <ThemeBadge theme={it.task.theme} />
-                            <button
-                              type="button"
-                              className="text-violet-700 hover:underline"
-                              onClick={() => {
-                                const remaining = (it.task!.sessionTimes ?? []).filter(
-                                  (iso) =>
-                                    new Date(iso).getTime() !== it.start.getTime(),
-                                );
-                                onSetSessionTimes(it.task!.id, remaining);
-                              }}
-                            >
-                              remove
-                            </button>
-                          </div>
-                        </li>
-                      );
-                    }
-                    return null;
-                  })}
-                </ul>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* All-day strip (only renders when there are all-day events) */}
+      {allDayBlocks.length > 0 && (
+        <div
+          className="grid border-b border-slate-200 text-[10px]"
+          style={{ gridTemplateColumns: `48px repeat(7, 1fr)` }}
+        >
+          <div className="px-1 py-1 text-right text-slate-400">all-day</div>
+          {DAY_LABELS.map((_, idx) => {
+            const dayBlocks = allDayBlocks.filter((b) => b.dayIdx === idx);
+            return (
+              <div
+                key={idx}
+                className={`min-h-[18px] border-l border-slate-200 px-1 py-0.5 ${
+                  idx === todayIdx ? "bg-emerald-50/50" : ""
+                }`}
+              >
+                {dayBlocks.map((b, i) => (
+                  <div
+                    key={i}
+                    className="truncate rounded bg-blue-100 px-1 text-blue-900"
+                    title={b.event?.summary}
+                  >
+                    {b.event?.summary}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Hour grid */}
+      <div
+        className="relative grid"
+        style={{
+          gridTemplateColumns: `48px repeat(7, 1fr)`,
+          height: `${gridHeight}px`,
+        }}
+      >
+        {/* Hour labels column */}
+        <div className="relative">
+          {Array.from({ length: totalHours }).map((_, i) => {
+            const hour = gridStartHour + i;
+            return (
+              <div
+                key={hour}
+                className="absolute right-1 -translate-y-1.5 text-[10px] text-slate-400"
+                style={{ top: `${i * HOUR_HEIGHT}px` }}
+              >
+                {String(hour).padStart(2, "0")}:00
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Day columns */}
+        {DAY_LABELS.map((_, dayIdx) => {
+          const isToday = dayIdx === todayIdx;
+          const dayBlocks = timedBlocks.filter((b) => b.dayIdx === dayIdx);
+          return (
+            <div
+              key={dayIdx}
+              className={`relative border-l border-slate-200 ${
+                isToday ? "bg-emerald-50/30" : ""
+              }`}
+            >
+              {/* Hour gridlines */}
+              {Array.from({ length: totalHours }).map((_, i) => (
+                <div
+                  key={i}
+                  className="absolute left-0 right-0 border-t border-dashed border-slate-100"
+                  style={{ top: `${i * HOUR_HEIGHT}px` }}
+                />
+              ))}
+
+              {/* Now-line on today */}
+              {isToday && showNowLine && (
+                <div
+                  className="absolute left-0 right-0 z-20 border-t-2 border-rose-400"
+                  style={{ top: `${minToY(nowMin)}px` }}
+                >
+                  <div className="absolute -top-1 -left-1 h-2 w-2 rounded-full bg-rose-400" />
+                </div>
               )}
+
+              {/* Blocks */}
+              {dayBlocks.map((b, i) => {
+                const top = Math.max(0, minToY(b.startMin));
+                const height = Math.max(
+                  16,
+                  minToY(b.endMin) - minToY(b.startMin),
+                );
+                const colour =
+                  b.kind === "event"
+                    ? "border-blue-300 bg-blue-100/90 text-blue-900"
+                    : b.kind === "session"
+                    ? "border-violet-300 bg-violet-100/90 text-violet-900"
+                    : "border-emerald-300 bg-emerald-100/90 text-emerald-900";
+                const title =
+                  b.event?.summary ??
+                  (b.task?.title
+                    ? `${b.task.title}${b.kind === "session" ? ` (${b.sessionIdx}/${b.sessionTotal})` : ""}`
+                    : "");
+                return (
+                  <div
+                    key={i}
+                    className={`absolute left-0.5 right-0.5 z-10 overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight ${colour}`}
+                    style={{ top: `${top}px`, height: `${height}px` }}
+                    title={title}
+                  >
+                    <div className="font-mono text-[9px] opacity-70">
+                      {fmtTime(
+                        new Date(
+                          weekStart.getTime() +
+                            b.dayIdx * DAY_MS +
+                            b.startMin * 60 * 1000,
+                        ).toISOString(),
+                      )}
+                    </div>
+                    <div className="truncate">{title}</div>
+                    {b.task && height >= 36 && (
+                      <div className="mt-0.5 flex items-center gap-1">
+                        <ThemeBadge theme={b.task.theme} />
+                      </div>
+                    )}
+                    {b.task && height >= 28 && (
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[9px]">
+                        {b.kind === "task" && b.task.scheduledFor && (
+                          <button
+                            type="button"
+                            className="hover:underline"
+                            onClick={() => onUnschedule(b.task!.id)}
+                          >
+                            unschedule
+                          </button>
+                        )}
+                        {b.kind === "session" && b.instanceIso && (
+                          <button
+                            type="button"
+                            className="hover:underline"
+                            onClick={() => {
+                              const remaining = (b.task!.sessionTimes ?? []).filter(
+                                (iso) => iso !== b.instanceIso,
+                              );
+                              onSetSessionTimes(b.task!.id, remaining);
+                            }}
+                          >
+                            remove
+                          </button>
+                        )}
+                        {b.kind !== "session" && (
+                          <button
+                            type="button"
+                            className="hover:underline"
+                            onClick={() => onScheduleClick(b.task!.id)}
+                          >
+                            re-time
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           );
         })}
