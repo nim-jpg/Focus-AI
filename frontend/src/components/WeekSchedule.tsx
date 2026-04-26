@@ -155,9 +155,16 @@ export function WeekSchedule({
   );
   const [showIgnored, setShowIgnored] = useState(false);
   // Cursor focus: when the user hovers a time slot in a day column, blocks
-  // overlapping that slot stay sharp; everything else fades. Cleared on leave.
+  // overlapping that slot stay sharp; everything else fades.
+  // - When hovering OVER a block: focus = the block's full time range
+  //   (so the block stays prominent across its whole duration, not only
+  //   where the cursor's Y maps to its true minute — short events with
+  //   the 56px minHeight padding would otherwise lose focus mid-block).
+  // - When hovering empty column space: focus = the cursor's mapped minute.
   const [hoverFocus, setHoverFocus] = useState<
-    { dayIdx: number; minute: number } | null
+    | { dayIdx: number; minute: number; range?: undefined }
+    | { dayIdx: number; range: { startMin: number; endMin: number }; minute?: undefined }
+    | null
   >(null);
   // Three view modes:
   //   "all"     — current grid: every visible event in the chosen calendars
@@ -1078,6 +1085,10 @@ export function WeekSchedule({
               }}
               onDrop={handleColumnDrop(dayIdx)}
               onMouseMove={(e) => {
+                // Only respond when the cursor is over the empty column —
+                // when over a block, that block's onMouseEnter sets the
+                // focus to its true time range instead.
+                if (e.target !== e.currentTarget) return;
                 const rect = e.currentTarget.getBoundingClientRect();
                 const yPx = e.clientY - rect.top;
                 const minute =
@@ -1252,7 +1263,18 @@ export function WeekSchedule({
                       // ones stand out.
                       if (!hoverFocus) return "";
                       if (hoverFocus.dayIdx !== b.dayIdx) return "opacity-20";
-                      const m = hoverFocus.minute;
+                      // Range mode (cursor over a block): match if our
+                      // time range overlaps the focused range — keeps
+                      // the block prominent across its whole duration.
+                      if (hoverFocus.range) {
+                        const overlap =
+                          b.startMin < hoverFocus.range.endMin &&
+                          b.endMin > hoverFocus.range.startMin;
+                        return overlap ? "" : "opacity-20";
+                      }
+                      // Minute mode (cursor in empty column space): match
+                      // if our time range contains the focused minute.
+                      const m = hoverFocus.minute!;
                       const inSlot = m >= b.startMin && m < b.endMin;
                       return inSlot ? "" : "opacity-20";
                     })()}`}
@@ -1268,9 +1290,17 @@ export function WeekSchedule({
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.zIndex = "60";
+                      // Focus = the block's full time range, so it stays
+                      // prominent for the whole duration regardless of
+                      // where the cursor lands inside the visual block.
+                      setHoverFocus({
+                        dayIdx: b.dayIdx,
+                        range: { startMin: b.startMin, endMin: b.endMin },
+                      });
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.zIndex = String(10 + stackIdx);
+                      setHoverFocus(null);
                     }}
                     title={
                       b.event?.calendarName
