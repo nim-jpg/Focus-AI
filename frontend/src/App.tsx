@@ -730,6 +730,15 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             if (cur.includes(goalId)) return;
             updateTask(taskId, { goalIds: [...cur, goalId] });
           }}
+          onUnlinkTaskFromGoal={(taskId, goalId) => {
+            const t = tasks.find((x) => x.id === taskId);
+            if (!t) return;
+            const cur = t.goalIds ?? [];
+            if (!cur.includes(goalId)) return;
+            updateTask(taskId, {
+              goalIds: cur.filter((id) => id !== goalId),
+            });
+          }}
         />
       )}
 
@@ -812,25 +821,24 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             replaceAllGoals(bundle.goals);
             replacePrefs(bundle.prefs);
           }}
-          calendar={
-            googleStatus
-              ? {
-                  configured: googleStatus.configured,
-                  connected: googleStatus.connected,
-                  email: googleStatus.email,
-                  onConnect: () =>
-                    startGoogleConnect().catch((err) =>
-                      setCalendarMsg(
-                        `Connect failed — ${err instanceof Error ? err.message : String(err)}`,
-                      ),
-                    ),
-                  onDisconnect: async () => {
-                    await disconnectGoogle();
-                    setGoogleStatus(await fetchGoogleStatus());
-                  },
-                }
-              : undefined
-          }
+          calendar={{
+            // Default to "configured + not connected" until the status
+            // fetch comes back, so the Connect Calendar button is always
+            // visible — never gets hidden by a slow or failed status check.
+            configured: googleStatus?.configured ?? true,
+            connected: googleStatus?.connected ?? false,
+            email: googleStatus?.email ?? null,
+            onConnect: () =>
+              startGoogleConnect().catch((err) =>
+                setCalendarMsg(
+                  `Connect failed — ${err instanceof Error ? err.message : String(err)}`,
+                ),
+              ),
+            onDisconnect: async () => {
+              await disconnectGoogle();
+              setGoogleStatus(await fetchGoogleStatus());
+            },
+          }}
         />
       )}
 

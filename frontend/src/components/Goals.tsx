@@ -27,6 +27,8 @@ interface Props {
   onAddTaskForGoal?: (goalId: string) => void;
   /** Add the goal id to a task's goalIds (idempotent). */
   onLinkTaskToGoal?: (taskId: string, goalId: string) => void;
+  /** Remove the goal id from a task's goalIds. */
+  onUnlinkTaskFromGoal?: (taskId: string, goalId: string) => void;
 }
 
 const HORIZON_LABELS: Record<GoalHorizon, string> = {
@@ -56,6 +58,10 @@ function relativeDays(iso?: string): string {
   return `quiet for ${Math.floor(days / 30)}mo`;
 }
 
+interface AppliedMatch extends GoalTaskMatch {
+  goalId: string;
+}
+
 export function Goals({
   goals,
   tasks,
@@ -66,37 +72,45 @@ export function Goals({
   onRemove,
   onAddTaskForGoal,
   onLinkTaskToGoal,
+  onUnlinkTaskFromGoal,
 }: Props) {
   const [draft, setDraft] = useState<NewGoalInput>(blank);
   const [open, setOpen] = useState(false);
-  // Per-goal AI-suggestion state.
-  const [suggestState, setSuggestState] = useState<
-    Record<string, {
-      loading: boolean;
-      matches?: GoalTaskMatch[];
-      error?: string;
-    }>
-  >({});
+  // Global match-to-goals AI run state.
+  const [matchBusy, setMatchBusy] = useState(false);
+  const [matchError, setMatchError] = useState<string | null>(null);
+  const [appliedMatches, setAppliedMatches] = useState<AppliedMatch[] | null>(
+    null,
+  );
 
-  const runSuggest = async (goal: Goal) => {
-    setSuggestState((s) => ({ ...s, [goal.id]: { loading: true } }));
-    const candidates = tasks.filter(
-      (t) => t.status !== "completed" && !(t.goalIds ?? []).includes(goal.id),
-    );
+  const runMatchAll = async () => {
+    if (!onLinkTaskToGoal) return;
+    setMatchBusy(true);
+    setMatchError(null);
+    setAppliedMatches(null);
+    const applied: AppliedMatch[] = [];
     try {
-      const matches = await suggestGoalTasks(goal, candidates);
-      setSuggestState((s) => ({
-        ...s,
-        [goal.id]: { loading: false, matches },
-      }));
+      // Process goals sequentially to keep request volume modest and to
+      // share the same `tasks` snapshot across calls.
+      for (const g of goals) {
+        const candidates = tasks.filter(
+          (t) =>
+            t.status !== "completed" && !(t.goalIds ?? []).includes(g.id),
+        );
+        if (candidates.length === 0) continue;
+        const matches = await suggestGoalTasks(g, candidates);
+        for (const m of matches) {
+          // Skip very-low-confidence picks to avoid noisy auto-linking.
+          if (m.confidence === "low") continue;
+          onLinkTaskToGoal(m.taskId, g.id);
+          applied.push({ ...m, goalId: g.id });
+        }
+      }
+      setAppliedMatches(applied);
     } catch (err) {
-      setSuggestState((s) => ({
-        ...s,
-        [goal.id]: {
-          loading: false,
-          error: err instanceof Error ? err.message : "AI unavailable",
-        },
-      }));
+      setMatchError(err instanceof Error ? err.message : "AI unavailable");
+    } finally {
+      setMatchBusy(false);
     }
   };
 
@@ -113,23 +127,125 @@ export function Goals({
     items: goals.filter((g) => g.horizon === horizon),
   })).filter((g) => g.items.length > 0);
 
+  // Tasks linked to each goal — used so each goal card can show its current
+  // links with an unlink (×) button.
+  const tasksByGoal = new Map<string, Task[]>();
+  for (const t of tasks) {
+    if (t.status === "completed") continue;
+    for (const gid of t.goalIds ?? []) {
+      const arr = tasksByGoal.get(gid) ?? [];
+      arr.push(t);
+      tasksByGoal.set(gid, arr);
+    }
+  }
+
   return (
     <section>
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-lg font-semibold">Goals</h2>
           <p className="text-xs text-slate-500">
             What you're working toward. Tasks can ladder up to these.
           </p>
         </div>
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={() => setOpen((v) => !v)}
-        >
-          {open ? "Cancel" : "Add goal"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? "Cancel" : "Add goal"}
+          </button>
+          {onLinkTaskToGoal && goals.length > 0 && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => void runMatchAll()}
+              disabled={matchBusy}
+              title="Ask Claude to scan all open tasks and link the ones that ladder to your goals"
+            >
+              {matchBusy ? "Matching…" : "✨ Match tasks to goals"}
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Result banner from the global AI match action. Shows what was
+          auto-linked so the user can scan and selectively unlink anything
+          that doesn't fit. */}
+      {(appliedMatches !== null || matchError) && (
+        <div className="card mb-3">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <p className="text-sm font-medium text-slate-700">
+              {matchError
+                ? "Match failed"
+                : appliedMatches && appliedMatches.length > 0
+                ? `Auto-linked ${appliedMatches.length} task${
+                    appliedMatches.length === 1 ? "" : "s"
+                  }`
+                : "No new matches found"}
+            </p>
+            <button
+              type="button"
+              className="text-xs text-slate-400 hover:text-slate-700"
+              onClick={() => {
+                setAppliedMatches(null);
+                setMatchError(null);
+              }}
+            >
+              dismiss
+            </button>
+          </div>
+          {matchError && (
+            <p className="text-xs text-amber-700">{matchError}</p>
+          )}
+          {appliedMatches && appliedMatches.length > 0 && (
+            <ul className="space-y-1.5">
+              {appliedMatches.map((m, idx) => {
+                const t = tasks.find((x) => x.id === m.taskId);
+                const g = goals.find((x) => x.id === m.goalId);
+                if (!t || !g) return null;
+                const stillLinked = (t.goalIds ?? []).includes(m.goalId);
+                return (
+                  <li
+                    key={`${m.goalId}:${m.taskId}:${idx}`}
+                    className="flex items-start gap-2 text-xs"
+                  >
+                    <span className="mt-0.5 inline-block w-12 flex-none rounded-full bg-slate-100 px-1.5 py-0.5 text-center text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                      {m.confidence}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-slate-700">
+                        <span className="font-medium">{t.title}</span>
+                        <span className="mx-1 text-slate-400">→</span>
+                        <span className="text-slate-600">{g.title}</span>
+                      </p>
+                      <p className="text-[11px] text-slate-500">{m.reason}</p>
+                    </div>
+                    {onUnlinkTaskFromGoal && stillLinked && (
+                      <button
+                        type="button"
+                        className="flex-none rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600 hover:border-red-400 hover:text-red-700"
+                        onClick={() =>
+                          onUnlinkTaskFromGoal(m.taskId, m.goalId)
+                        }
+                        title="Remove this auto-link"
+                      >
+                        ✕ unlink
+                      </button>
+                    )}
+                    {onUnlinkTaskFromGoal && !stillLinked && (
+                      <span className="flex-none text-[11px] italic text-slate-400">
+                        unlinked
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
 
       {open && (
         <form onSubmit={handleSubmit} className="card mb-3 space-y-3">
@@ -210,6 +326,7 @@ export function Goals({
               <ul className="space-y-2">
                 {items.map((g) => {
                   const count = taskCountByGoal.get(g.id) ?? 0;
+                  const linkedTasks = tasksByGoal.get(g.id) ?? [];
                   const prog = progressByGoal?.get(g.id);
                   const done30 = prog?.doneLast30 ?? 0;
                   const activityLabel = relativeDays(prog?.lastActivityIso);
@@ -267,84 +384,34 @@ export function Goals({
                         {g.notes && (
                           <p className="mt-1 text-sm text-slate-600">{g.notes}</p>
                         )}
-                        {/* AI-suggested task allocation. Surfaces when no
-                            tasks are linked yet — one click asks Claude to
-                            pick existing tasks that ladder to this goal. */}
-                        {onLinkTaskToGoal && count === 0 && (() => {
-                          const ss = suggestState[g.id];
-                          const matches = ss?.matches ?? [];
-                          const hasResult = !!ss && !ss.loading;
-                          return (
-                            <div className="mt-2 rounded-md border border-dashed border-slate-200 bg-slate-50 p-2">
-                              {!ss && (
-                                <button
-                                  type="button"
-                                  className="text-xs font-medium text-indigo-700 hover:text-indigo-900"
-                                  onClick={() => void runSuggest(g)}
-                                >
-                                  ✨ Find matching tasks with AI
-                                </button>
-                              )}
-                              {ss?.loading && (
-                                <p className="text-xs italic text-slate-500">
-                                  asking Claude…
-                                </p>
-                              )}
-                              {ss?.error && (
-                                <p className="text-xs text-amber-700">
-                                  {ss.error}
-                                </p>
-                              )}
-                              {hasResult && matches.length === 0 && !ss?.error && (
-                                <p className="text-xs text-slate-500">
-                                  No matches in your current tasks. Add a new
-                                  one with the + Task button.
-                                </p>
-                              )}
-                              {hasResult && matches.length > 0 && (
-                                <ul className="space-y-1.5">
-                                  {matches.map((m) => {
-                                    const t = tasks.find(
-                                      (x) => x.id === m.taskId,
-                                    );
-                                    if (!t) return null;
-                                    const linked = (t.goalIds ?? []).includes(
-                                      g.id,
-                                    );
-                                    return (
-                                      <li
-                                        key={m.taskId}
-                                        className="flex items-start gap-2 text-xs"
-                                      >
-                                        <span className="mt-0.5 inline-block w-12 flex-none rounded-full bg-white px-1.5 py-0.5 text-center text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                                          {m.confidence}
-                                        </span>
-                                        <div className="min-w-0 flex-1">
-                                          <p className="font-medium text-slate-700">
-                                            {t.title}
-                                          </p>
-                                          <p className="text-[11px] text-slate-500">
-                                            {m.reason}
-                                          </p>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          className="flex-none rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800 hover:border-emerald-500 disabled:opacity-50"
-                                          disabled={linked}
-                                          onClick={() =>
-                                            onLinkTaskToGoal(t.id, g.id)
-                                          }
-                                        >
-                                          {linked ? "Linked" : "Link"}
-                                        </button>
-                                      </li>
-                                    );
-                                  })}
-                                </ul>
-                              )}
-                            </div>
-                          );
-                        })()}
+                        {/* Linked tasks with one-click unlink — lets the
+                            user prune anything the AI mis-matched. */}
+                        {linkedTasks.length > 0 && (
+                          <ul className="mt-2 flex flex-wrap gap-1.5">
+                            {linkedTasks.map((t) => (
+                              <li key={t.id}>
+                                <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                                  <span className="max-w-[16rem] truncate">
+                                    {t.title}
+                                  </span>
+                                  {onUnlinkTaskFromGoal && (
+                                    <button
+                                      type="button"
+                                      className="text-slate-400 hover:text-red-600"
+                                      onClick={() =>
+                                        onUnlinkTaskFromGoal(t.id, g.id)
+                                      }
+                                      title="Unlink from this goal"
+                                      aria-label={`Unlink ${t.title}`}
+                                    >
+                                      ✕
+                                    </button>
+                                  )}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                       <div className="flex flex-col gap-1 text-xs">
                         {onAddTaskForGoal && (
