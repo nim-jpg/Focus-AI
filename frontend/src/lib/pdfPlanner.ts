@@ -333,14 +333,15 @@ export async function exportWeeklyPlanner(
     : "Focus3 — Weekly Planner";
   doc.text(headerTitle, margin, y + 6);
 
-  // Date range
+  // Date range — sits BELOW the title so a long display name doesn't
+  // collide with the date text.
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(120);
   doc.text(
     `${start.toLocaleDateString()}  to  ${new Date(end.getTime() - 1).toLocaleDateString()}`,
-    margin + 230,
-    y + 6,
+    margin,
+    y + 20,
   );
   doc.setTextColor(0);
 
@@ -365,12 +366,13 @@ export async function exportWeeklyPlanner(
   doc.text(modeLabel, modeX + 6, y + 11);
   doc.setTextColor(0);
 
-  y += 28;
+  // Title (line 1) + date (line 2 ~y+20) + spacing → divider at y+34
+  y += 34;
 
   doc.setDrawColor(220);
   doc.setLineWidth(0.5);
   doc.line(margin, y, pageW - margin, y);
-  y += 22; // more space after the divider
+  y += 16;
 
   // Build content for each task list. Stretch capacity is computed from the
   // space left in the left column after key tasks and the fluids tracker —
@@ -381,7 +383,9 @@ export async function exportWeeklyPlanner(
   const FLUIDS_H = 110;
   const FOOTER_H = 16;
   const STRETCH_ROW_H = 26;
-  const KEY_ROW_H = 50;
+  // Key task row height matches the per-row leftY increment in the
+  // key-tasks render (single notes line + breathing room).
+  const KEY_ROW_H = 56;
   // Approximate y after key tasks (24pt section header + 14pt gap + N rows + 6pt gap)
   const keyEndsY = y + 18 + keyTasks.length * KEY_ROW_H + 6;
   const stretchHeader = 18; // header + divider
@@ -466,29 +470,18 @@ export async function exportWeeklyPlanner(
 
       doc.setTextColor(0);
 
-      // Notes lines on fresh rows underneath. Two writing lines spaced
-      // ~14pt apart (~5mm) so a pen actually fits without crowding.
-      const notesLabelY = leftY + 32;
+      // Single notes line with generous space below (~18pt) so a pen
+      // fits the full row without crowding the next task.
+      const notesLabelY = leftY + 36;
       doc.setFontSize(7);
       doc.setTextColor(120);
       doc.text("notes:", leftX + 16, notesLabelY);
       doc.setDrawColor(220);
       doc.setLineWidth(0.4);
-      const NOTES_LINE_GAP = 14;
-      const notesLineXStart = leftX + 16 + 22;
-      const notesLineXEnd = leftCodeX - 8;
-      // Line 1 sits aligned with the "notes:" label baseline; line 2 sits
-      // ~14pt below for the second written line.
-      doc.line(notesLineXStart, notesLabelY + 1, notesLineXEnd, notesLabelY + 1);
-      doc.line(
-        notesLineXStart,
-        notesLabelY + 1 + NOTES_LINE_GAP,
-        notesLineXEnd,
-        notesLabelY + 1 + NOTES_LINE_GAP,
-      );
+      doc.line(leftX + 16 + 22, notesLabelY + 1, leftCodeX - 8, notesLabelY + 1);
       doc.setTextColor(0);
 
-      leftY += 64; // taller row so the second notes line has breathing room
+      leftY += 56; // gives the writing line ~20pt of breathing room
     }
   }
 
