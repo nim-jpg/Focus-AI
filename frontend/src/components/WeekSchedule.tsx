@@ -109,6 +109,17 @@ export function WeekSchedule({
   // Convert events + tasks + sessions into positioned Blocks.
   const blocks: Block[] = useMemo(() => {
     const out: Block[] = [];
+    const privateIds = new Set(prefs.privateCalendarIds ?? []);
+
+    // Tasks linked to Google events (calendarEventId set) — we'll skip rendering
+    // them as task blocks because the event itself will appear via the events
+    // fetch and we'll annotate it with task metadata instead.
+    const tasksByEventId = new Map<string, Task>();
+    for (const t of tasks) {
+      if (t.calendarEventId && t.calendarEventId !== "set") {
+        tasksByEventId.set(t.calendarEventId, t);
+      }
+    }
 
     const dayIdxFor = (d: Date) =>
       Math.floor((d.getTime() - weekStart.getTime()) / DAY_MS);
@@ -120,19 +131,60 @@ export function WeekSchedule({
       const ed = ev.end ? new Date(ev.end) : new Date(sd.getTime() + 60 * 60 * 1000);
       const dayIdx = dayIdxFor(sd);
       if (dayIdx < 0 || dayIdx > 6) continue;
+
+      const isPrivate = ev.calendarId ? privateIds.has(ev.calendarId) : false;
+      const linkedTask = ev.id ? tasksByEventId.get(ev.id) : undefined;
+
+      // Redact private events: title hidden, no calendar name, no link.
+      const renderedEvent: CalendarEvent = isPrivate
+        ? {
+            ...ev,
+            summary: "Busy",
+            calendarName: null,
+            calendarColor: "#94a3b8", // slate-400
+            htmlLink: null,
+          }
+        : ev;
+
       out.push({
         kind: "event",
         dayIdx,
         startMin: ev.allDay ? 0 : minutesOf(sd),
         endMin: ev.allDay ? 24 * 60 : minutesOf(ed),
-        event: ev,
+        event: renderedEvent,
         allDay: ev.allDay,
+        // Annotate with the linked task so the block can show "✓ in Google" etc.
+        task: linkedTask,
       });
     }
 
     for (const t of tasks) {
       if (t.status === "completed") continue;
       if (t.recurrence === "daily") continue;
+      // Skip tasks that have a corresponding Google event — the event renders them.
+      if (t.calendarEventId && t.calendarEventId !== "set") {
+        // Stale-event check happens later as a separate marker.
+        const linkedEvent = events.find((e) => e.id === t.calendarEventId);
+        if (linkedEvent) continue;
+        // The task references a Google event but the event isn't in this week's
+        // fetch — could be moved out of the visible window or deleted. Render
+        // a "removed from Google" marker at the originally-scheduled time.
+        const iso = t.scheduledFor ?? t.dueDate;
+        if (!iso) continue;
+        const d = new Date(iso);
+        const dayIdx = dayIdxFor(d);
+        if (dayIdx < 0 || dayIdx > 6) continue;
+        const start = minutesOf(d);
+        const dur = t.estimatedMinutes ?? 60;
+        out.push({
+          kind: "task",
+          dayIdx,
+          startMin: start,
+          endMin: start + dur,
+          task: { ...t, title: `⚠ ${t.title} (removed from Google)` },
+        });
+        continue;
+      }
       const dur = (t.estimatedMinutes ?? 60);
 
       const sessions = t.sessionTimes ?? [];
@@ -174,7 +226,7 @@ export function WeekSchedule({
     }
 
     return out;
-  }, [events, tasks, weekStart]);
+  }, [events, tasks, weekStart, prefs.privateCalendarIds]);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -251,8 +303,8 @@ export function WeekSchedule({
   // Drag-to-reschedule: native HTML5 drag, no third-party deps.
   // We snap drops to 15-minute intervals.
   const SNAP_MIN = 15;
-  const EDGE_HOVER_MS = 800; // hold near the edge this long to advance the week
-  const ADVANCE_COOLDOWN_MS = 5000; // pause auto-advance for 5s after a jump
+  const EDGE_HOVER_MS = 400; // hold near the edge this long to advance the week
+  const ADVANCE_COOLDOWN_MS = 3000; // pause auto-advance after a jump
 
   type DragPayload =
     | { kind: "task"; taskId: string }
@@ -326,6 +378,14 @@ export function WeekSchedule({
     const dayDate = new Date(weekStart.getTime() + idx * DAY_MS);
     return prefs.workingDays.includes(dayDate.getDay());
   };
+  const isOfficeDayIdx = (idx: number) => {
+    const dayDate = new Date(weekStart.getTime() + idx * DAY_MS);
+    return (prefs.officeDays ?? []).includes(dayDate.getDay());
+  };
+  const commuteMin = prefs.commuteMinutes ?? 0;
+  const commuteBeforeTopY = minToY(workStartH * 60 - commuteMin);
+  const commuteAfterTopY = minToY(workEndH * 60);
+  const commuteAfterBottomY = minToY(workEndH * 60 + commuteMin);
 
   // Current-time indicator (only on today's column)
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
@@ -362,6 +422,12 @@ export function WeekSchedule({
               <span className="inline-block h-2.5 w-2.5 rounded-sm bg-slate-200" />
               working hours
             </span>
+            {commuteMin > 0 && (
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-block h-2.5 w-2.5 rounded-sm bg-amber-200" />
+                commute
+              </span>
+            )}
             <span className="inline-flex items-center gap-1">
               <span className="inline-block h-0.5 w-3 bg-rose-400" />
               now
@@ -585,6 +651,31 @@ export function WeekSchedule({
                     title="Working hours"
                   />
                 )}
+              {/* Commute zones on office days — striped amber so it's distinct */}
+              {isOfficeDayIdx(dayIdx) && commuteMin > 0 && (
+                <>
+                  <div
+                    className="absolute left-0 right-0 bg-amber-100/70"
+                    style={{
+                      top: `${Math.max(0, commuteBeforeTopY)}px`,
+                      height: `${Math.max(0, workTopY - commuteBeforeTopY)}px`,
+                      backgroundImage:
+                        "repeating-linear-gradient(45deg, transparent 0 6px, rgba(217,119,6,0.18) 6px 8px)",
+                    }}
+                    title={`Commute (${commuteMin} min)`}
+                  />
+                  <div
+                    className="absolute left-0 right-0 bg-amber-100/70"
+                    style={{
+                      top: `${commuteAfterTopY}px`,
+                      height: `${Math.max(0, commuteAfterBottomY - commuteAfterTopY)}px`,
+                      backgroundImage:
+                        "repeating-linear-gradient(45deg, transparent 0 6px, rgba(217,119,6,0.18) 6px 8px)",
+                    }}
+                    title={`Commute (${commuteMin} min)`}
+                  />
+                </>
+              )}
 
               {/* Hour gridlines — faint solid lines, slightly stronger every 6 hours */}
               {Array.from({ length: totalHours }).map((_, i) => {
@@ -657,7 +748,7 @@ export function WeekSchedule({
                 return (
                   <div
                     key={i}
-                    className={`absolute left-0.5 right-0.5 z-10 overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight ${colour} ${
+                    className={`group absolute left-0.5 right-0.5 z-10 overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight transition-all hover:z-40 hover:overflow-visible hover:shadow-lg ${colour} ${
                       draggable ? "cursor-move" : ""
                     }`}
                     style={{
@@ -683,7 +774,9 @@ export function WeekSchedule({
                         ).toISOString(),
                       )}
                     </div>
-                    <div className="truncate">{title}</div>
+                    <div className="truncate group-hover:whitespace-normal group-hover:overflow-visible">
+                      {title}
+                    </div>
                     {b.task && height >= 36 && (
                       <div className="mt-0.5 flex items-center gap-1">
                         <ThemeBadge theme={b.task.theme} />

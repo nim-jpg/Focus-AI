@@ -6,6 +6,10 @@ import { ThemeBadge } from "./ThemeBadge";
 
 interface Props {
   onAdd: (task: NewTaskInput) => void;
+  /** When true, the form is open from mount and the toggle button is hidden. */
+  defaultOpen?: boolean;
+  /** Called when the close button is hit. If not provided, falls back to internal toggle. */
+  onClose?: () => void;
 }
 
 interface Suggestion extends NewTaskInput {
@@ -22,8 +26,8 @@ e.g.
 - email landlord about boiler — they said next Tuesday
 - finish the React migration so QA can start testing`;
 
-export function BrainDump({ onAdd }: Props) {
-  const [open, setOpen] = useState(false);
+export function BrainDump({ onAdd, defaultOpen = false, onClose }: Props) {
+  const [open, setOpen] = useState(defaultOpen);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +114,8 @@ export function BrainDump({ onAdd }: Props) {
       onAdd(task);
     }
     reset();
-    setOpen(false);
+    if (onClose) onClose();
+    else setOpen(false);
   };
 
   if (!open) {
@@ -137,7 +142,8 @@ export function BrainDump({ onAdd }: Props) {
           className="text-xs text-slate-500 hover:text-slate-800"
           onClick={() => {
             reset();
-            setOpen(false);
+            if (onClose) onClose();
+            else setOpen(false);
           }}
         >
           Close

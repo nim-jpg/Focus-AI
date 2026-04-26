@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { THEMES, type Theme, type UserPrefs } from "@/types/task";
 import { TimeField } from "./TimeField";
+import { fetchCalendars, type CalendarMeta } from "@/lib/googleCalendar";
 
 interface Props {
   prefs: UserPrefs;
@@ -41,6 +42,13 @@ export function SettingsPanel({
   const [importBusy, setImportBusy] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [calendars, setCalendars] = useState<CalendarMeta[] | null>(null);
+
+  // Pull the user's Google calendars when the Calendar section is visible.
+  useEffect(() => {
+    if (!calendar?.connected) return;
+    void fetchCalendars().then(setCalendars).catch(() => setCalendars([]));
+  }, [calendar?.connected]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -148,6 +156,59 @@ export function SettingsPanel({
             </div>
           </section>
 
+          {/* Office days + commute */}
+          <section>
+            <h4 className="text-sm font-semibold text-slate-700">
+              Office days &amp; commute
+            </h4>
+            <p className="text-xs text-slate-500">
+              On office days, your commute is treated as busy time so
+              auto-schedule won't put a session there.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {DAY_LABELS.map((d) => {
+                const isWorking = prefs.workingDays.includes(d.idx);
+                const active = (prefs.officeDays ?? []).includes(d.idx);
+                return (
+                  <button
+                    key={d.idx}
+                    type="button"
+                    disabled={!isWorking}
+                    onClick={() => {
+                      const cur = prefs.officeDays ?? [];
+                      const next = cur.includes(d.idx)
+                        ? cur.filter((x) => x !== d.idx)
+                        : [...cur, d.idx];
+                      onChange({ officeDays: next.sort((a, b) => a - b) });
+                    }}
+                    className={`rounded-full border px-3 py-1 text-xs disabled:opacity-40 ${
+                      active
+                        ? "border-amber-600 bg-amber-500 text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+                    }`}
+                    title={isWorking ? "" : "Not a working day"}
+                  >
+                    {d.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-2 flex items-center gap-2 text-xs">
+              <label className="text-slate-700">Commute (one way, minutes)</label>
+              <input
+                type="number"
+                min={0}
+                max={300}
+                step={5}
+                className="input h-7 w-20 text-xs"
+                value={prefs.commuteMinutes ?? 0}
+                onChange={(e) =>
+                  onChange({ commuteMinutes: Number(e.target.value) || 0 })
+                }
+              />
+            </div>
+          </section>
+
           {/* PDF privacy */}
           <section>
             <h4 className="text-sm font-semibold text-slate-700">
@@ -238,6 +299,57 @@ export function SettingsPanel({
                   ? `Connected as ${calendar.email ?? "(unknown)"}.`
                   : "Not connected."}
               </p>
+              {calendar.connected && calendars && calendars.length > 0 && (
+                <div className="mt-2 rounded-md border border-slate-200 bg-white p-2">
+                  <p className="mb-1 text-xs font-medium text-slate-700">
+                    Per-calendar privacy
+                  </p>
+                  <p className="mb-2 text-[11px] text-slate-500">
+                    Mark a calendar as private — its events render as grey
+                    "Busy" blocks (title hidden) and still block scheduling.
+                    Useful for work-meeting calendars.
+                  </p>
+                  <ul className="space-y-1">
+                    {calendars.map((c) => {
+                      const isPrivate = (
+                        prefs.privateCalendarIds ?? []
+                      ).includes(c.id);
+                      return (
+                        <li key={c.id} className="flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={isPrivate}
+                            onChange={() => {
+                              const cur = prefs.privateCalendarIds ?? [];
+                              const next = isPrivate
+                                ? cur.filter((id) => id !== c.id)
+                                : [...cur, c.id];
+                              onChange({ privateCalendarIds: next });
+                            }}
+                          />
+                          {c.color && (
+                            <span
+                              className="inline-block h-3 w-3 rounded-sm"
+                              style={{ backgroundColor: c.color }}
+                            />
+                          )}
+                          <span className="truncate">
+                            {c.name}
+                            {c.primary && (
+                              <span className="ml-1 text-slate-400">(primary)</span>
+                            )}
+                          </span>
+                          {isPrivate && (
+                            <span className="ml-auto rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-700">
+                              private
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
               {calendar.connected && (
                 <button
                   type="button"

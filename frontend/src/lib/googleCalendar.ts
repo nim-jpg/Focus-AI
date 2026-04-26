@@ -61,6 +61,25 @@ export async function deleteEvent(eventId: string): Promise<void> {
   }
 }
 
+export interface CalendarMeta {
+  id: string;
+  name: string;
+  description: string | null;
+  color: string | null;
+  primary: boolean;
+  selected: boolean;
+}
+
+export async function fetchCalendars(): Promise<CalendarMeta[]> {
+  const res = await apiFetch("/api/google/calendars");
+  if (!res.ok) {
+    if (res.status === 401) return [];
+    throw new CalendarError(`HTTP ${res.status}`, res.status);
+  }
+  const data = (await res.json()) as { calendars: CalendarMeta[] };
+  return data.calendars ?? [];
+}
+
 export async function fetchEvents(from: Date, to: Date): Promise<CalendarEvent[]> {
   const params = new URLSearchParams({
     from: from.toISOString(),

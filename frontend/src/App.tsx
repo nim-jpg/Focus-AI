@@ -165,6 +165,8 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
   } | null>(null);
   const [pickerForTaskId, setPickerForTaskId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showBrainDump, setShowBrainDump] = useState(false);
+  const [showPlannerScan, setShowPlannerScan] = useState(false);
   const taskBeingScheduled = pickerForTaskId
     ? tasks.find((t) => t.id === pickerForTaskId)
     : undefined;
@@ -451,17 +453,6 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               Calendar: {googleStatus.email ?? "connected"} ↗
             </a>
           )}
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => {
-              void exportWeeklyPlanner(tasks, prefs);
-            }}
-            title="Download a 7-day Top Three planner as PDF"
-            disabled={tasks.length === 0}
-          >
-            Export PDF
-          </button>
           <ModeSwitch mode={prefs.mode} onChange={(mode) => setPrefs({ mode })} />
           <button
             type="button"
@@ -502,12 +493,40 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             </button>
           );
         })}
-        <div className="ml-auto pr-1">
+        <div className="ml-auto flex items-center gap-1.5 pr-1">
+          <button
+            type="button"
+            className="btn-secondary text-xs"
+            onClick={() => {
+              void exportWeeklyPlanner(tasks, prefs);
+            }}
+            title="Download a 7-day Top Three planner as PDF"
+            disabled={tasks.length === 0}
+          >
+            Export PDF
+          </button>
+          <button
+            type="button"
+            className="btn-secondary text-xs"
+            onClick={() => setShowPlannerScan(true)}
+            title="Scan a marked-up planner photo back into the app"
+            disabled={tasks.length === 0}
+          >
+            📥 Scan
+          </button>
+          <button
+            type="button"
+            className="btn-secondary text-xs"
+            onClick={() => setShowBrainDump(true)}
+            title="Paste a list and let Claude parse it into tasks"
+          >
+            ✨ Brain dump
+          </button>
           <button
             type="button"
             className="btn-primary"
             onClick={startNew}
-            title="Add a task"
+            title="Add a single task"
           >
             + Task
           </button>
@@ -620,24 +639,17 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       )}
 
       {view === "tasks" && (
-        <div className="space-y-6">
-          <section className="space-y-3">
-            <h2 className="text-lg font-semibold">All tasks</h2>
-            <PlannerScan tasks={tasks} onApply={applyScanUpdate} />
-            <BrainDump onAdd={addTaskAndEnrich} />
-          </section>
-
-          <section>
-            <TaskList
-              tasks={tasks}
-              onToggle={toggleComplete}
-              onRemove={removeTask}
-              onEdit={startEdit}
-              onUnsnooze={(id) => updateTask(id, { snoozedUntil: undefined })}
-              onSchedule={openSchedulePicker}
-            />
-          </section>
-        </div>
+        <section>
+          <h2 className="mb-3 text-lg font-semibold">All tasks</h2>
+          <TaskList
+            tasks={tasks}
+            onToggle={toggleComplete}
+            onRemove={removeTask}
+            onEdit={startEdit}
+            onUnsnooze={(id) => updateTask(id, { snoozedUntil: undefined })}
+            onSchedule={openSchedulePicker}
+          />
+        </section>
       )}
 
       {view === "insights" && (
@@ -695,6 +707,43 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           }}
           onClose={closeTaskForm}
         />
+      )}
+
+      {showBrainDump && (
+        <div
+          className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/40 px-4 py-8"
+          onClick={() => setShowBrainDump(false)}
+        >
+          <div
+            className="w-full max-w-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <BrainDump
+              defaultOpen
+              onAdd={addTaskAndEnrich}
+              onClose={() => setShowBrainDump(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {showPlannerScan && (
+        <div
+          className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/40 px-4 py-8"
+          onClick={() => setShowPlannerScan(false)}
+        >
+          <div
+            className="w-full max-w-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <PlannerScan
+              defaultOpen
+              tasks={tasks}
+              onApply={applyScanUpdate}
+              onClose={() => setShowPlannerScan(false)}
+            />
+          </div>
+        </div>
       )}
 
       {showSettings && (

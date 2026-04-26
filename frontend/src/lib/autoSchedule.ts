@@ -12,6 +12,8 @@ interface WorkingHours {
   start: number; // hour 0-24
   end: number;
   days: number[]; // day-of-week 0=Sun..6=Sat
+  officeDays: number[];
+  commuteHours: number;
 }
 
 function parseHour(hhmm: string): number {
@@ -24,6 +26,8 @@ function workingHoursFromPrefs(prefs?: UserPrefs): WorkingHours {
     start: prefs ? parseHour(prefs.workingHoursStart) : 9,
     end: prefs ? parseHour(prefs.workingHoursEnd) : 18,
     days: prefs?.workingDays ?? [1, 2, 3, 4, 5],
+    officeDays: prefs?.officeDays ?? [],
+    commuteHours: (prefs?.commuteMinutes ?? 0) / 60,
   };
 }
 
@@ -42,9 +46,14 @@ function preferredSlotsFor(
       { hour: 11, minute: 30 },
     ];
   }
-  // Working day: prefer after-work, then early morning before work.
-  const afterWork = Math.ceil(wh.end);
-  const earlyMorning = Math.max(6, Math.floor(wh.start) - 2);
+  // Working day: prefer after-work, then early morning before work. Office days
+  // push "after work" later to account for commute.
+  const isOffice = wh.officeDays.includes(dayOfWeek);
+  const afterWork = Math.ceil(wh.end + (isOffice ? wh.commuteHours : 0));
+  const earlyMorning = Math.max(
+    6,
+    Math.floor(wh.start - (isOffice ? wh.commuteHours : 0)) - 1,
+  );
   return [
     { hour: afterWork, minute: 0 },
     { hour: afterWork, minute: 30 },
@@ -56,7 +65,11 @@ function preferredSlotsFor(
 function isWorkHours(date: Date, wh: WorkingHours): boolean {
   if (!wh.days.includes(date.getDay())) return false;
   const t = date.getHours() + date.getMinutes() / 60;
-  return t >= wh.start && t < wh.end;
+  // On office days, commute extends busy windows by commuteHours either side.
+  const isOffice = wh.officeDays.includes(date.getDay());
+  const startBlock = isOffice ? wh.start - wh.commuteHours : wh.start;
+  const endBlock = isOffice ? wh.end + wh.commuteHours : wh.end;
+  return t >= startBlock && t < endBlock;
 }
 
 function overlaps(start: number, end: number, busy: BusyBlock[]): boolean {

@@ -143,6 +143,15 @@ export interface UserPrefs {
   /** Themes whose tasks should be EXCLUDED from the printed PDF planner.
    *  Defaults to ["medication"] — sensitive content stays off paper unless the user opts in. */
   pdfExcludeThemes: Theme[];
+  /** Google Calendar IDs marked as PRIVATE — events from these render as
+   *  grey "Busy" blocks with title hidden, but still count as busy time
+   *  for auto-schedule. Useful for work-meeting calendars. */
+  privateCalendarIds: string[];
+  /** Subset of workingDays that are office days (commute applies). */
+  officeDays: number[];
+  /** Single-leg commute time in minutes. Applied before AND after the working
+   *  day on office days, both for visualisation and auto-schedule. */
+  commuteMinutes: number;
 }
 
 export const DEFAULT_PREFS: UserPrefs = {
@@ -153,4 +162,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   googleCalendarConnected: false,
   notificationsEnabled: false,
   pdfExcludeThemes: ["medication"],
+  privateCalendarIds: [],
+  officeDays: [],
+  commuteMinutes: 0,
 };

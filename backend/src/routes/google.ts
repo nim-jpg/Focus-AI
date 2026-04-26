@@ -217,6 +217,32 @@ googleRouter.post("/events", async (req, res) => {
   }
 });
 
+googleRouter.get("/calendars", async (req, res) => {
+  const client = await getAuthorizedClient(req.userId);
+  if (!client) {
+    res.status(401).json({ error: "not_connected" });
+    return;
+  }
+  try {
+    const calendar = google.calendar({ version: "v3", auth: client });
+    const list = await calendar.calendarList.list({ maxResults: 50 });
+    const calendars = (list.data.items ?? []).map((c) => ({
+      id: c.id ?? "",
+      name: c.summary ?? "",
+      description: c.description ?? null,
+      color: c.backgroundColor ?? null,
+      primary: c.primary ?? false,
+      selected: c.selected ?? true,
+    }));
+    res.json({ calendars });
+  } catch (err) {
+    res.status(500).json({
+      error: "list_calendars_failed",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
 googleRouter.get("/events", async (req, res) => {
   const client = await getAuthorizedClient(req.userId);
   if (!client) {

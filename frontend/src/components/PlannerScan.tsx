@@ -13,6 +13,8 @@ import type { Task } from "@/types/task";
 interface Props {
   tasks: Task[];
   onApply: (update: ResolvedUpdate) => void;
+  defaultOpen?: boolean;
+  onClose?: () => void;
 }
 
 export interface ResolvedUpdate extends ScanUpdate {
@@ -28,9 +30,14 @@ const ACTION_LABELS: Record<ScanUpdate["action"], string> = {
   rename: "Rename",
 };
 
-export function PlannerScan({ tasks, onApply }: Props) {
+export function PlannerScan({
+  tasks,
+  onApply,
+  defaultOpen = false,
+  onClose,
+}: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resolved, setResolved] = useState<ResolvedUpdate[] | null>(null);
@@ -121,7 +128,8 @@ export function PlannerScan({ tasks, onApply }: Props) {
       if (accepted.has(idx)) onApply(u);
     });
     reset();
-    setOpen(false);
+    if (onClose) onClose();
+    else setOpen(false);
   };
 
   if (!open) {
@@ -145,7 +153,8 @@ export function PlannerScan({ tasks, onApply }: Props) {
           className="text-xs text-slate-500 hover:text-slate-800"
           onClick={() => {
             reset();
-            setOpen(false);
+            if (onClose) onClose();
+            else setOpen(false);
           }}
         >
           Close
