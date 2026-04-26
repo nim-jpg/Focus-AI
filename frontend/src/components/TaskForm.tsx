@@ -5,6 +5,7 @@ import {
   THEMES,
   TIME_OF_DAY,
   URGENCY_LEVELS,
+  type Goal,
   type Privacy,
   type Recurrence,
   type Task,
@@ -19,6 +20,7 @@ interface Props {
   /** When set, form runs in edit mode: pre-fills, swaps button label, calls onSubmit with patch values. */
   initialTask?: Task;
   onCancel?: () => void;
+  goals?: Goal[];
 }
 
 const blank: NewTaskInput = {
@@ -51,10 +53,11 @@ function fromTask(task: Task): NewTaskInput {
     recurrence: task.recurrence,
     timeOfDay: task.timeOfDay ?? "anytime",
     counter: task.counter,
+    goalIds: task.goalIds ?? [],
   };
 }
 
-export function TaskForm({ onSubmit, initialTask, onCancel }: Props) {
+export function TaskForm({ onSubmit, initialTask, onCancel, goals = [] }: Props) {
   const [form, setForm] = useState<NewTaskInput>(
     initialTask ? fromTask(initialTask) : blank,
   );
@@ -246,6 +249,44 @@ export function TaskForm({ onSubmit, initialTask, onCancel }: Props) {
           />
         </div>
       </div>
+
+      {goals.length > 0 && (
+        <div>
+          <label className="text-xs font-medium text-slate-700">
+            Ladders up to{" "}
+            <span className="text-slate-400">
+              ({(form.goalIds ?? []).length} selected)
+            </span>
+          </label>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {goals.map((g) => {
+              const selected = (form.goalIds ?? []).includes(g.id);
+              return (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => {
+                    const current = form.goalIds ?? [];
+                    update(
+                      "goalIds",
+                      selected
+                        ? current.filter((id) => id !== g.id)
+                        : [...current, g.id],
+                    );
+                  }}
+                  className={`rounded-full border px-2.5 py-1 text-xs ${
+                    selected
+                      ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+                  }`}
+                >
+                  {g.title}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
         <div className="flex flex-wrap items-center gap-3">

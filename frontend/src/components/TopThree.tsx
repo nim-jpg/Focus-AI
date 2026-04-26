@@ -1,10 +1,11 @@
-import type { PrioritizedTask } from "@/types/task";
+import type { Goal, PrioritizedTask } from "@/types/task";
 import { ThemeBadge } from "./ThemeBadge";
 
 interface Props {
   prioritized: PrioritizedTask[];
   onComplete: (id: string) => void;
   onSchedule?: (id: string) => void;
+  goals?: Goal[];
 }
 
 const TIER_LABELS: Record<1 | 2 | 3 | 4, string> = {
@@ -21,7 +22,8 @@ const TIER_CLASSES: Record<1 | 2 | 3 | 4, string> = {
   4: "border-slate-200 bg-slate-50",
 };
 
-export function TopThree({ prioritized, onComplete, onSchedule }: Props) {
+export function TopThree({ prioritized, onComplete, onSchedule, goals = [] }: Props) {
+  const goalById = new Map(goals.map((g) => [g.id, g]));
   if (prioritized.length === 0) {
     return (
       <div className="card text-center text-sm text-slate-500">
@@ -50,6 +52,22 @@ export function TopThree({ prioritized, onComplete, onSchedule }: Props) {
                 </span>
               </div>
               <p className="mt-1 text-sm text-slate-700">{reasoning}</p>
+              {(task.goalIds ?? []).length > 0 && (
+                <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-slate-600">
+                  <span className="text-slate-400">ladders up to</span>
+                  {(task.goalIds ?? [])
+                    .map((id) => goalById.get(id))
+                    .filter((g): g is NonNullable<typeof g> => Boolean(g))
+                    .map((g) => (
+                      <span
+                        key={g.id}
+                        className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800"
+                      >
+                        {g.title}
+                      </span>
+                    ))}
+                </div>
+              )}
               <p className="mt-1 text-xs text-slate-500">
                 {task.estimatedMinutes ?? 30} min ·{" "}
                 {task.dueDate

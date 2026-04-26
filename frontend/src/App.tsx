@@ -6,6 +6,9 @@ import { ModeSwitch } from "@/components/ModeSwitch";
 import { BrainDump } from "@/components/BrainDump";
 import { Foundations } from "@/components/Foundations";
 import { TomorrowPreview } from "@/components/TomorrowPreview";
+import { Goals } from "@/components/Goals";
+import { PriorityMatrix } from "@/components/PriorityMatrix";
+import { useGoals } from "@/lib/useGoals";
 import { useTasks } from "@/lib/useTasks";
 import { prioritize } from "@/lib/prioritize";
 import { aiPrioritize, AiUnavailableError } from "@/lib/aiPrioritize";
@@ -26,6 +29,18 @@ export default function App() {
     markSurfaced,
     setPrefs,
   } = useTasks();
+  const { goals, addGoal, updateGoal, removeGoal } = useGoals();
+
+  const taskCountByGoal = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const t of tasks) {
+      if (t.status === "completed") continue;
+      for (const id of t.goalIds ?? []) {
+        map.set(id, (map.get(id) ?? 0) + 1);
+      }
+    }
+    return map;
+  }, [tasks]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const editingTask = editingId ? tasks.find((t) => t.id === editingId) : undefined;
@@ -184,10 +199,21 @@ export default function App() {
           prioritized={prioritized}
           onComplete={toggleComplete}
           onSchedule={() => {}}
+          goals={goals}
         />
       </section>
 
       <TomorrowPreview prioritized={tomorrowPreview} onDoEarly={toggleComplete} />
+
+      <PriorityMatrix tasks={tasks} onEdit={startEdit} />
+
+      <Goals
+        goals={goals}
+        taskCountByGoal={taskCountByGoal}
+        onAdd={addGoal}
+        onUpdate={updateGoal}
+        onRemove={removeGoal}
+      />
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">
@@ -197,6 +223,7 @@ export default function App() {
         <TaskForm
           key={editingId ?? "new"}
           initialTask={editingTask}
+          goals={goals}
           onSubmit={(input) => {
             if (editingTask) {
               updateTask(editingTask.id, input);

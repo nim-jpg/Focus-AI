@@ -77,6 +77,8 @@ export interface Task {
   timeOfDay?: TimeOfDay;
   /** If present, this task is a counter (e.g. drink 8 glasses). Tap-to-increment instead of tick-once. */
   counter?: DailyCounter;
+  /** Goals this task ladders up to. */
+  goalIds?: string[];
   /** Optional Google Calendar event id once scheduled. */
   calendarEventId?: string;
 }
@@ -90,6 +92,25 @@ export interface PrioritizedTask {
   tier: 1 | 2 | 3 | 4;
   /** One-line human-readable reasoning. */
   reasoning: string;
+}
+
+export const GOAL_HORIZONS = ["6m", "1y", "5y", "10y"] as const;
+export type GoalHorizon = (typeof GOAL_HORIZONS)[number];
+
+/** Source of the goal — manual entry today; future Fitness/Finance apps may push goals. */
+export type GoalSource = "manual" | "fitness-app" | "finance-app";
+
+export interface Goal {
+  id: string;
+  title: string;
+  horizon: GoalHorizon;
+  theme: Theme;
+  /** Free-form note about why this matters / target metric. */
+  notes?: string;
+  /** Internal — hidden from UI. Defaults to "manual". */
+  source: GoalSource;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** App-wide user preferences. */

@@ -1,7 +1,8 @@
-import { DEFAULT_PREFS, type Task, type UserPrefs } from "@/types/task";
+import { DEFAULT_PREFS, type Goal, type Task, type UserPrefs } from "@/types/task";
 
 const TASKS_KEY = "focus3:tasks:v1";
 const PREFS_KEY = "focus3:prefs:v1";
+const GOALS_KEY = "focus3:goals:v1";
 
 function safeParse<T>(raw: string | null, fallback: T): T {
   if (!raw) return fallback;
@@ -26,6 +27,14 @@ export function loadPrefs(): UserPrefs {
 
 export function savePrefs(prefs: UserPrefs): void {
   localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+}
+
+export function loadGoals(): Goal[] {
+  return safeParse<Goal[]>(localStorage.getItem(GOALS_KEY), []);
+}
+
+export function saveGoals(goals: Goal[]): void {
+  localStorage.setItem(GOALS_KEY, JSON.stringify(goals));
 }
 
 export function generateId(): string {
