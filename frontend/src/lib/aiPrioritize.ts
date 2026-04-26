@@ -2,6 +2,15 @@ import type { PrioritizedTask, Task, UserPrefs } from "@/types/task";
 import { isFoundation, isDueNow } from "./recurrence";
 import { apiFetch } from "./api";
 
+export interface ExistingRank {
+  id: string;
+  title: string;
+  theme: string;
+  urgency: string;
+  dueDate?: string;
+  tier: 1 | 2 | 3 | 4;
+}
+
 interface AiResponse {
   ranked: Array<{ taskId: string; tier: 1 | 2 | 3 | 4; reasoning: string }>;
   source: "claude";
@@ -25,6 +34,7 @@ export class AiUnavailableError extends Error {
 export async function aiPrioritize(
   tasks: Task[],
   prefs: UserPrefs,
+  existing: ExistingRank[] = [],
 ): Promise<PrioritizedTask[]> {
   const now = new Date();
   const candidates = tasks.filter((t) => {
@@ -36,6 +46,7 @@ export async function aiPrioritize(
     }
     return true;
   });
+  if (candidates.length === 0) return [];
 
   // Slim payload: send only the fields Claude actually uses for ranking.
   // Long descriptions / completion logs were inflating tokens and pushing
@@ -59,7 +70,7 @@ export async function aiPrioritize(
     res = await apiFetch("/api/prioritize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tasks: slimTasks, prefs }),
+      body: JSON.stringify({ tasks: slimTasks, prefs, existing }),
     });
   } catch (err) {
     throw new AiUnavailableError(

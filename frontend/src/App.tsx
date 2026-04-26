@@ -27,6 +27,7 @@ import { aiPrioritize, AiUnavailableError } from "@/lib/aiPrioritize";
 import {
   intendedScheduleDate,
   isFoundation,
+  isDueNow,
   wasCompletedLate,
   wasCompletedToday,
 } from "@/lib/recurrence";
@@ -40,7 +41,7 @@ import {
   startGoogleConnect,
   type GoogleStatus,
 } from "@/lib/googleCalendar";
-import type { PrioritizedTask } from "@/types/task";
+import type { PrioritizedTask, Task } from "@/types/task";
 
 type Source = "local" | "claude";
 type View = "today" | "tasks" | "insights" | "goals";
@@ -361,51 +362,69 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     );
   }, [tasks, prefs, tomorrow, local, goals]);
 
-  // aiResult holds Claude's tier+reasoning for EVERY candidate task (not
-  // just the top 3) so that toggling the work/personal mode just re-filters
-  // the cached ranking instead of throwing it away and re-asking the model.
-  const [aiResult, setAiResult] = useState<PrioritizedTask[] | null>(null);
+  // aiCache: Claude's tier + reasoning for tasks we've already ranked,
+  // plus a hash of the ranking-relevant fields per task so we know when
+  // to re-rank. Survives task additions/removals — we just merge new
+  // tasks in incrementally instead of wiping and starting over.
+  type CachedRank = {
+    tier: 1 | 2 | 3 | 4;
+    reasoning: string;
+    /** Hash of fields that influence ranking. Mismatch ⇒ re-rank. */
+    hash: string;
+  };
+  const [aiCache, setAiCache] = useState<Map<string, CachedRank>>(
+    () => new Map(),
+  );
   const [source, setSource] = useState<Source>("local");
   const [loading, setLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
-  // If task ids change (added/removed/completed), the cached AI result
-  // becomes stale — drop it so we show the fresh local heuristic. NB: we
-  // intentionally do NOT include prefs.mode here so the toggle preserves
-  // the cached AI ranking.
-  const taskFingerprint = useMemo(
-    () =>
-      tasks
-        .filter((t) => t.status !== "completed")
-        .map((t) => t.id)
-        .sort()
-        .join(","),
-    [tasks],
-  );
-  useEffect(() => {
-    setAiResult(null);
-    setSource("local");
-  }, [taskFingerprint]);
+  const hashTaskForRanking = (t: Task): string =>
+    [
+      t.title,
+      t.theme,
+      t.urgency,
+      t.dueDate ?? "",
+      t.isBlocker ? "1" : "0",
+      t.recurrence,
+      t.avoidanceWeeks ?? 0,
+      (t.goalIds ?? []).slice().sort().join("|"),
+      t.estimatedMinutes ?? 30,
+      (t.description ?? "").slice(0, 120),
+    ].join("§");
 
   // Filter the cached AI ranking to the current mode and slice to the
-  // visible Top Three. The AI returns ranked tier+reasoning for every
-  // candidate, so this is a pure local re-filter.
+  // visible Top Three. The cache covers many tasks — this is a pure
+  // local re-filter, no AI call.
   const filteredAiResult = useMemo<PrioritizedTask[] | null>(() => {
-    if (!aiResult) return null;
+    if (aiCache.size === 0) return null;
     const mode = prefs.mode;
     const userType = prefs.userType;
-    const inMode = aiResult.filter(({ task }) => {
-      if (mode === "both") return true;
-      const isWorkBucket = isInWorkMode(task, userType);
-      return mode === "work" ? isWorkBucket : !isWorkBucket;
-    });
-    // Preserve AI's tier ordering.
-    inMode.sort((a, b) => a.tier - b.tier);
-    return inMode.slice(0, 3);
-  }, [aiResult, prefs.mode, prefs.userType]);
+    const ranked: PrioritizedTask[] = [];
+    for (const t of tasks) {
+      if (t.status === "completed") continue;
+      const cached = aiCache.get(t.id);
+      if (!cached) continue;
+      if (mode !== "both") {
+        const isWorkBucket = isInWorkMode(t, userType);
+        if (mode === "work" && !isWorkBucket) continue;
+        if (mode === "personal" && isWorkBucket) continue;
+      }
+      ranked.push({
+        task: t,
+        tier: cached.tier,
+        reasoning: cached.reasoning,
+        score: 0,
+      });
+    }
+    ranked.sort((a, b) => a.tier - b.tier);
+    return ranked.slice(0, 3);
+  }, [aiCache, tasks, prefs.mode, prefs.userType]);
 
   const prioritized =
-    source === "claude" && filteredAiResult ? filteredAiResult : local;
+    source === "claude" && filteredAiResult && filteredAiResult.length > 0
+      ? filteredAiResult
+      : local;
 
   // When the visible Top Three changes, stamp those tasks as surfaced. The hook
   // also auto-bumps avoidanceWeeks when 7+ days have passed without action.
@@ -421,8 +440,66 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     setLoading(true);
     setAiError(null);
     try {
-      const result = await aiPrioritize(tasks, prefs);
-      setAiResult(result);
+      // Incremental: only ask AI about tasks that are NEW or whose
+      // ranking-relevant fields have changed since the cached rank.
+      const candidates = tasks.filter((t) => {
+        if (t.status === "completed") return false;
+        if (isFoundation(t)) return false;
+        if (t.recurrence !== "none" && !isDueNow(t, new Date())) return false;
+        if (
+          t.snoozedUntil &&
+          new Date(t.snoozedUntil).getTime() > Date.now()
+        ) {
+          return false;
+        }
+        return true;
+      });
+      const toRank = candidates.filter((t) => {
+        const cached = aiCache.get(t.id);
+        return !cached || cached.hash !== hashTaskForRanking(t);
+      });
+      // Existing entries that the AI should respect when slotting new ones.
+      const existingForContext = candidates
+        .filter((t) => {
+          const cached = aiCache.get(t.id);
+          return cached && cached.hash === hashTaskForRanking(t);
+        })
+        .map((t) => {
+          const cached = aiCache.get(t.id)!;
+          return {
+            id: t.id,
+            title: t.title,
+            theme: t.theme,
+            urgency: t.urgency,
+            dueDate: t.dueDate,
+            tier: cached.tier,
+          };
+        });
+
+      // If nothing new to rank AND we already have a cache, no AI call.
+      if (toRank.length === 0 && aiCache.size > 0) {
+        setSource("claude");
+        return;
+      }
+
+      const newRanks = await aiPrioritize(toRank, prefs, existingForContext);
+      setAiCache((prev) => {
+        const next = new Map(prev);
+        // Drop entries for tasks that no longer exist (deleted/completed).
+        const liveIds = new Set(candidates.map((t) => t.id));
+        for (const id of next.keys()) {
+          if (!liveIds.has(id)) next.delete(id);
+        }
+        // Merge in fresh ranks with their hash.
+        for (const r of newRanks) {
+          next.set(r.task.id, {
+            tier: r.tier,
+            reasoning: r.reasoning,
+            hash: hashTaskForRanking(r.task),
+          });
+        }
+        return next;
+      });
       setSource("claude");
     } catch (err) {
       const reason =
@@ -621,21 +698,17 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
                   type="button"
                   className="btn-secondary"
                   onClick={handleAiRefresh}
-                  disabled={
-                    loading ||
-                    tasks.length === 0 ||
-                    (source === "claude" && aiResult !== null)
-                  }
+                  disabled={loading || tasks.length === 0}
                   title={
-                    source === "claude" && aiResult !== null
-                      ? "AI ranking is current — add or change a task to re-run"
-                      : "Ask Claude to re-rank Top Three"
+                    aiCache.size > 0
+                      ? "Ask Claude to rank any new or changed tasks (existing ranks are preserved)"
+                      : "Ask Claude to rank your tasks"
                   }
                 >
                   {loading
                     ? "Asking Claude…"
-                    : source === "claude" && aiResult !== null
-                    ? "AI ✓"
+                    : source === "claude" && aiCache.size > 0
+                    ? "Refresh AI (incremental)"
                     : "Refresh with AI"}
                 </button>
               </div>
