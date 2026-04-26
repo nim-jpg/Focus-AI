@@ -151,6 +151,16 @@ export interface SuggestResult {
   slots: Date[];
   /** Per-day attempt log — one entry per slot tried. */
   attempts: SlotAttempt[];
+  /** Effective day-shape window used (HH:MM strings) — surfaces in
+   *  diagnostic messages so the user can see what's being applied. */
+  windowStart: string;
+  windowEnd: string;
+}
+
+function fmtHour(h: number): string {
+  const hh = String(Math.floor(h)).padStart(2, "0");
+  const mm = String(Math.round((h - Math.floor(h)) * 60)).padStart(2, "0");
+  return `${hh}:${mm}`;
 }
 
 export function suggestSessionTimes(
@@ -176,9 +186,15 @@ export function suggestSessionTimesDetailed(
   busy: BusyBlock[],
   prefs?: UserPrefs,
 ): SuggestResult {
-  if (count <= 0) return { slots: [], attempts: [] };
-  const n = Math.min(count, 7);
   const wh = workingHoursFromPrefs(prefs);
+  if (count <= 0)
+    return {
+      slots: [],
+      attempts: [],
+      windowStart: fmtHour(wh.wakeUp + 0.5),
+      windowEnd: fmtHour(wh.bed - 1),
+    };
+  const n = Math.min(count, 7);
 
   const placed: Date[] = [];
   const attempts: SlotAttempt[] = [];
@@ -291,6 +307,8 @@ export function suggestSessionTimesDetailed(
   return {
     slots: placed.sort((a, b) => a.getTime() - b.getTime()),
     attempts,
+    windowStart: fmtHour(wh.wakeUp + 0.5),
+    windowEnd: fmtHour(wh.bed - 1),
   };
 }
 
