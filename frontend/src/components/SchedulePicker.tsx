@@ -59,7 +59,11 @@ export function SchedulePicker({
   onCancel,
   onEdit,
 }: Props) {
-  const initial = defaultStart ?? nextSensibleSlot();
+  // Default to caller's defaultStart, else the task's existing scheduledFor
+  // (so re-scheduling starts from where it currently lives), else next slot.
+  const initial =
+    defaultStart ??
+    (task.scheduledFor ? new Date(task.scheduledFor) : nextSensibleSlot());
   const [date, setDate] = useState(toLocalDateInput(initial));
   const [time, setTime] = useState(toLocalTimeInput(initial));
   const [duration, setDuration] = useState(task.estimatedMinutes ?? 30);
@@ -94,8 +98,29 @@ export function SchedulePicker({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4">
-          <h3 className="text-base font-semibold">Schedule this task</h3>
+          <h3 className="text-base font-semibold">
+            {task.scheduledFor || task.calendarEventId
+              ? "Re-schedule this task"
+              : "Schedule this task"}
+          </h3>
           <p className="text-sm text-slate-600">{task.title}</p>
+          {(task.scheduledFor || task.calendarEventId) && (
+            <p className="mt-1 text-xs text-slate-500">
+              Currently scheduled for{" "}
+              <span className="font-medium text-slate-700">
+                {task.scheduledFor
+                  ? new Date(task.scheduledFor).toLocaleString(undefined, {
+                      weekday: "short",
+                      day: "numeric",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : "Google Calendar"}
+              </span>
+              {" — pick a new time below."}
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
