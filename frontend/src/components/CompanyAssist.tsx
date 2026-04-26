@@ -73,9 +73,33 @@ export function CompanyAssist({ tasks, onUpdateTask, onAddTask }: Props) {
       prev.map((r, i) => (i === idx ? { ...r, state: "loading", error: undefined } : r)),
     );
     try {
-      const result = await lookupCompany(rows[idx]!.companyName);
+      const result = await lookupCompany({ name: rows[idx]!.companyName });
       setRows((prev) =>
-        prev.map((r, i) => (i === idx ? { ...r, state: "done", result } : r)),
+        prev.map((r, i) =>
+          i === idx ? { ...r, state: "done", result, applied: undefined } : r,
+        ),
+      );
+    } catch (err) {
+      const message =
+        err instanceof CompaniesHouseError ? err.message : "lookup failed";
+      setRows((prev) =>
+        prev.map((r, i) =>
+          i === idx ? { ...r, state: "error", error: message } : r,
+        ),
+      );
+    }
+  };
+
+  const switchToAlternate = async (idx: number, number: string) => {
+    setRows((prev) =>
+      prev.map((r, i) => (i === idx ? { ...r, state: "loading", error: undefined } : r)),
+    );
+    try {
+      const result = await lookupCompany({ number });
+      setRows((prev) =>
+        prev.map((r, i) =>
+          i === idx ? { ...r, state: "done", result, applied: undefined } : r,
+        ),
       );
     } catch (err) {
       const message =
@@ -161,11 +185,54 @@ export function CompanyAssist({ tasks, onUpdateTask, onAddTask }: Props) {
                   </span>
                 </div>
                 {row.result?.found && row.result.company && (
-                  <p className="mt-1 text-xs text-slate-600">
-                    #{row.result.company.number} · status {row.result.company.status}
-                    {row.result.company.incorporated &&
-                      ` · incorporated ${row.result.company.incorporated}`}
-                  </p>
+                  <>
+                    <p className="mt-1 text-xs text-slate-700">
+                      <span className="font-medium">{row.result.company.name}</span>
+                      {" · "}
+                      <span
+                        className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                          row.result.matchType === "fuzzy"
+                            ? "bg-amber-100 text-amber-800"
+                            : "bg-emerald-100 text-emerald-800"
+                        }`}
+                        title={
+                          row.result.matchType === "fuzzy"
+                            ? "Best fuzzy match — verify it's the right company"
+                            : "Exact name match"
+                        }
+                      >
+                        {row.result.matchType ?? "match"}
+                      </span>
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      #{row.result.company.number} · {row.result.company.status}
+                      {row.result.company.incorporated &&
+                        ` · incorporated ${row.result.company.incorporated}`}
+                    </p>
+                    {row.result.alternates && row.result.alternates.length > 0 && (
+                      <details className="mt-1 text-xs text-slate-600">
+                        <summary className="cursor-pointer text-slate-500 hover:text-slate-800">
+                          Wrong company? {row.result.alternates.length} alternates
+                        </summary>
+                        <ul className="mt-1 space-y-0.5 pl-3">
+                          {row.result.alternates.map((a) => (
+                            <li key={a.number} className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                className="text-emerald-700 hover:underline"
+                                onClick={() => switchToAlternate(idx, a.number)}
+                              >
+                                use #{a.number}
+                              </button>
+                              <span className="truncate">
+                                {a.name} ({a.status})
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                  </>
                 )}
                 {row.state === "done" && !row.result?.found && (
                   <p className="mt-1 text-xs text-amber-700">

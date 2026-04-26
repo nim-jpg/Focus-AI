@@ -23,6 +23,7 @@ import {
   wasCompletedToday,
 } from "@/lib/recurrence";
 import { exportWeeklyPlanner } from "@/lib/pdfPlanner";
+import { enrichTaskFromCompaniesHouse } from "@/lib/enrichTask";
 import {
   CalendarError,
   disconnectGoogle,
@@ -64,6 +65,12 @@ export default function App() {
     setPrefs,
   } = useTasks();
   const { goals, addGoal, updateGoal, removeGoal } = useGoals();
+
+  const addTaskAndEnrich = (input: Parameters<typeof addTask>[0]) => {
+    const task = addTask(input);
+    void enrichTaskFromCompaniesHouse(task, updateTask);
+    return task;
+  };
 
   const taskCountByGoal = useMemo(() => {
     const map = new Map<string, number>();
@@ -471,7 +478,7 @@ export default function App() {
             {!editingTask && (
               <PlannerScan tasks={tasks} onApply={applyScanUpdate} />
             )}
-            {!editingTask && <BrainDump onAdd={addTask} />}
+            {!editingTask && <BrainDump onAdd={addTaskAndEnrich} />}
             <TaskForm
               key={editingId ?? "new"}
               initialTask={editingTask}
@@ -481,7 +488,7 @@ export default function App() {
                   updateTask(editingTask.id, input);
                   setEditingId(null);
                 } else {
-                  addTask(input);
+                  addTaskAndEnrich(input);
                 }
               }}
               onCancel={editingTask ? () => setEditingId(null) : undefined}
@@ -511,7 +518,7 @@ export default function App() {
           <CompanyAssist
             tasks={tasks}
             onUpdateTask={updateTask}
-            onAddTask={addTask}
+            onAddTask={addTaskAndEnrich}
           />
         </div>
       )}

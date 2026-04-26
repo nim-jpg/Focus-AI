@@ -1,5 +1,13 @@
+export interface CompaniesHouseAlternate {
+  number: string;
+  name: string;
+  status: string;
+}
+
 export interface CompaniesHouseLookup {
   found: boolean;
+  matchType?: "exact" | "fuzzy" | "explicit";
+  alternates?: CompaniesHouseAlternate[];
   company?: {
     number: string;
     name: string;
@@ -17,10 +25,13 @@ export class CompaniesHouseError extends Error {
   }
 }
 
-export async function lookupCompany(name: string): Promise<CompaniesHouseLookup> {
-  const res = await fetch(
-    `/api/companies-house/lookup?name=${encodeURIComponent(name)}`,
-  );
+export async function lookupCompany(
+  nameOrNumber: { name?: string; number?: string },
+): Promise<CompaniesHouseLookup> {
+  const params = new URLSearchParams();
+  if (nameOrNumber.name) params.set("name", nameOrNumber.name);
+  if (nameOrNumber.number) params.set("number", nameOrNumber.number);
+  const res = await fetch(`/api/companies-house/lookup?${params.toString()}`);
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { message?: string };
     throw new CompaniesHouseError(
