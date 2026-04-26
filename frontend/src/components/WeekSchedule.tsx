@@ -23,6 +23,9 @@ interface Props {
   /** Re-push a task whose Google event has gone missing — clears the stale
    *  calendarEventId and creates a fresh event at the same scheduled time. */
   onRepushToGoogle?: (taskId: string) => Promise<void> | void;
+  /** Surface a status message in the page-level banner (e.g. when
+   *  auto-schedule finds no slots). */
+  onMessage?: (msg: string) => void;
   /** Optional: hour grid bounds (defaults to 6-23 if not passed). */
   gridStartHour?: number;
   gridEndHour?: number;
@@ -135,6 +138,7 @@ export function WeekSchedule({
   onShadowEvent,
   onUpdatePrefs,
   onRepushToGoogle,
+  onMessage,
   gridStartHour = 6,
   gridEndHour = 23,
 }: Props) {
@@ -148,6 +152,13 @@ export function WeekSchedule({
     prefs.homeViewDays ?? 7,
   );
   const [showIgnored, setShowIgnored] = useState(false);
+  // Three view modes:
+  //   "all"     — current grid: every visible event in the chosen calendars
+  //   "focus"   — grid filtered to primary calendar + Focus3 tasks/sessions/broken-links
+  //   "stacked" — chronological list of every block (no grid; vertical agenda)
+  const [viewMode, setViewMode] = useState<"all" | "focus" | "stacked">(
+    "all",
+  );
 
   const weekStart = weekStartDate;
   const weekEnd = useMemo(
@@ -436,16 +447,33 @@ export function WeekSchedule({
       busy,
       prefs,
     );
-    if (slots.length === 0) return;
+    if (slots.length === 0) {
+      onMessage?.(
+        `Auto-schedule for "${task.title}" found no free slots in the next 7 days. Try widening working hours, freeing up evenings/weekends, or schedule manually.`,
+      );
+      return;
+    }
     if ((task.sessionsPerWeek ?? 0) > 0) {
       const next = [
         ...(task.sessionTimes ?? []),
         ...slots.map((d) => d.toISOString()),
       ];
       onSetSessionTimes(taskId, next);
+      if (slots.length < need) {
+        onMessage?.(
+          `Auto-schedule placed ${slots.length} of ${need} sessions for "${task.title}". Run again later or schedule the rest manually.`,
+        );
+      } else {
+        onMessage?.(
+          `Auto-schedule placed ${slots.length} session${slots.length === 1 ? "" : "s"} for "${task.title}".`,
+        );
+      }
     } else {
       // Single weekly+ task — set scheduledFor instead of using the sessions array.
       onMoveTask(taskId, slots[0]!.toISOString());
+      onMessage?.(
+        `Scheduled "${task.title}" for ${slots[0]!.toLocaleString()}.`,
+      );
     }
   };
 
@@ -568,8 +596,27 @@ export function WeekSchedule({
   const showNowLine =
     todayIdx >= 0 && todayIdx < viewDays && nowMin >= gridStartHour * 60 && nowMin <= gridEndHour * 60;
 
-  const allDayBlocks = blocks.filter((b) => b.allDay);
-  const timedBlocks = blocks.filter((b) => !b.allDay);
+  // Focus-only filter: keep tasks/sessions, broken links, and events from
+  // the primary calendar (or events linked to a Focus3 task). Drop the rest.
+  const passesFocusFilter = (b: Block): boolean => {
+    if (viewMode !== "focus") return true;
+    if (b.kind === "task" || b.kind === "session") return true;
+    if (b.brokenLink) return true;
+    if (b.event?.calendarPrimary) return true;
+    if (b.task) return true; // event linked to a Focus3 task
+    return false;
+  };
+  const visibleBlocks = blocks.filter(passesFocusFilter);
+  const allDayBlocks = visibleBlocks.filter((b) => b.allDay);
+  const timedBlocks = visibleBlocks.filter((b) => !b.allDay);
+  // Stacked-view list: chronological across the visible window.
+  const stackedBlocks = visibleBlocks
+    .slice()
+    .sort((a, b) => {
+      if (a.dayIdx !== b.dayIdx) return a.dayIdx - b.dayIdx;
+      if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
+      return a.startMin - b.startMin;
+    });
 
   return (
     <section>
@@ -611,6 +658,34 @@ export function WeekSchedule({
           </div>
         </div>
         <div className="flex items-center gap-2 text-xs">
+          {/* View-mode selector: full grid / focus-only / stacked agenda. */}
+          <div className="inline-flex overflow-hidden rounded border border-slate-200">
+            {([
+              { v: "all", label: "All" },
+              { v: "focus", label: "Focus" },
+              { v: "stacked", label: "Stacked" },
+            ] as const).map(({ v, label }) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setViewMode(v)}
+                className={`px-2 py-1 ${
+                  viewMode === v
+                    ? "bg-slate-900 text-white"
+                    : "bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+                title={
+                  v === "all"
+                    ? "Every visible event"
+                    : v === "focus"
+                    ? "Primary calendar + Focus3 tasks/sessions/broken-links only"
+                    : "Chronological list of all blocks"
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           {/* 1 / 3 / 7 day view selector. Persists choice via prefs. */}
           <div className="inline-flex overflow-hidden rounded border border-slate-200">
             {([1, 3, 7] as const).map((d) => (
@@ -713,6 +788,85 @@ export function WeekSchedule({
         </div>
       )}
 
+      {viewMode === "stacked" && (
+        <div className="rounded-md border border-slate-200 bg-white">
+          {stackedBlocks.length === 0 ? (
+            <p className="p-3 text-xs italic text-slate-500">
+              Nothing on the schedule for this window.
+            </p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {stackedBlocks.map((b, i) => {
+                const dayDate = new Date(
+                  weekStart.getTime() + b.dayIdx * DAY_MS,
+                );
+                const startIso = b.allDay
+                  ? null
+                  : new Date(
+                      weekStart.getTime() +
+                        b.dayIdx * DAY_MS +
+                        b.startMin * 60_000,
+                    ).toISOString();
+                const endIso = b.allDay
+                  ? null
+                  : new Date(
+                      weekStart.getTime() +
+                        b.dayIdx * DAY_MS +
+                        b.endMin * 60_000,
+                    ).toISOString();
+                const title =
+                  b.event?.summary ??
+                  (b.task?.title
+                    ? `${b.task.title}${b.kind === "session" ? ` (${b.sessionIdx}/${b.sessionTotal})` : ""}`
+                    : "");
+                const swatch =
+                  b.kind === "event"
+                    ? b.event?.calendarColor ?? "#cbd5e1"
+                    : b.kind === "session"
+                    ? "#a78bfa"
+                    : "#34d399";
+                return (
+                  <li key={i} className="flex items-start gap-3 px-3 py-2 text-xs">
+                    <span
+                      className="mt-1 inline-block h-3 w-3 flex-none rounded-sm"
+                      style={{ backgroundColor: swatch }}
+                    />
+                    <div className="w-32 flex-none text-slate-500">
+                      {dayDate.toLocaleDateString(undefined, {
+                        weekday: "short",
+                        day: "numeric",
+                        month: "short",
+                      })}
+                      <div className="font-mono text-[10px] opacity-70">
+                        {b.allDay
+                          ? "all day"
+                          : `${fmtTime(startIso)} – ${fmtTime(endIso)}`}
+                      </div>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-slate-700">
+                        {title}
+                        {b.brokenLink && (
+                          <span className="ml-1 text-amber-700">
+                            (removed from Google)
+                          </span>
+                        )}
+                      </p>
+                      {b.event?.calendarName && (
+                        <p className="text-[10px] text-slate-500">
+                          {b.event.calendarName}
+                        </p>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {viewMode !== "stacked" && (
       <div className="relative overflow-x-auto">
       {/* Edge advance zones — show while dragging, trigger week jump after a hover */}
       {dragging && (
@@ -1299,6 +1453,7 @@ export function WeekSchedule({
         })}
       </div>
       </div>
+      )}
     </section>
   );
 }

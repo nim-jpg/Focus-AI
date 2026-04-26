@@ -322,6 +322,9 @@ googleRouter.get("/events", async (req, res) => {
         calendarId: c.id ?? null,
         calendarName: c.summary ?? null,
         calendarColor: c.backgroundColor ?? null,
+        // True if this event came from the user's primary calendar — used
+        // by the Focus-only view filter on the schedule.
+        calendarPrimary: c.primary ?? false,
       })),
     );
 

@@ -850,6 +850,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               );
             }}
             onUpdatePrefs={setPrefs}
+            onMessage={setCalendarMsg}
           />
 
           <TomorrowPreview

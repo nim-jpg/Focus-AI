@@ -50,6 +50,8 @@ export interface CalendarEvent {
   calendarId?: string | null;
   calendarName?: string | null;
   calendarColor?: string | null;
+  /** True when the event came from the user's primary calendar. */
+  calendarPrimary?: boolean;
 }
 
 export async function deleteEvent(eventId: string): Promise<void> {
