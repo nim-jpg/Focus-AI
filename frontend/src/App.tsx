@@ -492,6 +492,28 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       }
 
       const newRanks = await aiPrioritize(toRank, prefs, existingForContext);
+
+      // Apply any urgency patches the model suggested. Skip cases where
+      // the model echoed the existing value or the task no longer exists.
+      for (const r of newRanks) {
+        if (!r.suggestedUrgency) continue;
+        if (r.suggestedUrgency === r.task.urgency) continue;
+        updateTask(r.task.id, { urgency: r.suggestedUrgency });
+      }
+
+      // Belt-and-braces year-out heuristic: anything still high/critical
+      // with a dueDate >180 days out gets relaxed to "normal" — even if
+      // Claude didn't suggest it. Skip tasks the user has manually flagged
+      // as a blocker (intentional escalation).
+      for (const t of candidates) {
+        if (t.urgency !== "high" && t.urgency !== "critical") continue;
+        if (t.isBlocker) continue;
+        if (!t.dueDate) continue;
+        const daysOut =
+          (new Date(t.dueDate).getTime() - Date.now()) / 86400000;
+        if (daysOut > 180) updateTask(t.id, { urgency: "normal" });
+      }
+
       setAiCache((prev) => {
         const next = new Map(prev);
         // Drop entries for tasks that no longer exist (deleted/completed).
@@ -808,6 +830,10 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             onUnsnooze={(id) => updateTask(id, { snoozedUntil: undefined })}
             onSchedule={openSchedulePicker}
             aiTierById={aiTierMap}
+            mode={prefs.mode}
+            userType={prefs.userType}
+            onRefreshAi={handleAiRefresh}
+            aiBusy={loading}
           />
         </section>
       )}
@@ -867,6 +893,10 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           calendarConnected={googleStatus?.connected ?? false}
           onConfirm={confirmSchedule}
           onCancel={() => setPickerForTaskId(null)}
+          onEdit={(id) => {
+            setPickerForTaskId(null);
+            startEdit(id);
+          }}
         />
       )}
 

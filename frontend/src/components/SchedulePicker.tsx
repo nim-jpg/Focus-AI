@@ -15,6 +15,9 @@ interface Props {
   defaultStart?: Date;
   onConfirm: (choice: ScheduleChoice) => void;
   onCancel: () => void;
+  /** Optional: open the task editor (for amending title/dueDate/etc. before
+   *  scheduling). Closes the picker on click. */
+  onEdit?: (taskId: string) => void;
 }
 
 /**
@@ -54,6 +57,7 @@ export function SchedulePicker({
   defaultStart,
   onConfirm,
   onCancel,
+  onEdit,
 }: Props) {
   const initial = defaultStart ?? nextSensibleSlot();
   const [date, setDate] = useState(toLocalDateInput(initial));
@@ -157,13 +161,27 @@ export function SchedulePicker({
           </div>
         </div>
 
-        <div className="mt-5 flex justify-end gap-2">
-          <button type="button" className="btn-secondary" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="btn-primary" onClick={handleConfirm}>
-            Confirm
-          </button>
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
+          {onEdit ? (
+            <button
+              type="button"
+              className="text-xs text-slate-500 hover:text-slate-900"
+              onClick={() => onEdit(task.id)}
+              title="Open the task editor (closes this picker)"
+            >
+              Edit task…
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <button type="button" className="btn-secondary" onClick={onCancel}>
+              Cancel
+            </button>
+            <button type="button" className="btn-primary" onClick={handleConfirm}>
+              Confirm
+            </button>
+          </div>
         </div>
       </div>
     </div>

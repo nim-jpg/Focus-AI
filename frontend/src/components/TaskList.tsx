@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { THEMES, type Task, type Theme } from "@/types/task";
+import { THEMES, type Task, type Theme, type UserType } from "@/types/task";
 import { ThemeBadge } from "./ThemeBadge";
+import { isInWorkMode } from "@/lib/modeFilter";
 
 interface Props {
   tasks: Task[];
@@ -11,6 +12,13 @@ interface Props {
   onSchedule?: (id: string) => void;
   /** Optional AI ranking — when present unlocks the "AI sort" option. */
   aiTierById?: Map<string, 1 | 2 | 3 | 4>;
+  /** Mode toggle from the header — filters the list by work / personal bucket. */
+  mode?: "both" | "work" | "personal";
+  userType?: UserType;
+  /** Refresh-AI hook — when supplied, the toolbar shows a Refresh AI button
+   *  so the user can re-rank from this tab too. */
+  onRefreshAi?: () => void;
+  aiBusy?: boolean;
 }
 
 type StatusFilter = "open" | "all" | "completed" | "snoozed";
@@ -47,6 +55,10 @@ export function TaskList({
   onUnsnooze,
   onSchedule,
   aiTierById,
+  mode = "both",
+  userType,
+  onRefreshAi,
+  aiBusy = false,
 }: Props) {
   const now = Date.now();
   const [selectedThemes, setSelectedThemes] = useState<Set<Theme>>(new Set());
@@ -73,6 +85,12 @@ export function TaskList({
       if (statusFilter === "snoozed") {
         if (!t.snoozedUntil) return false;
         if (new Date(t.snoozedUntil).getTime() <= now) return false;
+      }
+      // Header mode toggle (Both / work-bucket / Personal) applies here too.
+      if (mode !== "both") {
+        const isWorkBucket = isInWorkMode(t, userType);
+        if (mode === "work" && !isWorkBucket) return false;
+        if (mode === "personal" && isWorkBucket) return false;
       }
       if (q) {
         const hay = `${t.title} ${t.description ?? ""}`.toLowerCase();
@@ -112,7 +130,7 @@ export function TaskList({
       }
     };
     return [...list].sort(cmp);
-  }, [tasks, selectedThemes, search, statusFilter, now, sortKey, aiTierById]);
+  }, [tasks, selectedThemes, search, statusFilter, now, sortKey, aiTierById, mode, userType]);
 
   const toggleTheme = (theme: Theme) =>
     setSelectedThemes((prev) => {
@@ -146,6 +164,21 @@ export function TaskList({
               className="text-xs text-slate-500 hover:text-slate-900"
             >
               clear filters
+            </button>
+          )}
+          {onRefreshAi && (
+            <button
+              type="button"
+              className="btn-secondary text-xs"
+              onClick={onRefreshAi}
+              disabled={aiBusy || tasks.length === 0}
+              title={
+                aiTierById && aiTierById.size > 0
+                  ? "Re-rank any new or changed tasks (existing ranks preserved)"
+                  : "Ask Claude to rank your tasks"
+              }
+            >
+              {aiBusy ? "Asking Claude…" : "Refresh AI"}
             </button>
           )}
         </div>

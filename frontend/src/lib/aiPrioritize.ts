@@ -1,4 +1,4 @@
-import type { PrioritizedTask, Task, UserPrefs } from "@/types/task";
+import type { Task, UserPrefs } from "@/types/task";
 import { isFoundation, isDueNow } from "./recurrence";
 import { apiFetch } from "./api";
 
@@ -12,8 +12,22 @@ export interface ExistingRank {
 }
 
 interface AiResponse {
-  ranked: Array<{ taskId: string; tier: 1 | 2 | 3 | 4; reasoning: string }>;
+  ranked: Array<{
+    taskId: string;
+    tier: 1 | 2 | 3 | 4;
+    reasoning: string;
+    urgency?: "low" | "normal" | "high" | "critical";
+  }>;
   source: "claude";
+}
+
+export interface RankedWithUrgency {
+  task: Task;
+  tier: 1 | 2 | 3 | 4;
+  reasoning: string;
+  /** Urgency the model wants to apply to the task. Undefined = no change. */
+  suggestedUrgency?: "low" | "normal" | "high" | "critical";
+  score: 0;
 }
 
 export class AiUnavailableError extends Error {
@@ -35,7 +49,7 @@ export async function aiPrioritize(
   tasks: Task[],
   prefs: UserPrefs,
   existing: ExistingRank[] = [],
-): Promise<PrioritizedTask[]> {
+): Promise<RankedWithUrgency[]> {
   const now = new Date();
   const candidates = tasks.filter((t) => {
     if (t.status === "completed") return false;
@@ -92,14 +106,17 @@ export async function aiPrioritize(
   const data = (await res.json()) as AiResponse;
   const byId = new Map(candidates.map((t) => [t.id, t]));
 
-  // Returns the full ranked list (every candidate). Callers slice to the
-  // top N for the visible Top Three; this lets us cache one AI run and
-  // re-filter on mode toggles without re-asking Claude.
-  return data.ranked
-    .map(({ taskId, tier, reasoning }) => {
-      const task = byId.get(taskId);
-      if (!task) return null;
-      return { task, tier, reasoning, score: 0 } satisfies PrioritizedTask;
-    })
-    .filter((p): p is PrioritizedTask => p !== null);
+  // Returns the full ranked list (every candidate) including any urgency
+  // patch the model wants applied. Callers slice to the top N for the
+  // visible Top Three; this lets us cache one AI run and re-filter on
+  // mode toggles without re-asking Claude.
+  const out: RankedWithUrgency[] = [];
+  for (const { taskId, tier, reasoning, urgency } of data.ranked) {
+    const task = byId.get(taskId);
+    if (!task) continue;
+    const entry: RankedWithUrgency = { task, tier, reasoning, score: 0 };
+    if (urgency) entry.suggestedUrgency = urgency;
+    out.push(entry);
+  }
+  return out;
 }
