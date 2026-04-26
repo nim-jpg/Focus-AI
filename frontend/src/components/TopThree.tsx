@@ -9,6 +9,17 @@ interface Props {
   onSnooze: (id: string, untilIso: string) => void;
   goals?: Goal[];
   calendarConnected?: boolean;
+  /** Click-handler for a goal chip — opens the goal in the Goals tab. */
+  onOpenGoal?: (goalId: string) => void;
+}
+
+/** Short reference label for a goal chip — first 2 meaningful words, capped at 14 chars. */
+function shortGoalLabel(title: string): string {
+  const trimmed = title.trim();
+  if (trimmed.length <= 14) return trimmed;
+  const words = trimmed.split(/\s+/).filter((w) => w.length > 0);
+  const head = words.slice(0, 2).join(" ");
+  return (head.length <= 14 ? head : head.slice(0, 13)) + "…";
 }
 
 const SNOOZE_OPTIONS: Array<{ label: string; days: number }> = [
@@ -40,6 +51,7 @@ export function TopThree({
   onSnooze,
   goals = [],
   calendarConnected = false,
+  onOpenGoal,
 }: Props) {
   const goalById = new Map(goals.map((g) => [g.id, g]));
   const [snoozeOpenFor, setSnoozeOpenFor] = useState<string | null>(null);
@@ -77,14 +89,26 @@ export function TopThree({
                   {(task.goalIds ?? [])
                     .map((id) => goalById.get(id))
                     .filter((g): g is NonNullable<typeof g> => Boolean(g))
-                    .map((g) => (
-                      <span
-                        key={g.id}
-                        className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800"
-                      >
-                        {g.title}
-                      </span>
-                    ))}
+                    .map((g) => {
+                      const short = shortGoalLabel(g.title);
+                      const className =
+                        "rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800 hover:border-emerald-500";
+                      return onOpenGoal ? (
+                        <button
+                          key={g.id}
+                          type="button"
+                          onClick={() => onOpenGoal(g.id)}
+                          className={`${className} cursor-pointer`}
+                          title={`${g.title} — click to open in Goals`}
+                        >
+                          {short}
+                        </button>
+                      ) : (
+                        <span key={g.id} className={className} title={g.title}>
+                          {short}
+                        </span>
+                      );
+                    })}
                 </div>
               )}
               <p className="mt-1 text-xs text-slate-500">
