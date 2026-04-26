@@ -13,12 +13,10 @@ function dayLabel(d: Date): string {
 }
 
 /**
- * Strip a task title for PDF rendering. Private tasks never appear; semi-private
- * are redacted to "[private commitment]" so the slot stays visible.
+ * The PDF is a personal printout — show every task title in full. The privacy
+ * field is reserved for future share/export flows where redaction matters.
  */
-function renderTitle(task: Task): string | null {
-  if (task.privacy === "private") return null;
-  if (task.privacy === "semi-private") return "[private commitment]";
+function renderTitle(task: Task): string {
   return task.title;
 }
 
