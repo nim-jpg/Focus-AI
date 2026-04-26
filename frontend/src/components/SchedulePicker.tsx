@@ -6,6 +6,9 @@ export interface ScheduleChoice {
   start: Date;
   end: Date;
   destination: "google" | "local";
+  /** Push as a weekly-recurring Google Calendar series (only meaningful
+   *  when destination === "google"). */
+  weeklyRecurring?: boolean;
 }
 
 interface Props {
@@ -70,6 +73,7 @@ export function SchedulePicker({
   const [destination, setDestination] = useState<"google" | "local">(
     calendarConnected ? "google" : "local",
   );
+  const [weeklyRecurring, setWeeklyRecurring] = useState(false);
 
   // Trap Esc to cancel.
   useEffect(() => {
@@ -85,7 +89,12 @@ export function SchedulePicker({
     const start = new Date(`${date}T00:00:00`);
     start.setHours(h ?? 0, m ?? 0, 0, 0);
     const end = new Date(start.getTime() + duration * 60 * 1000);
-    onConfirm({ start, end, destination });
+    onConfirm({
+      start,
+      end,
+      destination,
+      weeklyRecurring: destination === "google" ? weeklyRecurring : false,
+    });
   };
 
   return (
@@ -184,6 +193,16 @@ export function SchedulePicker({
               Push to Google Calendar
             </button>
           </div>
+          {destination === "google" && (
+            <label className="mt-2 flex items-center gap-2 text-xs text-slate-700">
+              <input
+                type="checkbox"
+                checked={weeklyRecurring}
+                onChange={(e) => setWeeklyRecurring(e.target.checked)}
+              />
+              Repeat weekly (creates a Google Calendar series — RRULE)
+            </label>
+          )}
         </div>
 
         <div className="mt-5 flex flex-wrap items-center justify-between gap-2">

@@ -23,6 +23,10 @@ interface Props {
   /** Re-push a task whose Google event has gone missing — clears the stale
    *  calendarEventId and creates a fresh event at the same scheduled time. */
   onRepushToGoogle?: (taskId: string) => Promise<void> | void;
+  /** Called when the user deletes a Google event that's linked to a Focus3
+   *  task. Clears the calendarEventId so the task isn't ghostly linked
+   *  to a vanished event. */
+  onUnlinkTaskFromGoogle?: (taskId: string) => void;
   /** Surface a status message in the page-level banner (e.g. when
    *  auto-schedule finds no slots). */
   onMessage?: (msg: string) => void;
@@ -140,6 +144,7 @@ export function WeekSchedule({
   onShadowEvent,
   onUpdatePrefs,
   onRepushToGoogle,
+  onUnlinkTaskFromGoogle,
   onMessage,
   gridStartHour = 6,
   gridEndHour = 23,
@@ -1523,10 +1528,18 @@ export function WeekSchedule({
                           className="hover:underline"
                           onClick={async () => {
                             if (!b.event?.id) return;
-                            if (!confirm(`Delete "${b.event.summary}" from Google Calendar?`))
-                              return;
+                            const linkedTaskId = b.task?.id;
+                            const promptMsg = linkedTaskId
+                              ? `Delete "${b.event.summary}" from Google Calendar? The Focus3 task stays — only the Google link is removed.`
+                              : `Delete "${b.event.summary}" from Google Calendar?`;
+                            if (!confirm(promptMsg)) return;
                             try {
                               await deleteEvent(b.event.id);
+                              // Clear the calendarEventId on any linked task
+                              // so the broken-link warning doesn't appear.
+                              if (linkedTaskId && onUnlinkTaskFromGoogle) {
+                                onUnlinkTaskFromGoogle(linkedTaskId);
+                              }
                               await refresh();
                             } catch {
                               // surface error in next refresh; silent here

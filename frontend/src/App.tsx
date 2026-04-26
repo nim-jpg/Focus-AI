@@ -266,7 +266,9 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       return;
     }
     try {
-      const { eventId } = await scheduleTask(task, choice.start, choice.end);
+      const { eventId } = await scheduleTask(task, choice.start, choice.end, {
+        weeklyRecurring: choice.weeklyRecurring,
+      });
       // Pushed to Google — store the real event id so we can delete it later.
       // Clear scheduledFor so it doesn't show twice (Google fetch will surface it).
       updateTask(task.id, {
@@ -888,6 +890,9 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             }}
             onUpdatePrefs={setPrefs}
             onMessage={setCalendarMsg}
+            onUnlinkTaskFromGoogle={(taskId) =>
+              updateTask(taskId, { calendarEventId: undefined })
+            }
           />
 
           <TomorrowPreview
