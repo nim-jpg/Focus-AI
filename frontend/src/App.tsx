@@ -438,19 +438,25 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         <div className="flex items-center gap-2">
           {googleStatus && !googleStatus.configured && (
             <span
-              className="text-xs text-slate-500"
+              className="text-xs text-amber-700"
               title="Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to backend/.env. See README."
             >
               Calendar: setup needed
             </span>
           )}
-          {googleStatus?.configured && !googleStatus.connected && (
+          {/* Header Connect button — show whenever NOT connected, even before
+              the status fetch completes, so it never disappears on a slow or
+              failed /api/google/status call. Errors land in calendarMsg below
+              the nav for visibility outside the Settings modal. */}
+          {!googleStatus?.connected && googleStatus?.configured !== false && (
             <button
               type="button"
               className="btn-secondary"
               onClick={() =>
                 startGoogleConnect().catch((err) =>
-                  setCalendarMsg(`Connect failed — ${err.message}`),
+                  setCalendarMsg(
+                    `Connect failed — ${err instanceof Error ? err.message : String(err)}`,
+                  ),
                 )
               }
             >
