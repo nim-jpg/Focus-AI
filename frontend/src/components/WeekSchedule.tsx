@@ -804,52 +804,73 @@ export function WeekSchedule({
       )}
 
       {viewMode === "stacked" && (() => {
-        // Group chronologically by day so the agenda reads day-by-day.
+        // Same day-column layout as the calendar grid, but no hour gutter
+        // and no Y-positioning. Items are listed top-to-bottom inside each
+        // column in chronological order.
         const byDay = new Map<number, Block[]>();
         for (const b of stackedBlocks) {
           const arr = byDay.get(b.dayIdx) ?? [];
           arr.push(b);
           byDay.set(b.dayIdx, arr);
         }
-        const dayKeys = [...byDay.keys()].sort((a, b) => a - b);
         return (
-          <div className="rounded-md border border-slate-200 bg-white">
-            {stackedBlocks.length === 0 ? (
-              <p className="p-3 text-xs italic text-slate-500">
-                Nothing on the schedule for this window.
-              </p>
-            ) : (
-              dayKeys.map((dayIdx) => {
-                const dayDate = new Date(
-                  weekStart.getTime() + dayIdx * DAY_MS,
+          <div className="overflow-x-auto">
+            {/* Day headers — same template as the grid view, minus the
+                48px hour gutter. */}
+            <div
+              className="grid border-b border-slate-200 text-xs"
+              style={{
+                gridTemplateColumns: `repeat(${viewDays}, minmax(160px, 1fr))`,
+                minWidth: "820px",
+              }}
+            >
+              {Array.from({ length: viewDays }).map((_, idx) => {
+                const dayDate = new Date(weekStart.getTime() + idx * DAY_MS);
+                const isToday = idx === todayIdx;
+                return (
+                  <div
+                    key={idx}
+                    className={`border-l border-slate-200 px-2 py-1 first:border-l-0 ${
+                      isToday ? "bg-emerald-50/50" : ""
+                    }`}
+                  >
+                    <div className="font-semibold text-slate-700">
+                      {SHORT_DAYS[dayDate.getDay()]}
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      {dayDate.toLocaleDateString(undefined, {
+                        day: "numeric",
+                        month: "short",
+                      })}
+                    </div>
+                  </div>
                 );
+              })}
+            </div>
+            {/* Day columns — items stacked vertically per column. */}
+            <div
+              className="grid"
+              style={{
+                gridTemplateColumns: `repeat(${viewDays}, minmax(160px, 1fr))`,
+                minWidth: "820px",
+              }}
+            >
+              {Array.from({ length: viewDays }).map((_, dayIdx) => {
                 const items = byDay.get(dayIdx) ?? [];
                 const isToday = dayIdx === todayIdx;
                 return (
                   <div
                     key={dayIdx}
-                    className="border-b border-slate-100 last:border-b-0"
+                    className={`min-h-[120px] space-y-1 border-l border-slate-200 p-1 first:border-l-0 ${
+                      isToday ? "bg-emerald-50/30" : ""
+                    }`}
                   >
-                    <div
-                      className={`flex items-center justify-between px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide ${
-                        isToday
-                          ? "bg-emerald-50 text-emerald-800"
-                          : "bg-slate-50 text-slate-600"
-                      }`}
-                    >
-                      <span>
-                        {dayDate.toLocaleDateString(undefined, {
-                          weekday: "long",
-                          day: "numeric",
-                          month: "short",
-                        })}
-                      </span>
-                      <span className="font-normal lowercase tracking-normal text-slate-500">
-                        {items.length} item{items.length === 1 ? "" : "s"}
-                      </span>
-                    </div>
-                    <ul className="divide-y divide-slate-100">
-                      {items.map((b, i) => {
+                    {items.length === 0 ? (
+                      <p className="px-1 py-2 text-[10px] italic text-slate-400">
+                        nothing
+                      </p>
+                    ) : (
+                      items.map((b, i) => {
                         const startIso = b.allDay
                           ? null
                           : new Date(
@@ -869,54 +890,62 @@ export function WeekSchedule({
                           (b.task?.title
                             ? `${b.task.title}${b.kind === "session" ? ` (${b.sessionIdx}/${b.sessionTotal})` : ""}`
                             : "");
-                        const swatch = b.shadow
-                          ? "#cbd5e1"
-                          : b.kind === "event"
-                          ? b.event?.calendarColor ?? "#cbd5e1"
+                        const eventBg =
+                          b.event?.calendarColor ?? "#dbeafe";
+                        // Same colour treatment as the grid view: solid
+                        // fills; shadow blocks light grey + medium grey
+                        // text that darkens on hover.
+                        const colourCls = b.shadow
+                          ? "bg-slate-100 text-slate-500 border-slate-200 hover:text-slate-900"
                           : b.kind === "session"
-                          ? "#a78bfa"
-                          : "#34d399";
+                          ? "border-violet-300 bg-violet-100 text-violet-900"
+                          : b.kind === "task"
+                          ? "border-emerald-300 bg-emerald-100 text-emerald-900"
+                          : "border text-slate-900";
+                        const inlineBg =
+                          b.kind === "event" && !b.shadow
+                            ? {
+                                backgroundColor: eventBg,
+                                borderColor: eventBg,
+                              }
+                            : undefined;
                         return (
-                          <li
+                          <div
                             key={i}
-                            className={`flex items-start gap-3 px-3 py-2 text-xs ${
-                              b.shadow
-                                ? "bg-slate-50 text-slate-500 hover:text-slate-900"
-                                : "text-slate-700"
-                            }`}
+                            className={`rounded border px-1.5 py-1 text-[11px] leading-tight ${colourCls}`}
+                            style={inlineBg}
+                            title={
+                              b.event?.calendarName
+                                ? `${title} · ${b.event.calendarName}`
+                                : title
+                            }
                           >
-                            <span
-                              className="mt-1 inline-block h-3 w-3 flex-none rounded-sm"
-                              style={{ backgroundColor: swatch }}
-                            />
-                            <div className="w-24 flex-none font-mono text-[10px] opacity-70">
+                            <div className="font-mono text-[9px] opacity-70">
                               {b.allDay
                                 ? "all day"
                                 : `${fmtTime(startIso)} – ${fmtTime(endIso)}`}
                             </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="font-medium">
-                                {title}
-                                {b.brokenLink && (
-                                  <span className="ml-1 text-amber-700">
-                                    (removed from Google)
-                                  </span>
-                                )}
-                              </p>
-                              {b.event?.calendarName && (
-                                <p className="text-[10px] opacity-70">
-                                  {b.event.calendarName}
-                                </p>
+                            <div className="break-words">
+                              {title}
+                              {b.brokenLink && (
+                                <span className="ml-1 text-amber-700">
+                                  (removed)
+                                </span>
                               )}
                             </div>
-                          </li>
+                            {b.event?.calendarName && (
+                              <div className="mt-0.5 truncate text-[9px] opacity-70">
+                                {b.event.calendarName}
+                              </div>
+                            )}
+                          </div>
                         );
-                      })}
-                    </ul>
+                      })
+                    )}
                   </div>
                 );
-              })
-            )}
+              })}
+            </div>
           </div>
         );
       })()}
