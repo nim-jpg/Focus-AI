@@ -34,6 +34,22 @@ import {
 import type { PrioritizedTask } from "@/types/task";
 
 type Source = "local" | "claude";
+type View = "today" | "tasks" | "insights" | "goals";
+
+const TAB_DEFS: Array<{ key: View; label: string }> = [
+  { key: "today", label: "Today" },
+  { key: "tasks", label: "Tasks" },
+  { key: "insights", label: "Insights" },
+  { key: "goals", label: "Goals" },
+];
+
+function loadInitialView(): View {
+  const hash = window.location.hash.replace(/^#/, "");
+  if (hash === "tasks" || hash === "insights" || hash === "goals" || hash === "today") {
+    return hash;
+  }
+  return "today";
+}
 
 export default function App() {
   const {
@@ -64,6 +80,14 @@ export default function App() {
   const editingTask = editingId ? tasks.find((t) => t.id === editingId) : undefined;
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
   const [calendarMsg, setCalendarMsg] = useState<string | null>(null);
+  const [view, setView] = useState<View>(() => loadInitialView());
+
+  // Reflect tab in URL hash so reload keeps the view.
+  useEffect(() => {
+    if (window.location.hash.replace(/^#/, "") !== view) {
+      window.history.replaceState(null, "", `#${view}`);
+    }
+  }, [view]);
   const [scheduleConfirm, setScheduleConfirm] = useState<{
     taskId: string;
     title: string;
@@ -168,12 +192,13 @@ export default function App() {
 
   const startEdit = (id: string) => {
     setEditingId(id);
-    // Scroll to the form after React renders it with the populated values.
+    setView("tasks");
+    // Scroll to the form after the Tasks view renders.
     setTimeout(() => {
       document
         .getElementById("task-form-section")
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 50);
+    }, 80);
   };
 
   const local = useMemo(
@@ -324,144 +349,182 @@ export default function App() {
         </div>
       </header>
 
-      <Foundations
-        tasks={foundations}
-        onComplete={toggleComplete}
-        onIncrement={incrementCounter}
-        onEdit={startEdit}
-      />
-
-      <DaySchedule
-        tasks={tasks}
-        calendarConnected={googleStatus?.connected ?? false}
-        onPushToCalendar={handleScheduleTask}
-        onScheduleLocal={(id, isoTime) => updateTask(id, { scheduledFor: isoTime })}
-        onUnschedule={(id) => updateTask(id, { scheduledFor: undefined })}
-      />
-
-      <section>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold">Today&apos;s Top Three</h2>
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                source === "claude"
-                  ? "bg-emerald-100 text-emerald-800"
-                  : "bg-slate-100 text-slate-600"
-              }`}
-              title={
-                source === "claude"
-                  ? "Prioritized by Claude"
-                  : "Local heuristic — click Refresh with AI for Claude reasoning"
-              }
-            >
-              {source === "claude" ? "AI" : "Local"}
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-slate-500">
-              {todayDoneCount}/{todayActionable} done today
-            </span>
+      <nav className="flex gap-1 border-b border-slate-200">
+        {TAB_DEFS.map((t) => {
+          const active = view === t.key;
+          return (
             <button
+              key={t.key}
               type="button"
-              className="btn-secondary"
-              onClick={handleAiRefresh}
-              disabled={
-                loading ||
-                tasks.length === 0 ||
-                (source === "claude" && aiResult !== null)
-              }
-              title={
-                source === "claude" && aiResult !== null
-                  ? "AI ranking is current — add or change a task to re-run"
-                  : "Ask Claude to re-rank Top Three"
-              }
+              onClick={() => setView(t.key)}
+              className={`px-3 py-2 text-sm font-medium transition ${
+                active
+                  ? "border-b-2 border-slate-900 text-slate-900"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
             >
-              {loading
-                ? "Asking Claude…"
-                : source === "claude" && aiResult !== null
-                ? "AI ✓"
-                : "Refresh with AI"}
+              {t.label}
             </button>
-          </div>
+          );
+        })}
+      </nav>
+
+      {calendarMsg && (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+          {calendarMsg}
         </div>
-        {aiError && (
-          <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            {aiError}
-          </div>
-        )}
-        {calendarMsg && (
-          <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-            {calendarMsg}
-          </div>
-        )}
-        <TopThree
-          prioritized={prioritized}
-          onComplete={handleTopThreeComplete}
-          onSchedule={handleScheduleTask}
-          onSnooze={(id, until) => updateTask(id, { snoozedUntil: until })}
-          goals={goals}
-          calendarConnected={googleStatus?.connected ?? false}
-        />
-      </section>
+      )}
 
-      <TomorrowPreview prioritized={tomorrowPreview} onDoEarly={toggleComplete} />
+      {view === "today" && (
+        <div className="space-y-8">
+          <Foundations
+            tasks={foundations}
+            onComplete={toggleComplete}
+            onIncrement={incrementCounter}
+            onEdit={startEdit}
+          />
 
-      <SuggestDates
-        tasks={tasks}
-        onApply={(id, dueDate) => updateTask(id, { dueDate })}
-      />
+          <section>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold">Today&apos;s Top Three</h2>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                    source === "claude"
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-slate-100 text-slate-600"
+                  }`}
+                  title={
+                    source === "claude"
+                      ? "Prioritized by Claude"
+                      : "Local heuristic — click Refresh with AI for Claude reasoning"
+                  }
+                >
+                  {source === "claude" ? "AI" : "Local"}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-slate-500">
+                  {todayDoneCount}/{todayActionable} done today
+                </span>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={handleAiRefresh}
+                  disabled={
+                    loading ||
+                    tasks.length === 0 ||
+                    (source === "claude" && aiResult !== null)
+                  }
+                  title={
+                    source === "claude" && aiResult !== null
+                      ? "AI ranking is current — add or change a task to re-run"
+                      : "Ask Claude to re-rank Top Three"
+                  }
+                >
+                  {loading
+                    ? "Asking Claude…"
+                    : source === "claude" && aiResult !== null
+                    ? "AI ✓"
+                    : "Refresh with AI"}
+                </button>
+              </div>
+            </div>
+            {aiError && (
+              <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                {aiError}
+              </div>
+            )}
+            <TopThree
+              prioritized={prioritized}
+              onComplete={handleTopThreeComplete}
+              onSchedule={handleScheduleTask}
+              onSnooze={(id, until) => updateTask(id, { snoozedUntil: until })}
+              goals={goals}
+              calendarConnected={googleStatus?.connected ?? false}
+            />
+          </section>
 
-      <CompanyAssist
-        tasks={tasks}
-        onUpdateTask={updateTask}
-        onAddTask={addTask}
-      />
-
-      <PriorityMatrix tasks={tasks} onEdit={startEdit} />
-
-      <Goals
-        goals={goals}
-        taskCountByGoal={taskCountByGoal}
-        onAdd={addGoal}
-        onUpdate={updateGoal}
-        onRemove={removeGoal}
-      />
-
-      <section id="task-form-section" className="space-y-3 scroll-mt-4">
-        <h2 className="text-lg font-semibold">
-          {editingTask ? `Edit "${editingTask.title}"` : "Add tasks"}
-        </h2>
-        {!editingTask && (
-          <PlannerScan tasks={tasks} onApply={applyScanUpdate} />
-        )}
-        {!editingTask && <BrainDump onAdd={addTask} />}
-        <TaskForm
-          key={editingId ?? "new"}
-          initialTask={editingTask}
-          goals={goals}
-          onSubmit={(input) => {
-            if (editingTask) {
-              updateTask(editingTask.id, input);
-              setEditingId(null);
-            } else {
-              addTask(input);
+          <DaySchedule
+            tasks={tasks}
+            calendarConnected={googleStatus?.connected ?? false}
+            onPushToCalendar={handleScheduleTask}
+            onScheduleLocal={(id, isoTime) =>
+              updateTask(id, { scheduledFor: isoTime })
             }
-          }}
-          onCancel={editingTask ? () => setEditingId(null) : undefined}
-        />
-      </section>
+            onUnschedule={(id) => updateTask(id, { scheduledFor: undefined })}
+          />
 
-      <section>
-        <h2 className="mb-3 text-lg font-semibold">All tasks</h2>
-        <TaskList
-          tasks={tasks}
-          onToggle={toggleComplete}
-          onRemove={removeTask}
-          onEdit={startEdit}
-          onUnsnooze={(id) => updateTask(id, { snoozedUntil: undefined })}
+          <TomorrowPreview
+            prioritized={tomorrowPreview}
+            onDoEarly={toggleComplete}
+          />
+        </div>
+      )}
+
+      {view === "tasks" && (
+        <div className="space-y-8">
+          <section id="task-form-section" className="space-y-3 scroll-mt-4">
+            <h2 className="text-lg font-semibold">
+              {editingTask ? `Edit "${editingTask.title}"` : "Add tasks"}
+            </h2>
+            {!editingTask && (
+              <PlannerScan tasks={tasks} onApply={applyScanUpdate} />
+            )}
+            {!editingTask && <BrainDump onAdd={addTask} />}
+            <TaskForm
+              key={editingId ?? "new"}
+              initialTask={editingTask}
+              goals={goals}
+              onSubmit={(input) => {
+                if (editingTask) {
+                  updateTask(editingTask.id, input);
+                  setEditingId(null);
+                } else {
+                  addTask(input);
+                }
+              }}
+              onCancel={editingTask ? () => setEditingId(null) : undefined}
+            />
+          </section>
+
+          <section>
+            <h2 className="mb-3 text-lg font-semibold">All tasks</h2>
+            <TaskList
+              tasks={tasks}
+              onToggle={toggleComplete}
+              onRemove={removeTask}
+              onEdit={startEdit}
+              onUnsnooze={(id) => updateTask(id, { snoozedUntil: undefined })}
+            />
+          </section>
+        </div>
+      )}
+
+      {view === "insights" && (
+        <div className="space-y-8">
+          <PriorityMatrix tasks={tasks} onEdit={startEdit} />
+          <SuggestDates
+            tasks={tasks}
+            onApply={(id, dueDate) => updateTask(id, { dueDate })}
+          />
+          <CompanyAssist
+            tasks={tasks}
+            onUpdateTask={updateTask}
+            onAddTask={addTask}
+          />
+        </div>
+      )}
+
+      {view === "goals" && (
+        <Goals
+          goals={goals}
+          taskCountByGoal={taskCountByGoal}
+          onAdd={addGoal}
+          onUpdate={updateGoal}
+          onRemove={removeGoal}
         />
-      </section>
+      )}
 
       <footer className="pt-4 text-center text-xs text-slate-400">
         Local MVP · Calendar via Google · OCR via Tesseract · PDF planner
