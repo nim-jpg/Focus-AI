@@ -21,6 +21,9 @@ app.get("/api/health", (_req, res) => {
 app.use("/api/prioritize", prioritizeRouter);
 app.use("/api/parse-tasks", parseTasksRouter);
 app.use("/api/google", googleRouter);
+// Legacy alias — early .env.example used /auth/google/callback as the redirect URI.
+// Keep the alias so existing Google Cloud "Authorized redirect URI" entries keep working.
+app.use("/auth/google", googleRouter);
 app.use("/api/suggest-due-dates", suggestDueDatesRouter);
 app.use("/api/companies-house", companiesHouseRouter);
 app.use("/api/scan-planner", scanPlannerRouter);
