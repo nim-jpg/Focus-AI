@@ -3,7 +3,6 @@ import type { Task, UserPrefs } from "@/types/task";
 import { deleteEvent, fetchEvents, type CalendarEvent } from "@/lib/googleCalendar";
 import { busyWindowsForWeek, suggestSessionTimes } from "@/lib/autoSchedule";
 import { isDueNow } from "@/lib/recurrence";
-import { ThemeBadge } from "./ThemeBadge";
 
 interface Props {
   tasks: Task[];
@@ -884,11 +883,6 @@ export function WeekSchedule({
                     <div className="whitespace-normal break-words">
                       {title}
                     </div>
-                    {b.task && (
-                      <div className="mt-0.5 flex items-center gap-1">
-                        <ThemeBadge theme={b.task.theme} />
-                      </div>
-                    )}
                     {b.task && (
                       <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[9px]">
                         {b.kind === "task" && b.task.scheduledFor && (

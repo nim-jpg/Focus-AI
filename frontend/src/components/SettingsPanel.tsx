@@ -51,6 +51,8 @@ export function SettingsPanel({
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [calendars, setCalendars] = useState<CalendarMeta[] | null>(null);
+  const [connectMsg, setConnectMsg] = useState<string | null>(null);
+  const [connectBusy, setConnectBusy] = useState(false);
 
   // Pull the user's Google calendars when the Calendar section is visible.
   useEffect(() => {
@@ -434,13 +436,28 @@ export function SettingsPanel({
                 </div>
               )}
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                {!calendar.connected && calendar.configured && (
+                {!calendar.connected && (
                   <button
                     type="button"
                     className="btn-primary text-xs"
-                    onClick={() => void calendar.onConnect()}
+                    disabled={connectBusy}
+                    onClick={async () => {
+                      setConnectMsg(null);
+                      setConnectBusy(true);
+                      try {
+                        await calendar.onConnect();
+                      } catch (err) {
+                        setConnectMsg(
+                          err instanceof Error
+                            ? `Connect failed — ${err.message}`
+                            : "Connect failed",
+                        );
+                      } finally {
+                        setConnectBusy(false);
+                      }
+                    }}
                   >
-                    Connect Calendar
+                    {connectBusy ? "Opening Google…" : "Connect Calendar"}
                   </button>
                 )}
                 {!calendar.configured && (
@@ -466,6 +483,9 @@ export function SettingsPanel({
                   </button>
                 )}
               </div>
+              {connectMsg && (
+                <p className="mt-2 text-xs text-amber-700">{connectMsg}</p>
+              )}
             </section>
           )}
 
