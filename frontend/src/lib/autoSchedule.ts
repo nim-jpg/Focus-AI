@@ -44,9 +44,10 @@ function workingHoursFromPrefs(prefs?: UserPrefs): WorkingHours {
   const end = parseHour(prefs?.workingHoursEnd) ?? 18;
   let wakeUp = parseHour(prefs?.wakeUpTime) ?? 7;
   let bed = parseHour(prefs?.bedTime) ?? 23;
-  // If wake >= bed (data error), reset to defaults so the candidate
-  // window is non-empty.
-  if (wakeUp >= bed) {
+  // wake == bed would be a 0-hour window. Reset to defaults to avoid an
+  // empty candidate set. wake > bed is intentionally valid — see
+  // isOutsideWakingHours for the night-owl wrap-around handling.
+  if (wakeUp === bed) {
     wakeUp = 7;
     bed = 23;
   }
@@ -61,6 +62,15 @@ function workingHoursFromPrefs(prefs?: UserPrefs): WorkingHours {
     bed,
     holidayDates: new Set(prefs?.holidayDates ?? []),
   };
+}
+
+/**
+ * Effective bedtime in hours-from-midnight-of-wake-day. If bed is
+ * numerically <= wake, treat it as next-day (e.g. wake=10, bed=2 → 26).
+ * Used to size the candidate window correctly for night-owl schedules.
+ */
+function effectiveBedHour(wh: WorkingHours): number {
+  return wh.bed > wh.wakeUp ? wh.bed : wh.bed + 24;
 }
 
 function isoDateOf(d: Date): string {
@@ -92,10 +102,13 @@ function preferredCandidatesFor(
   const dayOfWeek = date.getDay();
   const isWorkingDay = !isHoliday && wh.days.includes(dayOfWeek);
   const STEP_MIN = 30;
-  // Walk wake+0.5 → bed-1 in 30-min steps. Round wake to the next 30-min
-  // boundary so candidates land on tidy minute values.
+  // Walk wake+0.5 → effectiveBed-1 in 30-min steps. effectiveBed extends
+  // past 24h when bed wraps past midnight (night-owl schedule). setHours
+  // with hour > 23 rolls the Date forward to the next day, which is what
+  // we want — Sunday's candidate window can naturally include Mon 1am.
+  const bedH = effectiveBedHour(wh);
   const startMin = Math.ceil((wh.wakeUp + 0.5) * 60 / STEP_MIN) * STEP_MIN;
-  const endMin = Math.floor((wh.bed - 1) * 60 / STEP_MIN) * STEP_MIN;
+  const endMin = Math.floor((bedH - 1) * 60 / STEP_MIN) * STEP_MIN;
   const out: Date[] = [];
   for (let m = startMin; m <= endMin; m += STEP_MIN) {
     const c = new Date(date);
@@ -137,8 +150,16 @@ function isWorkHours(date: Date, wh: WorkingHours): boolean {
 
 function isOutsideWakingHours(date: Date, wh: WorkingHours): boolean {
   const t = date.getHours() + date.getMinutes() / 60;
-  // Earliest = wakeUp + 30 min. Latest start = bed - 1 hour.
-  return t < wh.wakeUp + 0.5 || t > wh.bed - 1;
+  const wakeStart = wh.wakeUp + 0.5;
+  const bedEnd = wh.bed - 1;
+  if (wh.bed > wh.wakeUp) {
+    // Same-day window (e.g. 7am–11pm): outside if before wake or after bed.
+    return t < wakeStart || t > bedEnd;
+  }
+  // Wrap-around window (night owl, e.g. wake 10am, bed 2am next day):
+  // outside if the time falls in the GAP between bedEnd same-day and
+  // wakeStart same-day — i.e. bedEnd < t < wakeStart.
+  return t > bedEnd && t < wakeStart;
 }
 
 /**
@@ -188,9 +209,13 @@ export interface SuggestResult {
 }
 
 function fmtHour(h: number): string {
-  const hh = String(Math.floor(h)).padStart(2, "0");
-  const mm = String(Math.round((h - Math.floor(h)) * 60)).padStart(2, "0");
-  return `${hh}:${mm}`;
+  // Wrap past-midnight values (e.g. 25:30) into "01:30 next day" so the
+  // diagnostic message reads naturally for night-owl schedules.
+  const wrapped = h % 24;
+  const dayLabel = h >= 24 ? " next day" : "";
+  const hh = String(Math.floor(wrapped)).padStart(2, "0");
+  const mm = String(Math.round((wrapped - Math.floor(wrapped)) * 60)).padStart(2, "0");
+  return `${hh}:${mm}${dayLabel}`;
 }
 
 export function suggestSessionTimes(
@@ -222,7 +247,7 @@ export function suggestSessionTimesDetailed(
       slots: [],
       attempts: [],
       windowStart: fmtHour(wh.wakeUp + 0.5),
-      windowEnd: fmtHour(wh.bed - 1),
+      windowEnd: fmtHour(effectiveBedHour(wh) - 1),
     };
   const n = Math.min(count, 7);
 
@@ -338,7 +363,7 @@ export function suggestSessionTimesDetailed(
     slots: placed.sort((a, b) => a.getTime() - b.getTime()),
     attempts,
     windowStart: fmtHour(wh.wakeUp + 0.5),
-    windowEnd: fmtHour(wh.bed - 1),
+    windowEnd: fmtHour(effectiveBedHour(wh) - 1),
   };
 }
 
