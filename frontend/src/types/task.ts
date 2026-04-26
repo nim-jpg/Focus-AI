@@ -180,6 +180,13 @@ export interface UserPrefs {
   /** Recurring-series ids (Google's recurringEventId) the user has muted —
    *  hides every instance of the series from Focus3. */
   ignoredSeriesIds?: string[];
+  /** Per-event shadow: stays visible (light grey) on the schedule but
+   *  doesn't block auto-scheduling. Like the per-calendar shadow but
+   *  scoped to a single event id. */
+  shadowedEventIds?: string[];
+  /** Per-series shadow — applies the same treatment to every instance of
+   *  a recurring series (Google's recurringEventId). */
+  shadowedSeriesIds?: string[];
   /** Default home-page schedule range: 1, 3, or 7 days. */
   homeViewDays?: 1 | 3 | 7;
   /** Specific dates the user has marked as holidays — working-hours
@@ -204,5 +211,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   calendarColorOverrides: {},
   ignoredEventIds: [],
   ignoredSeriesIds: [],
+  shadowedEventIds: [],
+  shadowedSeriesIds: [],
   homeViewDays: 7,
 };

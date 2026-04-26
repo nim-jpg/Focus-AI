@@ -808,6 +808,10 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             onUnsnooze={(id) => updateTask(id, { snoozedUntil: undefined })}
             onSchedule={openSchedulePicker}
             aiTierById={aiTierMap}
+            mode={prefs.mode}
+            userType={prefs.userType}
+            onRefreshAi={handleAiRefresh}
+            aiBusy={loading}
           />
         </section>
       )}
@@ -867,6 +871,10 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           calendarConnected={googleStatus?.connected ?? false}
           onConfirm={confirmSchedule}
           onCancel={() => setPickerForTaskId(null)}
+          onEdit={(id) => {
+            setPickerForTaskId(null);
+            startEdit(id);
+          }}
         />
       )}
 

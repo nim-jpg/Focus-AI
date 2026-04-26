@@ -183,6 +183,8 @@ export function WeekSchedule({
     ]);
     const ignoredEventIds = new Set(prefs.ignoredEventIds ?? []);
     const ignoredSeriesIds = new Set(prefs.ignoredSeriesIds ?? []);
+    const shadowedEventIds = new Set(prefs.shadowedEventIds ?? []);
+    const shadowedSeriesIds = new Set(prefs.shadowedSeriesIds ?? []);
     const colorOverrides = prefs.calendarColorOverrides ?? {};
 
     // Tasks linked to Google events (calendarEventId set) — we'll skip rendering
@@ -216,7 +218,13 @@ export function WeekSchedule({
       const dayIdx = dayIdxFor(sd);
       if (dayIdx < 0 || dayIdx >= viewDays) continue;
 
-      const isShadow = ev.calendarId ? shadowIds.has(ev.calendarId) : false;
+      // Per-event / per-series shadow overrides any non-shadow calendar.
+      const eventShadow =
+        (ev.id && shadowedEventIds.has(ev.id)) ||
+        (ev.recurringEventId && shadowedSeriesIds.has(ev.recurringEventId));
+      const isShadow =
+        eventShadow ||
+        (ev.calendarId ? shadowIds.has(ev.calendarId) : false);
       const linkedTask = ev.id ? tasksByEventId.get(ev.id) : undefined;
       // User colour override beats Google's calendar colour.
       const overriddenColor = ev.calendarId
@@ -326,6 +334,8 @@ export function WeekSchedule({
     prefs.privateCalendarIds,
     prefs.ignoredEventIds,
     prefs.ignoredSeriesIds,
+    prefs.shadowedEventIds,
+    prefs.shadowedSeriesIds,
     prefs.calendarColorOverrides,
   ]);
 
@@ -1093,42 +1103,105 @@ export function WeekSchedule({
                             (Google unchanged). Recurring events also offer
                             an "ignore series" action. When Show ignored is
                             ON, the action flips to "unignore". */}
-                        {b.event.id && onUpdatePrefs && !b.ignored && (
-                          <>
-                            <button
-                              type="button"
-                              className="hover:underline"
-                              onClick={() => {
-                                const id = b.event!.id!;
-                                const cur = prefs.ignoredEventIds ?? [];
-                                if (cur.includes(id)) return;
-                                onUpdatePrefs({
-                                  ignoredEventIds: [...cur, id],
-                                });
-                              }}
-                              title="Hide this single instance from Focus3. Toggle Show ignored to undo."
-                            >
-                              🚫 ignore
-                            </button>
-                            {b.event.recurringEventId && (
+                        {b.event.id && onUpdatePrefs && !b.ignored && (() => {
+                          const eid = b.event.id;
+                          const sid = b.event.recurringEventId ?? null;
+                          const isShadowed =
+                            (prefs.shadowedEventIds ?? []).includes(eid) ||
+                            !!(sid && (prefs.shadowedSeriesIds ?? []).includes(sid));
+                          return (
+                            <>
+                              {/* Shadow: stays visible (faded), doesn't block. */}
+                              {!isShadowed && (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="hover:underline"
+                                    onClick={() => {
+                                      const cur = prefs.shadowedEventIds ?? [];
+                                      if (cur.includes(eid)) return;
+                                      onUpdatePrefs({
+                                        shadowedEventIds: [...cur, eid],
+                                      });
+                                    }}
+                                    title="Show this event greyed in the background — visible but doesn't block scheduling."
+                                  >
+                                    🌫 shadow
+                                  </button>
+                                  {sid && (
+                                    <button
+                                      type="button"
+                                      className="hover:underline"
+                                      onClick={() => {
+                                        const cur =
+                                          prefs.shadowedSeriesIds ?? [];
+                                        if (cur.includes(sid)) return;
+                                        onUpdatePrefs({
+                                          shadowedSeriesIds: [...cur, sid],
+                                        });
+                                      }}
+                                      title="Shadow every instance of this recurring series."
+                                    >
+                                      🌫 series
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                              {isShadowed && (
+                                <button
+                                  type="button"
+                                  className="text-emerald-700 hover:underline"
+                                  onClick={() => {
+                                    onUpdatePrefs({
+                                      shadowedEventIds: (
+                                        prefs.shadowedEventIds ?? []
+                                      ).filter((i) => i !== eid),
+                                      shadowedSeriesIds: sid
+                                        ? (
+                                            prefs.shadowedSeriesIds ?? []
+                                          ).filter((s) => s !== sid)
+                                        : prefs.shadowedSeriesIds ?? [],
+                                    });
+                                  }}
+                                  title="Restore full visibility / blocking for this event."
+                                >
+                                  ✓ unshadow
+                                </button>
+                              )}
+                              {/* Ignore: hides entirely. */}
                               <button
                                 type="button"
                                 className="hover:underline"
                                 onClick={() => {
-                                  const sid = b.event!.recurringEventId!;
-                                  const cur = prefs.ignoredSeriesIds ?? [];
-                                  if (cur.includes(sid)) return;
+                                  const cur = prefs.ignoredEventIds ?? [];
+                                  if (cur.includes(eid)) return;
                                   onUpdatePrefs({
-                                    ignoredSeriesIds: [...cur, sid],
+                                    ignoredEventIds: [...cur, eid],
                                   });
                                 }}
-                                title="Hide every instance of this recurring series from Focus3."
+                                title="Hide this single instance from Focus3. Toggle Show ignored to undo."
                               >
-                                🚫 series
+                                🚫 ignore
                               </button>
-                            )}
-                          </>
-                        )}
+                              {sid && (
+                                <button
+                                  type="button"
+                                  className="hover:underline"
+                                  onClick={() => {
+                                    const cur = prefs.ignoredSeriesIds ?? [];
+                                    if (cur.includes(sid)) return;
+                                    onUpdatePrefs({
+                                      ignoredSeriesIds: [...cur, sid],
+                                    });
+                                  }}
+                                  title="Hide every instance of this recurring series from Focus3."
+                                >
+                                  🚫 series
+                                </button>
+                              )}
+                            </>
+                          );
+                        })()}
                         {b.event.id && onUpdatePrefs && b.ignored && (
                           <button
                             type="button"
