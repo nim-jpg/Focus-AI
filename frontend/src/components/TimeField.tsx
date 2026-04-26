@@ -28,72 +28,73 @@ export function TimeField({
 
   const set = (nh: number, nm: number) => onChange(format(nh, nm));
 
+  // Each unit (hour, minute) is a stacked column: ▴ above, number, ▾ below.
+  const Unit = ({
+    val,
+    onUp,
+    onDown,
+    onType,
+    label,
+  }: {
+    val: number;
+    onUp: () => void;
+    onDown: () => void;
+    onType: (n: number) => void;
+    label: string;
+  }) => (
+    <div className="flex flex-col items-center">
+      <button
+        type="button"
+        className="text-[9px] leading-none text-slate-500 hover:text-slate-900"
+        onClick={onUp}
+        aria-label={`${label} +`}
+      >
+        ▴
+      </button>
+      <input
+        type="text"
+        inputMode="numeric"
+        maxLength={2}
+        className="w-7 border-0 bg-transparent p-0 text-center font-mono text-sm focus:outline-none focus:ring-0"
+        value={pad(val)}
+        onChange={(e) => {
+          const n = parseInt(e.target.value, 10);
+          if (Number.isFinite(n)) onType(n);
+        }}
+        aria-label={label}
+      />
+      <button
+        type="button"
+        className="text-[9px] leading-none text-slate-500 hover:text-slate-900"
+        onClick={onDown}
+        aria-label={`${label} −`}
+      >
+        ▾
+      </button>
+    </div>
+  );
+
   return (
-    <div className="mt-1 inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white p-1 text-sm">
-      <button
-        type="button"
-        className="rounded px-1.5 py-0.5 text-slate-600 hover:bg-slate-100"
-        onClick={() => set(h - 1, m)}
-        aria-label="Hour −"
-      >
-        ▾
-      </button>
-      <input
-        type="text"
-        inputMode="numeric"
-        maxLength={2}
-        className="w-7 border-0 bg-transparent p-0 text-center font-mono focus:outline-none focus:ring-0"
-        value={pad(h)}
-        onChange={(e) => {
-          const n = parseInt(e.target.value, 10);
-          if (Number.isFinite(n)) set(n, m);
-        }}
-        aria-label="Hour"
+    <div className="mt-1 inline-flex items-center gap-0.5 rounded-md border border-slate-200 bg-white px-1.5 py-1">
+      <Unit
+        val={h}
+        label="Hour"
+        onUp={() => set(h + 1, m)}
+        onDown={() => set(h - 1, m)}
+        onType={(n) => set(n, m)}
       />
-      <button
-        type="button"
-        className="rounded px-1.5 py-0.5 text-slate-600 hover:bg-slate-100"
-        onClick={() => set(h + 1, m)}
-        aria-label="Hour +"
-      >
-        ▴
-      </button>
-
-      <span className="px-0.5 text-slate-400">:</span>
-
-      <button
-        type="button"
-        className="rounded px-1.5 py-0.5 text-slate-600 hover:bg-slate-100"
-        onClick={() => set(h, m - minuteStep)}
-        aria-label="Minute −"
-      >
-        ▾
-      </button>
-      <input
-        type="text"
-        inputMode="numeric"
-        maxLength={2}
-        className="w-7 border-0 bg-transparent p-0 text-center font-mono focus:outline-none focus:ring-0"
-        value={pad(m)}
-        onChange={(e) => {
-          const n = parseInt(e.target.value, 10);
-          if (Number.isFinite(n)) set(h, n);
-        }}
-        aria-label="Minute"
+      <span className="px-0.5 font-mono text-sm text-slate-400">:</span>
+      <Unit
+        val={m}
+        label="Minute"
+        onUp={() => set(h, m + minuteStep)}
+        onDown={() => set(h, m - minuteStep)}
+        onType={(n) => set(h, n)}
       />
-      <button
-        type="button"
-        className="rounded px-1.5 py-0.5 text-slate-600 hover:bg-slate-100"
-        onClick={() => set(h, m + minuteStep)}
-        aria-label="Minute +"
-      >
-        ▴
-      </button>
-
       {allowEmpty && value && (
         <button
           type="button"
-          className="ml-1 rounded px-1.5 py-0.5 text-xs text-slate-400 hover:text-red-600"
+          className="ml-1 text-xs text-slate-400 hover:text-red-600"
           onClick={() => onChange("")}
           aria-label="Clear time"
           title="Clear"

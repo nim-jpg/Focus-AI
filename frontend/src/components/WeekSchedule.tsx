@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Task } from "@/types/task";
 import { fetchEvents, type CalendarEvent } from "@/lib/googleCalendar";
+import { busyWindowsForWeek, suggestSessionTimes } from "@/lib/autoSchedule";
 import { ThemeBadge } from "./ThemeBadge";
 
 interface Props {
@@ -8,6 +9,8 @@ interface Props {
   calendarConnected: boolean;
   onScheduleClick: (taskId: string) => void;
   onUnschedule: (taskId: string) => void;
+  /** Set sessionTimes[] on a task — used by the auto-schedule action. */
+  onSetSessionTimes: (taskId: string, isoTimes: string[]) => void;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -32,10 +35,13 @@ function fmtTime(iso: string | null, allDay = false): string {
 }
 
 interface DayItem {
-  kind: "event" | "task";
+  kind: "event" | "task" | "session";
   start: Date;
   event?: CalendarEvent;
   task?: Task;
+  /** Index of this session within task.sessionTimes for display ("2/3"). */
+  sessionIdx?: number;
+  sessionTotal?: number;
 }
 
 export function WeekSchedule({
@@ -43,6 +49,7 @@ export function WeekSchedule({
   calendarConnected,
   onScheduleClick,
   onUnschedule,
+  onSetSessionTimes,
 }: Props) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
@@ -91,9 +98,28 @@ export function WeekSchedule({
     }
     for (const t of tasks) {
       if (t.status === "completed") continue;
-      // Daily-recurring habits live in the Foundations rail and the planner's
-      // "Daily habits" grid — they don't need to clutter the week schedule.
       if (t.recurrence === "daily") continue;
+
+      // Multi-session tasks render one entry per scheduled session.
+      const sessions = t.sessionTimes ?? [];
+      if (sessions.length > 0) {
+        const sorted = [...sessions]
+          .map((iso) => new Date(iso))
+          .sort((a, b) => a.getTime() - b.getTime());
+        sorted.forEach((d, sIdx) => {
+          const dayIdx = Math.floor((d.getTime() - weekStart.getTime()) / DAY_MS);
+          if (dayIdx < 0 || dayIdx > 6) return;
+          out[dayIdx]!.push({
+            kind: "session",
+            start: d,
+            task: t,
+            sessionIdx: sIdx + 1,
+            sessionTotal: sorted.length,
+          });
+        });
+        continue;
+      }
+
       const iso = t.scheduledFor ?? t.dueDate;
       if (!iso) continue;
       const d = new Date(iso);
@@ -108,6 +134,39 @@ export function WeekSchedule({
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayIdx = Math.floor((today.getTime() - weekStart.getTime()) / DAY_MS);
+
+  // Multi-session tasks that don't yet have enough sessions scheduled this week.
+  const pendingMultiSession = useMemo(
+    () =>
+      tasks.filter(
+        (t) =>
+          t.status !== "completed" &&
+          (t.sessionsPerWeek ?? 0) > 0 &&
+          (t.sessionTimes?.length ?? 0) < (t.sessionsPerWeek ?? 0),
+      ),
+    [tasks],
+  );
+
+  const autoScheduleSessionsFor = (taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task || !task.sessionsPerWeek) return;
+    const need =
+      task.sessionsPerWeek - (task.sessionTimes?.length ?? 0);
+    if (need <= 0) return;
+    const busy = busyWindowsForWeek(weekStart, weekEnd, tasks, events, taskId);
+    const slots = suggestSessionTimes(
+      need,
+      task.estimatedMinutes ?? 60,
+      weekStart,
+      busy,
+    );
+    if (slots.length === 0) return;
+    const next = [
+      ...(task.sessionTimes ?? []),
+      ...slots.map((d) => d.toISOString()),
+    ];
+    onSetSessionTimes(taskId, next);
+  };
 
   const goPrev = () =>
     setWeekStartDate(new Date(weekStart.getTime() - 7 * DAY_MS));
@@ -163,6 +222,40 @@ export function WeekSchedule({
           )}
         </div>
       </div>
+
+      {pendingMultiSession.length > 0 && (
+        <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs">
+          <p className="font-medium text-amber-900">
+            Multi-session tasks need slots this week:
+          </p>
+          <ul className="mt-1 space-y-1">
+            {pendingMultiSession.map((t) => {
+              const have = t.sessionTimes?.length ?? 0;
+              const need = (t.sessionsPerWeek ?? 0) - have;
+              return (
+                <li key={t.id} className="flex items-center justify-between gap-2">
+                  <span className="truncate text-amber-900">
+                    {t.title}{" "}
+                    <span className="text-amber-700">
+                      ({have}/{t.sessionsPerWeek} scheduled)
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    className="rounded-full border border-amber-300 bg-white px-2 py-0.5 text-amber-900 hover:border-amber-500"
+                    onClick={() => autoScheduleSessionsFor(t.id)}
+                  >
+                    Auto-schedule {need}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-1 text-[11px] text-amber-700">
+            Slots prefer weekend mornings + weekday evenings, avoiding 9-6 work hours and existing events.
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-7">
         {DAY_LABELS.map((label, idx) => {
@@ -241,6 +334,41 @@ export function WeekSchedule({
                               onClick={() => onScheduleClick(it.task!.id)}
                             >
                               re-time
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    }
+                    if (it.kind === "session" && it.task) {
+                      return (
+                        <li
+                          key={`s-${it.task.id}-${i}`}
+                          className="rounded border border-violet-200 bg-violet-50/70 px-2 py-1.5 text-xs text-violet-900"
+                          title={`${it.task.title} (session ${it.sessionIdx}/${it.sessionTotal})`}
+                        >
+                          <div className="font-mono text-[10px] text-violet-700">
+                            {fmtTime(it.start.toISOString())}
+                          </div>
+                          <div className="mt-0.5 leading-tight">
+                            {it.task.title}{" "}
+                            <span className="text-violet-700">
+                              ({it.sessionIdx}/{it.sessionTotal})
+                            </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
+                            <ThemeBadge theme={it.task.theme} />
+                            <button
+                              type="button"
+                              className="text-violet-700 hover:underline"
+                              onClick={() => {
+                                const remaining = (it.task!.sessionTimes ?? []).filter(
+                                  (iso) =>
+                                    new Date(iso).getTime() !== it.start.getTime(),
+                                );
+                                onSetSessionTimes(it.task!.id, remaining);
+                              }}
+                            >
+                              remove
                             </button>
                           </div>
                         </li>

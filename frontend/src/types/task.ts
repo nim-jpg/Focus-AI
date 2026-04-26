@@ -80,6 +80,8 @@ export interface Task {
   specificTime?: string;
   /** For tasks that need multiple sessions per week (e.g. 3 weight training sessions). The UI / planner can spread these across the week. */
   sessionsPerWeek?: number;
+  /** Auto-scheduled / manually-set instances of a multi-session task for the current week. ISO timestamps. */
+  sessionTimes?: string[];
   /** If present, this task is a counter (e.g. drink 8 glasses). Tap-to-increment instead of tick-once. */
   counter?: DailyCounter;
   /** Goals this task ladders up to. */

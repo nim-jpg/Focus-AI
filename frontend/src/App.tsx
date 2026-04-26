@@ -153,7 +153,11 @@ export default function App() {
     setPickerForTaskId(null);
 
     if (choice.destination === "local") {
-      updateTask(task.id, { scheduledFor: choice.start.toISOString() });
+      // Local-only schedule: clear any prior Google link and set scheduledFor.
+      updateTask(task.id, {
+        scheduledFor: choice.start.toISOString(),
+        calendarEventId: undefined,
+      });
       setCalendarMsg(
         `"${task.title}" scheduled locally for ${choice.start.toLocaleString()}.`,
       );
@@ -170,10 +174,11 @@ export default function App() {
     }
     try {
       const { htmlLink } = await scheduleTask(task, choice.start, choice.end);
-      // Mirror the chosen time locally too so the week view shows it without a refetch.
+      // Pushed to Google — clear local schedule so it's not shown twice.
+      // The event will appear in WeekSchedule via the Google fetch.
       updateTask(task.id, {
         calendarEventId: "set",
-        scheduledFor: choice.start.toISOString(),
+        scheduledFor: undefined,
       });
       setCalendarMsg(
         htmlLink
@@ -481,6 +486,9 @@ export default function App() {
             calendarConnected={googleStatus?.connected ?? false}
             onScheduleClick={openSchedulePicker}
             onUnschedule={(id) => updateTask(id, { scheduledFor: undefined })}
+            onSetSessionTimes={(id, isoTimes) =>
+              updateTask(id, { sessionTimes: isoTimes })
+            }
           />
 
           <TomorrowPreview
