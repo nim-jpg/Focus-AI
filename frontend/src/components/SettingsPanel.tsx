@@ -113,12 +113,6 @@ export function SettingsPanel({
             <h4 className="text-sm font-semibold text-slate-700">
               I'm an…
             </h4>
-            <p className="text-xs text-slate-500">
-              Shapes how brain-dumps are tagged. Employees: company / dev work
-              you do on the side counts as "projects". Self-employed: your
-              business work counts as "work". Retired: any work-shaped task
-              counts as "projects".
-            </p>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {USER_TYPES.map((t) => {
                 const active = (prefs.userType ?? "employee") === t;
@@ -138,6 +132,12 @@ export function SettingsPanel({
                 );
               })}
             </div>
+            <p className="mt-2 text-xs text-slate-500">
+              Shapes how brain-dumps are tagged. Employees: company / dev work
+              you do on the side counts as "projects". Self-employed: your
+              business work counts as "work". Retired: any work-shaped task
+              counts as "projects".
+            </p>
           </section>
 
           {/* Working hours */}
