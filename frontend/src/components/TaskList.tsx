@@ -15,6 +15,7 @@ type StatusFilter = "open" | "all" | "completed" | "snoozed";
 
 const THEME_LABELS: Record<Theme, string> = {
   work: "Work",
+  projects: "Projects",
   personal: "Personal",
   school: "School",
   fitness: "Fitness",

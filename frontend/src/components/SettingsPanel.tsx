@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { THEMES, type Theme, type UserPrefs } from "@/types/task";
+import {
+  THEMES,
+  USER_TYPES,
+  type Theme,
+  type UserPrefs,
+  type UserType,
+} from "@/types/task";
 import { TimeField } from "./TimeField";
 import { fetchCalendars, type CalendarMeta } from "@/lib/googleCalendar";
 
@@ -97,6 +103,36 @@ export function SettingsPanel({
         </div>
 
         <div className="space-y-5">
+          {/* User type — shapes how Focus3 reads your day */}
+          <section>
+            <h4 className="text-sm font-semibold text-slate-700">
+              I'm an…
+            </h4>
+            <p className="text-xs text-slate-500">
+              Helps Focus3 sort tasks. Self-employed people's main work
+              counts as "projects"; retired people don't get a "work" bucket.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {USER_TYPES.map((t) => {
+                const active = (prefs.userType ?? "employee") === t;
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => onChange({ userType: t as UserType })}
+                    className={`rounded-full border px-3 py-1 text-xs ${
+                      active
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+                    }`}
+                  >
+                    {t.replace("-", " ")}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
           {/* Working hours */}
           <section>
             <h4 className="text-sm font-semibold text-slate-700">
@@ -299,55 +335,97 @@ export function SettingsPanel({
                   ? `Connected as ${calendar.email ?? "(unknown)"}.`
                   : "Not connected."}
               </p>
-              {calendar.connected && calendars && calendars.length > 0 && (
+              {calendar.connected && (
                 <div className="mt-2 rounded-md border border-slate-200 bg-white p-2">
                   <p className="mb-1 text-xs font-medium text-slate-700">
-                    Per-calendar privacy
+                    Per-calendar mode
                   </p>
                   <p className="mb-2 text-[11px] text-slate-500">
-                    Mark a calendar as private — its events render as grey
-                    "Busy" blocks (title hidden) and still block scheduling.
-                    Useful for work-meeting calendars.
+                    <span className="font-medium">Block</span>: events show in
+                    full and count as busy time.{" "}
+                    <span className="font-medium">Private</span>: events show as
+                    grey "Busy" (title hidden) and still block.{" "}
+                    <span className="font-medium">Shadow</span>: events show
+                    faintly so you're aware, but they DON'T block your
+                    auto-schedule (e.g. family / partner calendars).
                   </p>
-                  <ul className="space-y-1">
-                    {calendars.map((c) => {
-                      const isPrivate = (
-                        prefs.privateCalendarIds ?? []
-                      ).includes(c.id);
-                      return (
-                        <li key={c.id} className="flex items-center gap-2 text-xs">
-                          <input
-                            type="checkbox"
-                            checked={isPrivate}
-                            onChange={() => {
-                              const cur = prefs.privateCalendarIds ?? [];
-                              const next = isPrivate
-                                ? cur.filter((id) => id !== c.id)
-                                : [...cur, c.id];
-                              onChange({ privateCalendarIds: next });
-                            }}
-                          />
-                          {c.color && (
-                            <span
-                              className="inline-block h-3 w-3 rounded-sm"
-                              style={{ backgroundColor: c.color }}
-                            />
-                          )}
-                          <span className="truncate">
-                            {c.name}
-                            {c.primary && (
-                              <span className="ml-1 text-slate-400">(primary)</span>
+                  {!calendars && (
+                    <p className="text-[11px] italic text-slate-400">
+                      loading calendars…
+                    </p>
+                  )}
+                  {calendars && calendars.length === 0 && (
+                    <p className="text-[11px] italic text-slate-400">
+                      No calendars returned. Try clicking Disconnect &amp;
+                      reconnect.
+                    </p>
+                  )}
+                  {calendars && calendars.length > 0 && (
+                    <ul className="space-y-1.5">
+                      {calendars.map((c) => {
+                        const isPrivate = (
+                          prefs.privateCalendarIds ?? []
+                        ).includes(c.id);
+                        const isShadow = (
+                          prefs.shadowCalendarIds ?? []
+                        ).includes(c.id);
+                        const mode: "block" | "private" | "shadow" = isPrivate
+                          ? "private"
+                          : isShadow
+                          ? "shadow"
+                          : "block";
+                        const setMode = (m: "block" | "private" | "shadow") => {
+                          const priv = new Set(prefs.privateCalendarIds ?? []);
+                          const sh = new Set(prefs.shadowCalendarIds ?? []);
+                          priv.delete(c.id);
+                          sh.delete(c.id);
+                          if (m === "private") priv.add(c.id);
+                          else if (m === "shadow") sh.add(c.id);
+                          onChange({
+                            privateCalendarIds: Array.from(priv),
+                            shadowCalendarIds: Array.from(sh),
+                          });
+                        };
+                        return (
+                          <li
+                            key={c.id}
+                            className="flex flex-wrap items-center gap-2 text-xs"
+                          >
+                            {c.color && (
+                              <span
+                                className="inline-block h-3 w-3 rounded-sm"
+                                style={{ backgroundColor: c.color }}
+                              />
                             )}
-                          </span>
-                          {isPrivate && (
-                            <span className="ml-auto rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-700">
-                              private
+                            <span className="flex-1 truncate">
+                              {c.name}
+                              {c.primary && (
+                                <span className="ml-1 text-slate-400">
+                                  (primary)
+                                </span>
+                              )}
                             </span>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
+                            <div className="flex gap-1">
+                              {(["block", "private", "shadow"] as const).map((m) => (
+                                <button
+                                  key={m}
+                                  type="button"
+                                  onClick={() => setMode(m)}
+                                  className={`rounded-full border px-2 py-0.5 text-[10px] ${
+                                    mode === m
+                                      ? "border-slate-900 bg-slate-900 text-white"
+                                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+                                  }`}
+                                >
+                                  {m}
+                                </button>
+                              ))}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </div>
               )}
               {calendar.connected && (

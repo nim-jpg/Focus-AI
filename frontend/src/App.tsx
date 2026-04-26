@@ -722,6 +722,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               defaultOpen
               onAdd={addTaskAndEnrich}
               onClose={() => setShowBrainDump(false)}
+              userType={prefs.userType}
             />
           </div>
         </div>

@@ -18,11 +18,26 @@ function isUrgent(task: Task, now: Date): boolean {
   return hoursLeft <= 48 && hoursLeft >= -24;
 }
 
+/** Themes that almost always mean "this matters" — finance, work, projects,
+ *  development, school. Used as a positive signal when no other "important"
+ *  marker (goal, blocker, urgency) is set. */
+const IMPORTANT_THEMES = new Set([
+  "work",
+  "projects",
+  "finance",
+  "development",
+  "school",
+]);
+
 function isImportant(task: Task): boolean {
   if ((task.goalIds ?? []).length > 0) return true;
   if (task.isBlocker) return true;
   if ((task.avoidanceWeeks ?? 0) >= 2) return true;
   if (task.urgency === "high" || task.urgency === "critical") return true;
+  // Tasks tied to load-bearing life themes (finance, work, projects, school,
+  // dev) get the benefit of the doubt — they shape long-term outcomes even
+  // without an explicit goal link.
+  if (IMPORTANT_THEMES.has(task.theme)) return true;
   return false;
 }
 
@@ -74,8 +89,8 @@ export function PriorityMatrix({ tasks, onEdit }: Props) {
     },
     {
       key: "q4",
-      title: "Neither",
-      hint: "background — revisit only when bored",
+      title: "Low priority",
+      hint: "no deadline pressure or impact signal yet — review weekly",
       tasks: buckets.q4,
       classes: "border-slate-200 bg-slate-50/60",
     },

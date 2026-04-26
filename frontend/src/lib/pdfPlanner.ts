@@ -612,6 +612,7 @@ export async function exportWeeklyPlanner(
   // Faint theme-color stripe + alternating-row tint for scannability.
   const themeStripeColour: Record<string, [number, number, number]> = {
     work: [37, 99, 235],
+    projects: [79, 70, 229],
     personal: [126, 34, 206],
     school: [219, 39, 119],
     fitness: [22, 163, 74],

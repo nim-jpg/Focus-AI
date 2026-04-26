@@ -224,11 +224,15 @@ export function busyWindowsForWeek(
   tasks: Task[],
   events: CalendarEvent[],
   excludeTaskId?: string,
+  /** Calendar IDs the user marked as "shadow" — visible but don't block. */
+  shadowCalendarIds: string[] = [],
 ): BusyBlock[] {
   const busy: BusyBlock[] = [];
+  const shadowSet = new Set(shadowCalendarIds);
 
   for (const ev of events) {
     if (!ev.start || !ev.end) continue;
+    if (ev.calendarId && shadowSet.has(ev.calendarId)) continue; // shadow → skip
     const s = new Date(ev.start).getTime();
     const e = new Date(ev.end).getTime();
     if (e < weekStart.getTime() || s > weekEnd.getTime()) continue;

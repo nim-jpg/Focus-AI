@@ -61,6 +61,8 @@ interface Block {
   layoutCol?: number;
   /** Total columns in this block's overlap cluster. */
   layoutCols?: number;
+  /** Position within its own column (0=top). Used for cascading indent. */
+  layoutStackIdx?: number;
 }
 
 /**
@@ -88,12 +90,16 @@ function layoutOverlappingBlocks(blocks: Block[]): { blocks: Block[] } {
         if (last.endMin <= b.startMin) {
           cols[ci]!.push(b);
           b.layoutCol = ci;
+          // Index within this column for cascading indent
+          (b as Block & { layoutStackIdx?: number }).layoutStackIdx =
+            cols[ci]!.length - 1;
           placed = true;
           break;
         }
       }
       if (!placed) {
         b.layoutCol = cols.length;
+        (b as Block & { layoutStackIdx?: number }).layoutStackIdx = 0;
         cols.push([b]);
       }
     }
@@ -169,6 +175,7 @@ export function WeekSchedule({
   const blocks: Block[] = useMemo(() => {
     const out: Block[] = [];
     const privateIds = new Set(prefs.privateCalendarIds ?? []);
+    const shadowIds = new Set(prefs.shadowCalendarIds ?? []);
 
     // Tasks linked to Google events (calendarEventId set) — we'll skip rendering
     // them as task blocks because the event itself will appear via the events
@@ -192,6 +199,7 @@ export function WeekSchedule({
       if (dayIdx < 0 || dayIdx > 6) continue;
 
       const isPrivate = ev.calendarId ? privateIds.has(ev.calendarId) : false;
+      const isShadow = ev.calendarId ? shadowIds.has(ev.calendarId) : false;
       const linkedTask = ev.id ? tasksByEventId.get(ev.id) : undefined;
 
       // Redact private events: title hidden, no calendar name, no link.
@@ -202,6 +210,12 @@ export function WeekSchedule({
             calendarName: null,
             calendarColor: "#94a3b8", // slate-400
             htmlLink: null,
+          }
+        : isShadow
+        ? {
+            ...ev,
+            // Keep title and metadata but mark visually as shadow via colour
+            calendarColor: "#cbd5e1", // slate-300, faint
           }
         : ev;
 
@@ -285,7 +299,7 @@ export function WeekSchedule({
     }
 
     return out;
-  }, [events, tasks, weekStart, prefs.privateCalendarIds]);
+  }, [events, tasks, weekStart, prefs.privateCalendarIds, prefs.shadowCalendarIds]);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -327,7 +341,14 @@ export function WeekSchedule({
     if (!task) return;
     const need = sessionCountFor(task);
     if (need <= 0) return;
-    const busy = busyWindowsForWeek(weekStart, weekEnd, tasks, events, taskId);
+    const busy = busyWindowsForWeek(
+      weekStart,
+      weekEnd,
+      tasks,
+      events,
+      taskId,
+      prefs.shadowCalendarIds ?? [],
+    );
     const slots = suggestSessionTimes(
       need,
       task.estimatedMinutes ?? 60,
@@ -772,18 +793,25 @@ export function WeekSchedule({
                   16,
                   minToY(b.endMin) - minToY(b.startMin),
                 );
-                // Use the source-calendar colour for events when available;
-                // tasks/sessions keep their semantic colours.
-                const eventBg = b.event?.calendarColor ?? "#dbeafe"; // blue-100 default
+                // Shadow calendars are rendered as outlined faint blocks
+                // (no fill) so they're visible but visually de-emphasised.
+                const isShadow = b.event && b.event.calendarId
+                  ? (prefs.shadowCalendarIds ?? []).includes(b.event.calendarId)
+                  : false;
+                const eventBg = b.event?.calendarColor ?? "#dbeafe";
                 const colour =
                   b.kind === "event"
-                    ? "border text-slate-900"
+                    ? isShadow
+                      ? "border-2 border-dashed bg-transparent text-slate-600"
+                      : "border text-slate-900"
                     : b.kind === "session"
                     ? "border-violet-300 bg-violet-100/90 text-violet-900"
                     : "border-emerald-300 bg-emerald-100/90 text-emerald-900";
                 const inlineBg =
-                  b.kind === "event"
+                  b.kind === "event" && !isShadow
                     ? { backgroundColor: eventBg, borderColor: eventBg }
+                    : b.kind === "event" && isShadow
+                    ? { borderColor: eventBg }
                     : undefined;
                 const title =
                   b.event?.summary ??
@@ -814,18 +842,24 @@ export function WeekSchedule({
                 const col = b.layoutCol ?? 0;
                 const widthPct = 100 / cols;
                 const leftPct = (col / cols) * 100;
+                // Cascading indent: when several blocks stack in the same
+                // layout column, each successive one shifts right by 5px so
+                // a sliver of every block remains hover-reachable.
+                const stackIdx = b.layoutStackIdx ?? 0;
+                const stackOffsetPx = Math.min(stackIdx, 3) * 5;
 
                 return (
                   <div
                     key={i}
-                    className={`group absolute z-10 overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight transition-all hover:z-40 hover:!left-0 hover:!right-0 hover:!w-auto hover:overflow-visible hover:!h-auto hover:min-h-fit hover:shadow-lg ${colour} ${
+                    className={`group absolute z-10 overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight transition-all hover:z-40 hover:!left-0 hover:!right-0 hover:!w-auto hover:overflow-visible hover:!h-auto hover:!max-h-none hover:min-h-fit hover:shadow-lg ${colour} ${
                       draggable ? "cursor-move" : ""
                     }`}
                     style={{
                       top: `${top}px`,
-                      height: `${height}px`,
-                      left: `calc(${leftPct}% + 1px)`,
-                      width: `calc(${widthPct}% - 2px)`,
+                      height: `${Math.max(36, height)}px`,
+                      maxHeight: `${Math.max(36, height)}px`,
+                      left: `calc(${leftPct}% + ${1 + stackOffsetPx}px)`,
+                      width: `calc(${widthPct}% - ${2 + stackOffsetPx}px)`,
                       ...(inlineBg ?? {}),
                     }}
                     title={

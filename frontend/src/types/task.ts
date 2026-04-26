@@ -1,5 +1,6 @@
 export const THEMES = [
   "work",
+  "projects",
   "personal",
   "school",
   "fitness",
@@ -130,8 +131,20 @@ export interface Goal {
   updatedAt: string;
 }
 
+export const USER_TYPES = [
+  "employee",
+  "self-employed",
+  "student",
+  "retired",
+  "other",
+] as const;
+export type UserType = (typeof USER_TYPES)[number];
+
 /** App-wide user preferences. */
 export interface UserPrefs {
+  /** What's the user's primary occupation context? Used to shape defaults
+   *  (working hours flexibility, theme suggestions, etc.). */
+  userType: UserType;
   workingHoursStart: string; // "09:00"
   workingHoursEnd: string; // "18:00"
   /** Day-of-week numbers (0=Sun..6=Sat) the user typically works. */
@@ -147,6 +160,11 @@ export interface UserPrefs {
    *  grey "Busy" blocks with title hidden, but still count as busy time
    *  for auto-schedule. Useful for work-meeting calendars. */
   privateCalendarIds: string[];
+  /** Google Calendar IDs treated as SHADOW — events show on the schedule
+   *  faintly (so you're aware) but don't block auto-scheduling. Useful
+   *  for partner/family calendars where you want context but the event
+   *  doesn't directly take your time. */
+  shadowCalendarIds: string[];
   /** Subset of workingDays that are office days (commute applies). */
   officeDays: number[];
   /** Single-leg commute time in minutes. Applied before AND after the working
@@ -155,6 +173,7 @@ export interface UserPrefs {
 }
 
 export const DEFAULT_PREFS: UserPrefs = {
+  userType: "employee",
   workingHoursStart: "09:00",
   workingHoursEnd: "18:00",
   workingDays: [1, 2, 3, 4, 5], // Mon-Fri
@@ -163,6 +182,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   notificationsEnabled: false,
   pdfExcludeThemes: ["medication"],
   privateCalendarIds: [],
+  shadowCalendarIds: [],
   officeDays: [],
   commuteMinutes: 0,
 };

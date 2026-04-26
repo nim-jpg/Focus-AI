@@ -87,13 +87,16 @@ function normalizeRaw(raw: RawTask): NewTaskInput | null {
   };
 }
 
-export async function parseBrainDump(text: string): Promise<NewTaskInput[]> {
+export async function parseBrainDump(
+  text: string,
+  userType?: string,
+): Promise<NewTaskInput[]> {
   let res: Response;
   try {
     res = await apiFetch("/api/parse-tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, userType }),
     });
   } catch (err) {
     throw new ParseUnavailableError(

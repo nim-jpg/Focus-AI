@@ -10,6 +10,8 @@ interface Props {
   defaultOpen?: boolean;
   /** Called when the close button is hit. If not provided, falls back to internal toggle. */
   onClose?: () => void;
+  /** Optional user-type context — passed to Claude so it picks themes appropriately. */
+  userType?: string;
 }
 
 interface Suggestion extends NewTaskInput {
@@ -26,7 +28,12 @@ e.g.
 - email landlord about boiler — they said next Tuesday
 - finish the React migration so QA can start testing`;
 
-export function BrainDump({ onAdd, defaultOpen = false, onClose }: Props) {
+export function BrainDump({
+  onAdd,
+  defaultOpen = false,
+  onClose,
+  userType,
+}: Props) {
   const [open, setOpen] = useState(defaultOpen);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
@@ -70,7 +77,7 @@ export function BrainDump({ onAdd, defaultOpen = false, onClose }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const parsed = await parseBrainDump(text);
+      const parsed = await parseBrainDump(text, userType);
       if (parsed.length === 0) {
         setError("Claude didn't find any tasks in that text.");
         return;
