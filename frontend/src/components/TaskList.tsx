@@ -8,6 +8,7 @@ interface Props {
   onRemove: (id: string) => void;
   onEdit?: (id: string) => void;
   onUnsnooze?: (id: string) => void;
+  onSchedule?: (id: string) => void;
 }
 
 type StatusFilter = "open" | "all" | "completed" | "snoozed";
@@ -30,7 +31,14 @@ function formatDue(iso?: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-export function TaskList({ tasks, onToggle, onRemove, onEdit, onUnsnooze }: Props) {
+export function TaskList({
+  tasks,
+  onToggle,
+  onRemove,
+  onEdit,
+  onUnsnooze,
+  onSchedule,
+}: Props) {
   const now = Date.now();
   const [selectedThemes, setSelectedThemes] = useState<Set<Theme>>(new Set());
   const [search, setSearch] = useState("");
@@ -198,6 +206,17 @@ export function TaskList({ tasks, onToggle, onRemove, onEdit, onUnsnooze }: Prop
               </div>
 
               <div className="flex flex-col gap-1 text-xs">
+                {onSchedule && task.status !== "completed" && (
+                  <button
+                    type="button"
+                    onClick={() => onSchedule(task.id)}
+                    className="text-emerald-700 hover:text-emerald-900"
+                    aria-label={`Schedule ${task.title}`}
+                    title="Pick a time / push to Calendar"
+                  >
+                    Schedule
+                  </button>
+                )}
                 {onEdit && (
                   <button
                     type="button"

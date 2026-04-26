@@ -603,6 +603,7 @@ export default function App() {
               onRemove={removeTask}
               onEdit={startEdit}
               onUnsnooze={(id) => updateTask(id, { snoozedUntil: undefined })}
+              onSchedule={openSchedulePicker}
             />
           </section>
         </div>

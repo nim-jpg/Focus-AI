@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { UserPrefs } from "@/types/task";
+import { THEMES, type Theme, type UserPrefs } from "@/types/task";
 import { TimeField } from "./TimeField";
 
 interface Props {
@@ -135,6 +135,43 @@ export function SettingsPanel({
                     }`}
                   >
                     {d.label}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* PDF privacy */}
+          <section>
+            <h4 className="text-sm font-semibold text-slate-700">
+              PDF — themes to exclude
+            </h4>
+            <p className="text-xs text-slate-500">
+              Tasks with these themes are kept off the printable planner.
+              Useful for sensitive content (defaults to medication).
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {THEMES.map((theme) => {
+                const excluded = (prefs.pdfExcludeThemes ?? []).includes(theme);
+                return (
+                  <button
+                    key={theme}
+                    type="button"
+                    onClick={() => {
+                      const current = prefs.pdfExcludeThemes ?? [];
+                      const next = excluded
+                        ? current.filter((t) => t !== theme)
+                        : [...current, theme as Theme];
+                      onChange({ pdfExcludeThemes: next });
+                    }}
+                    className={`rounded-full border px-2 py-0.5 text-xs ${
+                      excluded
+                        ? "border-red-300 bg-red-50 text-red-800 line-through"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+                    }`}
+                    title={excluded ? "Excluded — click to include" : "Click to exclude"}
+                  >
+                    {theme}
                   </button>
                 );
               })}

@@ -112,11 +112,12 @@ function pickStretchTasks(
   prefs: UserPrefs,
   weekStart: Date,
   excludeIds: Set<string>,
+  count = 8,
 ): Task[] {
-  const candidates = prioritize(tasks, { prefs, limit: 24, now: weekStart })
+  const candidates = prioritize(tasks, { prefs, limit: 32, now: weekStart })
     .map((p) => p.task)
     .filter((t) => !excludeIds.has(t.id) && isSignificantWorkItem(t));
-  return candidates.slice(0, 5);
+  return candidates.slice(0, count);
 }
 
 /** Single-page A4 landscape weekly planner. */
@@ -133,6 +134,10 @@ export async function exportWeeklyPlanner(
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   const end = new Date(start.getTime() + 7 * DAY_MS);
+
+  // Privacy: drop tasks whose theme is on the user's PDF exclude list (default: medication).
+  const excludedThemes = new Set(prefs.pdfExcludeThemes ?? ["medication"]);
+  const allowedTasks = tasks.filter((t) => !excludedThemes.has(t.theme));
 
   // Two-column layout
   const colGap = 24;
@@ -211,26 +216,49 @@ export async function exportWeeklyPlanner(
   doc.setFontSize(18);
   doc.text("Focus3 — Weekly Planner", margin, y + 6);
 
+  // Date range
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(120);
   doc.text(
-    `${start.toLocaleDateString()} → ${new Date(end.getTime() - 1).toLocaleDateString()}   ·   mode: ${prefs.mode}`,
+    `${start.toLocaleDateString()} → ${new Date(end.getTime() - 1).toLocaleDateString()}`,
     margin + 230,
     y + 6,
   );
   doc.setTextColor(0);
-  y += 24;
+
+  // Mode pill — coloured badge so it's instantly clear which lens this planner is for
+  const modeLabel = `Mode: ${prefs.mode.toUpperCase()}`;
+  const modeBg: [number, number, number] = prefs.mode === "work"
+    ? [219, 234, 254] // blue
+    : prefs.mode === "personal"
+    ? [243, 232, 255] // purple
+    : [220, 252, 231]; // green for both
+  const modeFg: [number, number, number] = prefs.mode === "work"
+    ? [30, 64, 175]
+    : prefs.mode === "personal"
+    ? [88, 28, 135]
+    : [22, 101, 52];
+  doc.setFontSize(9);
+  const modeW = doc.getTextWidth(modeLabel) + 12;
+  const modeX = pageW - margin - modeW;
+  doc.setFillColor(modeBg[0], modeBg[1], modeBg[2]);
+  doc.roundedRect(modeX, y, modeW, 16, 8, 8, "F");
+  doc.setTextColor(modeFg[0], modeFg[1], modeFg[2]);
+  doc.text(modeLabel, modeX + 6, y + 11);
+  doc.setTextColor(0);
+
+  y += 28;
 
   doc.setDrawColor(220);
   doc.setLineWidth(0.5);
   doc.line(margin, y, pageW - margin, y);
-  y += 16;
+  y += 22; // more space after the divider
 
   // Build content for each task list
-  const keyTasks = pickKeyTasks(tasks, prefs, start, end);
+  const keyTasks = pickKeyTasks(allowedTasks, prefs, start, end);
   const keyIds = new Set(keyTasks.map((t) => t.id));
-  const stretchTasks = pickStretchTasks(tasks, prefs, start, keyIds);
+  const stretchTasks = pickStretchTasks(allowedTasks, prefs, start, keyIds, 8);
   const stretchIds = new Set(stretchTasks.map((t) => t.id));
   const surfacedIds = new Set([...keyIds, ...stretchIds]);
 
@@ -271,26 +299,47 @@ export async function exportWeeklyPlanner(
       doc.text(
         `due ${dueLabel(t.dueDate)}  ·  ~${t.estimatedMinutes ?? 30}m  ·  ${t.theme}`,
         leftX + 16,
-        leftY + 10,
+        leftY + 11,
       );
       doc.setTextColor(0);
 
-      // Wave code, right-aligned
+      // Code stamp, right-aligned
       await drawCodes(t.id, leftCodeX, leftY - 4);
 
-      // Time/defer/notes line — kept short so it doesn't overlap the code
-      doc.setDrawColor(220);
-      doc.line(leftX + 16, leftY + 22, leftCodeX - 8, leftY + 22);
+      // Action row: tick boxes for defer / blocked, time-spent slot
+      const actionY = leftY + 22;
       doc.setFontSize(7);
-      doc.setTextColor(150);
-      doc.text(
-        "time spent: ____    defer ▢    blocked ▢    notes:",
-        leftX + 16,
-        leftY + 20,
-      );
+      doc.setTextColor(120);
+
+      let cursor = leftX + 16;
+      doc.text("time:", cursor, actionY);
+      cursor += 18;
+      // underline for time value
+      doc.setDrawColor(180);
+      doc.line(cursor, actionY + 1, cursor + 28, actionY + 1);
+      cursor += 36;
+
+      // Defer tick + label
+      checkbox(cursor, actionY, 7);
+      doc.text("defer", cursor + 10, actionY);
+      cursor += 38;
+
+      // Blocked tick + label
+      checkbox(cursor, actionY, 7);
+      doc.text("blocked", cursor + 10, actionY);
+
       doc.setTextColor(0);
 
-      leftY += 36;
+      // Notes line on a fresh row underneath
+      const notesY = leftY + 32;
+      doc.setFontSize(7);
+      doc.setTextColor(120);
+      doc.text("notes:", leftX + 16, notesY);
+      doc.setDrawColor(220);
+      doc.line(leftX + 16 + 22, notesY + 1, leftCodeX - 8, notesY + 1);
+      doc.setTextColor(0);
+
+      leftY += 50; // taller row to accommodate the new fields
     }
   }
 
@@ -326,13 +375,13 @@ export async function exportWeeklyPlanner(
       doc.setTextColor(0);
       await drawCodes(t.id, leftCodeX, leftY - 4);
       doc.setFontSize(9);
-      leftY += 22;
+      leftY += 26; // was 22 — more breathing room per stretch row
     }
   }
 
   // (Backlog moved to right column under Daily habits)
   // Pre-compute the others list — it's rendered later in the right column.
-  const others = tasks
+  const others = allowedTasks
     .filter(
       (t) =>
         !surfacedIds.has(t.id) &&
@@ -354,7 +403,7 @@ export async function exportWeeklyPlanner(
 
   // Section: Daily habits — ALL daily-recurring tasks (not just isFoundation).
   // Sort: timed habits first (chronologically), then anytime.
-  const dailyTasks = tasks
+  const dailyTasks = allowedTasks
     .filter((t) => t.recurrence === "daily" && t.status !== "completed")
     .sort((a, b) => {
       const aT = a.specificTime ?? "99:99";
@@ -454,45 +503,82 @@ export async function exportWeeklyPlanner(
     }
   }
 
-  rightY += 14;
+  rightY += 18; // more breathing room before backlog
 
   // ── Backlog (moved here) ──────────────────────────────────────────────────
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.text("Backlog — other tasks by due date", rightX, rightY);
+  doc.text("Backlog — other tasks", rightX, rightY);
   rightY += 6;
   doc.setDrawColor(220);
   doc.line(rightX, rightY, rightX + colW, rightY);
   rightY += 12;
+
+  // Column header row
+  doc.setFontSize(6.5);
+  doc.setTextColor(140);
+  const colTitleX = rightX + 12;
+  const colDueX = rightX + colW - 130;
+  const colUrgencyX = rightX + colW - 90;
+  const colThemeX = rightX + colW - 50;
+  doc.text("TASK", colTitleX, rightY);
+  doc.text("DUE", colDueX, rightY);
+  doc.text("URG", colUrgencyX, rightY);
+  doc.text("THEME", colThemeX, rightY);
+  doc.setTextColor(0);
+  rightY += 8;
 
   // Reserve a fixed-height doodle box at the bottom (smaller than before).
   const DOODLE_H = 90;
   const footerH = 16;
   const backlogMaxY = pageH - margin - DOODLE_H - footerH - 18;
 
+  // Faint theme-color stripe + alternating-row tint for scannability.
+  const themeStripeColour: Record<string, [number, number, number]> = {
+    work: [37, 99, 235],
+    personal: [126, 34, 206],
+    school: [219, 39, 119],
+    fitness: [22, 163, 74],
+    finance: [202, 138, 4],
+    diet: [234, 88, 12],
+    medication: [220, 38, 38],
+    development: [13, 148, 136],
+    household: [100, 116, 139],
+  };
+
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
+  let rowIdx = 0;
   for (const t of others) {
-    if (rightY > backlogMaxY - 11) {
+    if (rightY > backlogMaxY - 13) {
       doc.setTextColor(150);
       doc.text(
         `+${others.length - others.indexOf(t)} more — see app`,
         rightX,
-        rightY,
+        rightY + 4,
       );
       doc.setTextColor(0);
       break;
     }
-    checkbox(rightX, rightY, 7);
-    doc.text(truncate(t.title, 50), rightX + 12, rightY);
+    // Alternating row tint
+    if (rowIdx % 2 === 1) {
+      doc.setFillColor(248, 250, 252);
+      doc.rect(rightX, rightY - 7, colW, 13, "F");
+    }
+    // Theme stripe on the left edge of the row
+    const stripe = themeStripeColour[t.theme] ?? [148, 163, 184];
+    doc.setFillColor(stripe[0], stripe[1], stripe[2]);
+    doc.rect(rightX, rightY - 7, 2, 13, "F");
+
+    checkbox(rightX + 6, rightY, 7);
+    doc.text(truncate(t.title, 42), colTitleX, rightY);
     doc.setTextColor(120);
-    doc.text(
-      `${dueLabel(t.dueDate)}  ·  ${t.urgency}  ·  ${t.theme}  ·  ${shortId(t.id)}`,
-      rightX + colW - 165,
-      rightY,
-    );
+    doc.text(dueLabel(t.dueDate), colDueX, rightY);
+    doc.text(t.urgency.slice(0, 4), colUrgencyX, rightY);
+    doc.text(t.theme.slice(0, 7), colThemeX, rightY);
     doc.setTextColor(0);
-    rightY += 11;
+    rightY += 13;
+    rowIdx++;
   }
 
   // ── Notes / doodles (smaller, fixed height) ───────────────────────────────
