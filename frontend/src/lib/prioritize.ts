@@ -4,6 +4,7 @@ import type {
   Theme,
   UserPrefs,
 } from "@/types/task";
+import { isBasic, isDueNow } from "./recurrence";
 
 const HOURS = 60 * 60 * 1000;
 
@@ -39,13 +40,9 @@ function scoreTask(task: Task, all: Task[], now: Date): Scored {
   };
 
   const hoursLeft = hoursUntil(task.dueDate, now);
+  const avoidance = task.avoidanceWeeks ?? 0;
 
   // Tier 1 — must do now.
-  if (task.theme === "medication" && task.recurrence === "daily") {
-    score += 1000;
-    promote(1);
-    reasons.push("daily medication is non-negotiable");
-  }
   if (hoursLeft !== null && hoursLeft <= 48 && hoursLeft >= -24) {
     score += 600;
     promote(1);
@@ -59,6 +56,12 @@ function scoreTask(task: Task, all: Task[], now: Date): Scored {
     score += 400;
     promote(1);
     reasons.push("flagged critical");
+  }
+  // Avoidance is a primary signal — long-avoided work is what Top Three exists for.
+  if (avoidance >= 3) {
+    score += 350 + avoidance * 30;
+    promote(1);
+    reasons.push(`avoided ${avoidance} weeks — time to break the pattern`);
   }
 
   // Tier 2 — moves you forward.
@@ -111,15 +114,11 @@ function scoreTask(task: Task, all: Task[], now: Date): Scored {
     task.recurrence
   ];
 
-  // Tier 3 — avoidance acknowledgement.
-  const avoidance = task.avoidanceWeeks ?? 0;
-  if (avoidance >= 2 && hoursLeft !== null && hoursLeft <= 14 * 24) {
-    score += 70;
+  // Tier 3 — milder avoidance (2w) gets a steady nudge.
+  if (avoidance === 2) {
+    score += 120;
     promote(3);
-    reasons.push(`dodged ${avoidance}w, due in <2w`);
-  } else if (avoidance >= 3) {
-    score += 30;
-    reasons.push(`dodged ${avoidance}w — flagging`);
+    reasons.push("dodged 2 weeks — surfacing before it grows");
   }
 
   // Tier 4 baseline (household etc.) — if nothing else fired, leave as tier 4.
@@ -152,6 +151,10 @@ export function prioritize(
     if (t.status === "completed") return false;
     if (mode === "work" && !t.isWork) return false;
     if (mode === "personal" && t.isWork) return false;
+    // Daily foundational habits live in the Basics rail, never in Top Three.
+    if (isBasic(t)) return false;
+    // Recurring tasks only compete when they're actually due.
+    if (t.recurrence !== "none" && !isDueNow(t, now)) return false;
     return true;
   });
 

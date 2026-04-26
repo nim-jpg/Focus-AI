@@ -54,6 +54,8 @@ export interface Task {
   lastSurfacedAt?: string;
   /** Number of weeks the user has avoided this task. */
   avoidanceWeeks?: number;
+  /** ISO timestamp the task was last marked done. For recurring tasks this drives next-due calculation. */
+  lastCompletedAt?: string;
   /** Optional Google Calendar event id once scheduled. */
   calendarEventId?: string;
 }

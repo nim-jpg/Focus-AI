@@ -1,4 +1,5 @@
 import type { PrioritizedTask, Task, UserPrefs } from "@/types/task";
+import { isBasic, isDueNow } from "./recurrence";
 
 interface AiResponse {
   topThree: Array<{ taskId: string; tier: 1 | 2 | 3 | 4; reasoning: string }>;
@@ -24,7 +25,13 @@ export async function aiPrioritize(
   tasks: Task[],
   prefs: UserPrefs,
 ): Promise<PrioritizedTask[]> {
-  const candidates = tasks.filter((t) => t.status !== "completed");
+  const now = new Date();
+  const candidates = tasks.filter((t) => {
+    if (t.status === "completed") return false;
+    if (isBasic(t)) return false;
+    if (t.recurrence !== "none" && !isDueNow(t, now)) return false;
+    return true;
+  });
 
   let res: Response;
   try {

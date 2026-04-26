@@ -4,9 +4,11 @@ import { TaskList } from "@/components/TaskList";
 import { TopThree } from "@/components/TopThree";
 import { ModeSwitch } from "@/components/ModeSwitch";
 import { BrainDump } from "@/components/BrainDump";
+import { Basics } from "@/components/Basics";
 import { useTasks } from "@/lib/useTasks";
 import { prioritize } from "@/lib/prioritize";
 import { aiPrioritize, AiUnavailableError } from "@/lib/aiPrioritize";
+import { isBasic, wasCompletedToday } from "@/lib/recurrence";
 import type { PrioritizedTask } from "@/types/task";
 
 type Source = "local" | "claude";
@@ -18,6 +20,11 @@ export default function App() {
   const local = useMemo(
     () => prioritize(tasks, { prefs, limit: 3 }),
     [tasks, prefs],
+  );
+
+  const basics = useMemo(
+    () => tasks.filter((t) => isBasic(t) && t.status !== "completed"),
+    [tasks],
   );
 
   const [aiResult, setAiResult] = useState<PrioritizedTask[] | null>(null);
@@ -60,9 +67,21 @@ export default function App() {
     }
   };
 
-  const completedCount = tasks.filter((t) => t.status === "completed").length;
-  const completionRate =
-    tasks.length === 0 ? 0 : Math.round((completedCount / tasks.length) * 100);
+  // "Today's actions": one-shot tasks completed today + recurring tasks ticked today.
+  const today = new Date();
+  const isToday = (iso?: string) => {
+    if (!iso) return false;
+    const d = new Date(iso);
+    return d.toDateString() === today.toDateString();
+  };
+  const todayDoneCount = tasks.filter((t) =>
+    t.recurrence === "none"
+      ? t.status === "completed" && isToday(t.updatedAt)
+      : wasCompletedToday(t, today),
+  ).length;
+  const todayActionable = tasks.filter(
+    (t) => t.recurrence !== "none" || t.status !== "completed",
+  ).length;
 
   return (
     <div className="mx-auto max-w-4xl space-y-8 px-4 py-8">
@@ -75,6 +94,8 @@ export default function App() {
         </div>
         <ModeSwitch mode={prefs.mode} onChange={(mode) => setPrefs({ mode })} />
       </header>
+
+      <Basics tasks={basics} onComplete={toggleComplete} />
 
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -97,7 +118,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-slate-500">
-              {completedCount}/{tasks.length} completed · {completionRate}%
+              {todayDoneCount}/{todayActionable} done today
             </span>
             <button
               type="button"
