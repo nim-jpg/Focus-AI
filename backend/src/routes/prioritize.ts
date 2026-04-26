@@ -41,7 +41,26 @@ function extractJson(text: string): unknown {
   // Tolerate accidental ```json fences.
   const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
   const body = fence ? fence[1]! : trimmed;
-  return JSON.parse(body);
+  try {
+    return JSON.parse(body);
+  } catch (err) {
+    // Recovery for the case where the model hit max_tokens mid-array and
+    // the trailing object is truncated. Walk back to the last complete
+    // `}` and close the array. Better to lose the last task than to
+    // throw away the whole ranking.
+    if (err instanceof SyntaxError && body.includes('"ranked"')) {
+      const lastClose = body.lastIndexOf("}");
+      if (lastClose > 0) {
+        const fixed = body.slice(0, lastClose + 1) + "]}";
+        try {
+          return JSON.parse(fixed);
+        } catch {
+          /* fall through */
+        }
+      }
+    }
+    throw err;
+  }
 }
 
 prioritizeRouter.post("/", async (req, res) => {
@@ -66,7 +85,10 @@ prioritizeRouter.post("/", async (req, res) => {
   try {
     const response = await client.messages.create({
       model,
-      max_tokens: 1024,
+      // The prompt now ranks EVERY candidate (tier + one-line reasoning per
+      // task), so the response scales with the user's open-task count.
+      // 8k leaves comfortable headroom for ~150-200 tasks before truncation.
+      max_tokens: 8192,
       system: [
         {
           type: "text",
