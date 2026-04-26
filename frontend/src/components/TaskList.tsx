@@ -9,9 +9,12 @@ interface Props {
   onEdit?: (id: string) => void;
   onUnsnooze?: (id: string) => void;
   onSchedule?: (id: string) => void;
+  /** Optional AI ranking — when present unlocks the "AI sort" option. */
+  aiTierById?: Map<string, 1 | 2 | 3 | 4>;
 }
 
 type StatusFilter = "open" | "all" | "completed" | "snoozed";
+type SortKey = "added" | "ai" | "due" | "urgency";
 
 const THEME_LABELS: Record<Theme, string> = {
   work: "Work",
@@ -43,11 +46,15 @@ export function TaskList({
   onEdit,
   onUnsnooze,
   onSchedule,
+  aiTierById,
 }: Props) {
   const now = Date.now();
   const [selectedThemes, setSelectedThemes] = useState<Set<Theme>>(new Set());
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
+  const [sortKey, setSortKey] = useState<SortKey>(
+    aiTierById && aiTierById.size > 0 ? "ai" : "added",
+  );
 
   // Compute counts per theme for the chips (only over the un-themed-filtered set
   // so "School (3)" always shows the true number when nothing is filtered).
@@ -59,7 +66,7 @@ export function TaskList({
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return tasks.filter((t) => {
+    const list = tasks.filter((t) => {
       if (selectedThemes.size > 0 && !selectedThemes.has(t.theme)) return false;
       if (statusFilter === "open" && t.status === "completed") return false;
       if (statusFilter === "completed" && t.status !== "completed") return false;
@@ -73,7 +80,39 @@ export function TaskList({
       }
       return true;
     });
-  }, [tasks, selectedThemes, search, statusFilter, now]);
+    const URGENCY_ORDER: Record<string, number> = {
+      critical: 0,
+      high: 1,
+      normal: 2,
+      low: 3,
+    };
+    const cmp = (a: Task, b: Task): number => {
+      switch (sortKey) {
+        case "ai": {
+          const ta = aiTierById?.get(a.id) ?? 5;
+          const tb = aiTierById?.get(b.id) ?? 5;
+          if (ta !== tb) return ta - tb;
+          // Within tier, fall back to most-recently-added.
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        }
+        case "due": {
+          const da = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+          const db = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+          return da - db;
+        }
+        case "urgency": {
+          const ua = URGENCY_ORDER[a.urgency] ?? 4;
+          const ub = URGENCY_ORDER[b.urgency] ?? 4;
+          if (ua !== ub) return ua - ub;
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        }
+        case "added":
+        default:
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+    };
+    return [...list].sort(cmp);
+  }, [tasks, selectedThemes, search, statusFilter, now, sortKey, aiTierById]);
 
   const toggleTheme = (theme: Theme) =>
     setSelectedThemes((prev) => {
@@ -110,29 +149,54 @@ export function TaskList({
             </button>
           )}
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          {([
-            { value: "open", label: "Open" },
-            { value: "all", label: "All" },
-            { value: "completed", label: "Completed" },
-            { value: "snoozed", label: "Snoozed" },
-          ] as Array<{ value: StatusFilter; label: string }>).map((opt) => {
-            const active = statusFilter === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setStatusFilter(opt.value)}
-                className={`rounded-full border px-2.5 py-0.5 text-xs ${
-                  active
-                    ? "border-slate-900 bg-slate-900 text-white"
-                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
-                }`}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              { value: "open", label: "Open" },
+              { value: "all", label: "All" },
+              { value: "completed", label: "Completed" },
+              { value: "snoozed", label: "Snoozed" },
+            ] as Array<{ value: StatusFilter; label: string }>).map((opt) => {
+              const active = statusFilter === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setStatusFilter(opt.value)}
+                  className={`rounded-full border px-2.5 py-0.5 text-xs ${
+                    active
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-1 text-xs text-slate-500">
+            <span>Sort:</span>
+            <select
+              className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-xs"
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              title={
+                aiTierById && aiTierById.size > 0
+                  ? "AI sort uses Claude's cached tiers from the Today view"
+                  : "Refresh AI on the Today view to enable AI sort"
+              }
+            >
+              <option value="added">Last added</option>
+              <option
+                value="ai"
+                disabled={!aiTierById || aiTierById.size === 0}
               >
-                {opt.label}
-              </button>
-            );
-          })}
+                AI rank{aiTierById && aiTierById.size > 0 ? "" : " (run AI first)"}
+              </option>
+              <option value="due">Due date</option>
+              <option value="urgency">Urgency</option>
+            </select>
+          </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
           {THEMES.map((theme) => {

@@ -111,13 +111,44 @@ function pickKeyTasks(
   return key;
 }
 
+/**
+ * AI-rank shape — taskId → tier (1 best, 4 background). When supplied,
+ * the stretch picker sorts candidates by this rank first and falls back
+ * to the local heuristic for anything not yet ranked by Claude.
+ */
+export type AiRankMap = Map<string, 1 | 2 | 3 | 4>;
+
 function pickStretchTasks(
   tasks: Task[],
   prefs: UserPrefs,
   weekStart: Date,
   excludeIds: Set<string>,
   count = 8,
+  aiRanking?: AiRankMap,
 ): Task[] {
+  if (aiRanking && aiRanking.size > 0) {
+    // Use Claude's ranking when available — keeps the PDF stretch list in
+    // step with the same priority view the user is acting on in the app.
+    // Tasks not in the AI cache are appended via the local heuristic.
+    const ranked = tasks
+      .filter((t) => !excludeIds.has(t.id) && isSignificantWorkItem(t))
+      .filter((t) => aiRanking.has(t.id))
+      .sort(
+        (a, b) =>
+          (aiRanking.get(a.id) ?? 5) - (aiRanking.get(b.id) ?? 5),
+      );
+    if (ranked.length >= count) return ranked.slice(0, count);
+    const seen = new Set(ranked.map((t) => t.id));
+    const filler = prioritize(tasks, { prefs, limit: 32, now: weekStart })
+      .map((p) => p.task)
+      .filter(
+        (t) =>
+          !excludeIds.has(t.id) &&
+          !seen.has(t.id) &&
+          isSignificantWorkItem(t),
+      );
+    return [...ranked, ...filler].slice(0, count);
+  }
   const candidates = prioritize(tasks, { prefs, limit: 32, now: weekStart })
     .map((p) => p.task)
     .filter((t) => !excludeIds.has(t.id) && isSignificantWorkItem(t));
@@ -216,6 +247,7 @@ function drawFluidsTracker(
 export async function exportWeeklyPlanner(
   tasks: Task[],
   prefs: UserPrefs,
+  aiRanking?: AiRankMap,
 ): Promise<void> {
   const { default: jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
@@ -338,6 +370,7 @@ export async function exportWeeklyPlanner(
     start,
     keyIds,
     stretchCapacity,
+    aiRanking,
   );
   const stretchIds = new Set(stretchTasks.map((t) => t.id));
   const surfacedIds = new Set([...keyIds, ...stretchIds]);

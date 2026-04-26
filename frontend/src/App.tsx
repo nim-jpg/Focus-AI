@@ -394,8 +394,9 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     ].join("§");
 
   // Filter the cached AI ranking to the current mode and slice to the
-  // visible Top Three. The cache covers many tasks — this is a pure
-  // local re-filter, no AI call.
+  // visible Top Three. When a Top Three task is completed it drops out
+  // automatically and the next-ranked task slides up. Pure local re-filter,
+  // no AI call. Stretch goals live in the PDF, not the home page.
   const filteredAiResult = useMemo<PrioritizedTask[] | null>(() => {
     if (aiCache.size === 0) return null;
     const mode = prefs.mode;
@@ -425,6 +426,14 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     source === "claude" && filteredAiResult && filteredAiResult.length > 0
       ? filteredAiResult
       : local;
+
+  // Slim view of the AI cache for components that just need taskId → tier
+  // (e.g. TaskList sort, PDF stretch picker).
+  const aiTierMap = useMemo<Map<string, 1 | 2 | 3 | 4>>(() => {
+    const m = new Map<string, 1 | 2 | 3 | 4>();
+    for (const [id, entry] of aiCache) m.set(id, entry.tier);
+    return m;
+  }, [aiCache]);
 
   // When the visible Top Three changes, stamp those tasks as surfaced. The hook
   // also auto-bumps avoidanceWeeks when 7+ days have passed without action.
@@ -621,7 +630,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             type="button"
             className="btn-secondary text-xs"
             onClick={() => {
-              void exportWeeklyPlanner(tasks, prefs);
+              void exportWeeklyPlanner(tasks, prefs, aiTierMap);
             }}
             title="Download a 7-day Top Three planner as PDF"
             disabled={tasks.length === 0}
@@ -798,6 +807,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             onEdit={startEdit}
             onUnsnooze={(id) => updateTask(id, { snoozedUntil: undefined })}
             onSchedule={openSchedulePicker}
+            aiTierById={aiTierMap}
           />
         </section>
       )}
