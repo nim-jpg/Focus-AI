@@ -32,6 +32,8 @@ const ACTION_LABELS: Record<ScanUpdate["action"], string> = {
   rename: "Rename",
   habitTick: "Daily habit tick",
   newNote: "New note",
+  createTask: "Create task from note",
+  createGoal: "Create goal from note",
 };
 
 export function PlannerScan({
@@ -104,13 +106,24 @@ export function PlannerScan({
             !byId && u.taskTitle ? findTaskByTitle(tasks, u.taskTitle) : null;
           const task = byId ?? byTitle;
           if (task) return { ...u, taskId: task.id, taskTitle: task.title };
-          // newNote without a task target — surface anyway so the user
-          // can decide what to do with it.
-          if (u.action === "newNote") {
+          // newNote / createTask / createGoal don't need an existing
+          // task target — surface them anyway so the user can review.
+          if (
+            u.action === "newNote" ||
+            u.action === "createTask" ||
+            u.action === "createGoal"
+          ) {
             return {
               ...u,
               taskId: "",
-              taskTitle: u.taskTitle ?? "(unattributed)",
+              taskTitle:
+                u.taskTitle ??
+                (typeof u.value === "object" &&
+                u.value !== null &&
+                "title" in u.value &&
+                typeof u.value.title === "string"
+                  ? u.value.title
+                  : "(from notes)"),
             };
           }
           return null;

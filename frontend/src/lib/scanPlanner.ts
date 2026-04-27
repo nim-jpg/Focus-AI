@@ -10,7 +10,11 @@ export type ScanAction =
   /** Tick on a daily-habit row for one day. value = { day, count? }. */
   | "habitTick"
   /** Free-text handwritten note from the notes box. value = transcribed text. */
-  | "newNote";
+  | "newNote"
+  /** Handwritten task to add. value = { title, theme?, dueDate?, urgency? }. */
+  | "createTask"
+  /** Handwritten goal to add. value = { title, horizon?, theme? }. */
+  | "createGoal";
 
 export interface ScanUpdate {
   /** Set when the row had a printed shortId stamp (key + stretch tasks). */
@@ -18,7 +22,17 @@ export interface ScanUpdate {
   /** Set when the row was matched by title (backlog + daily habits). */
   taskTitle?: string;
   action: ScanAction;
-  value?: string | number | { day?: string; count?: number };
+  value?:
+    | string
+    | number
+    | { day?: string; count?: number }
+    | {
+        title?: string;
+        theme?: string;
+        dueDate?: string;
+        urgency?: string;
+        horizon?: string;
+      };
   evidence?: string;
 }
 
