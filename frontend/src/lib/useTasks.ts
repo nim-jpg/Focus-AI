@@ -105,6 +105,45 @@ export function useTasks() {
     setTasks((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  /**
+   * Mark a recurring task as completed on a specific calendar date.
+   * Used by scan-back when the user ticks a daily-habit day box — we
+   * want the streak/log to attribute the tick to that day, not "today
+   * (Wed) when the scan happened". For non-recurring tasks this falls
+   * back to the standard toggleComplete semantics.
+   */
+  const markCompletedOn = useCallback((id: string, dateIso: string) => {
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== id) return t;
+        const targetDate = new Date(dateIso);
+        if (Number.isNaN(targetDate.getTime())) return t;
+        const nowIso = new Date().toISOString();
+        if (t.recurrence !== "none") {
+          const dayKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, "0")}-${String(targetDate.getDate()).padStart(2, "0")}`;
+          const log = new Set(t.completionLog ?? []);
+          log.add(dayKey);
+          return {
+            ...t,
+            lastCompletedAt: targetDate.toISOString(),
+            completionLog: Array.from(log).sort(),
+            status: "pending",
+            updatedAt: nowIso,
+          };
+        }
+        // Non-recurring: just complete it.
+        return {
+          ...t,
+          status: "completed",
+          lastCompletedAt: targetDate.toISOString(),
+          avoidanceWeeks: 0,
+          lastSurfacedAt: undefined,
+          updatedAt: nowIso,
+        };
+      }),
+    );
+  }, []);
+
   const toggleComplete = useCallback((id: string) => {
     setTasks((prev) =>
       prev.map((t) => {
@@ -219,6 +258,7 @@ export function useTasks() {
     updateTask,
     removeTask,
     toggleComplete,
+    markCompletedOn,
     incrementCounter,
     markSurfaced,
     setPrefs,

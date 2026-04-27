@@ -87,6 +87,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     updateTask,
     removeTask,
     toggleComplete,
+    markCompletedOn,
     incrementCounter,
     markSurfaced,
     setPrefs,
@@ -333,9 +334,18 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       scanBufferRef.current.push({ taskId: u.taskId, fields: snapshot });
     }
     switch (u.action) {
-      case "complete":
+      case "complete": {
+        // Ignore complete-marks on tasks whose date is still in the
+        // future. The user might tick a future-week column by accident,
+        // or scan an old planner where a tick now refers to a slot
+        // that's already been re-scheduled. Past + current marks
+        // continue the streak as expected.
+        const t = tasks.find((x) => x.id === u.taskId);
+        const target = t?.scheduledFor ?? t?.dueDate;
+        if (target && new Date(target).getTime() > Date.now()) break;
         toggleComplete(u.taskId);
         break;
+      }
       case "defer": {
         const days =
           typeof u.value === "number" ? u.value : Number(u.value) || 7;
@@ -364,17 +374,41 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       }
       case "habitTick": {
         // value can be { day, count? } from Claude. For counter habits
-        // we increment by count; for non-counter we mark complete today.
+        // we increment by count; for non-counter we mark complete on
+        // the appropriate past day. Future days within this week are
+        // ignored — user might tick ahead by accident.
         const t = tasks.find((x) => x.id === u.taskId);
         if (!t) break;
         const v = (typeof u.value === "object" && u.value !== null
           ? u.value
           : {}) as { day?: string; count?: number };
+        // Resolve day name → date within the current calendar week. If the
+        // resolved date is in the future, skip the tick entirely.
+        const dayMap: Record<string, number> = {
+          Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+        };
+        const targetDow = v.day ? dayMap[v.day] : undefined;
+        let targetDate: Date | null = null;
+        if (typeof targetDow === "number") {
+          const today = new Date();
+          today.setHours(12, 0, 0, 0); // midday avoids DST edge cases
+          const todayDow = today.getDay();
+          // Walk back to the most recent occurrence of targetDow (today or earlier).
+          // diff >= 0 means days BACK from today.
+          const diff = (todayDow - targetDow + 7) % 7;
+          targetDate = new Date(today);
+          targetDate.setDate(today.getDate() - diff);
+          // If the day name implies a future date this week (i.e. the
+          // tick crossed midnight forward), skip.
+          if (targetDate.getTime() > Date.now()) break;
+        }
         const isCounter = Boolean(t.counter && t.counter.target > 0);
         if (isCounter) {
           incrementCounter(u.taskId, Math.max(1, Math.round(v.count ?? 1)));
+        } else if (targetDate) {
+          markCompletedOn(u.taskId, targetDate.toISOString());
         } else {
-          // Non-counter daily habit — toggle done for today.
+          // No day specified — default to today.
           toggleComplete(u.taskId);
         }
         break;
