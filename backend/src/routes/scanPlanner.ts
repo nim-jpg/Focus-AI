@@ -29,9 +29,15 @@ DAILY HABITS (anchor by shortId on each habit row):
 - Emit one "habitTick" per day that has at least one tick. Don't emit zero-count records.
 
 NOTES / DOODLES box:
-- If the user has written something in the notes box, transcribe it as faithfully as possible (typed) → action: "newNote", value = the transcribed text. Use shortId "" (empty) if it's not clearly attributed to a specific task.
+- If the user has written something in the notes box, transcribe it (typed). Then INTERPRET the intent:
+  · A line phrased as a TODO ("call accountant", "buy birthday card", "email Joel about Q3") → emit a "createTask" action with value = { "title": "<the line>", "theme": "<best-guess theme>", "dueDate": "<YYYY-MM-DD if a date or relative date is mentioned>", "urgency": "low"|"normal"|"high"|"critical" if hinted }. Themes: work, projects, personal, school, fitness, finance, diet, medication, development, household.
+  · A line phrased as a goal / intention ("get fit", "learn Spanish", "finish the bathroom") → emit "createGoal" with value = { "title": "<line>", "horizon": "6m"|"1y"|"5y"|"10y" if hinted (default 1y), "theme": "<best-guess>" }.
+  · An update to an existing task that's clearly named ("Anushka Ortho — moved to Tuesday") → emit "newNote" with the matched task's title in taskTitle, value = the relevant text.
+  · Anything else (freeform commentary, doodles, illegible) → emit a single "newNote" with value = the literal transcription, and taskTitle left blank so the user gets the verbatim text in their banner.
+- Don't fabricate dates or themes that aren't in the text. When unsure, omit the field.
+- One line per logical item — split multi-line notes into separate updates.
 
-Spatial-alignment rule: a tick MUST sit in the same row band as the row's wave or shortId stamp. If ambiguous, omit it.
+Spatial-alignment rule (relaxed): each tick belongs to the row whose wave / title is in the same horizontal band — but if the tick is drawn slightly BELOW the row's printed text (e.g. the user struck the box at the bottom of the row), it still belongs to that row, not the next. In short: when a tick sits between two rows, attribute it to the row ABOVE. Only omit when the tick is genuinely floating with no row above it.
 
 A task may have multiple actions (e.g. defer AND time spent). Emit one record per action.
 
@@ -40,7 +46,7 @@ For each update, set EITHER shortId (when the row has a printed "#abc123" stamp 
 Respond with strict JSON only — no prose, no markdown fences:
 {
   "updates": [
-    { "shortId": "#abc123", "taskTitle": "<exact or close match to a known title>", "action": "complete" | "defer" | "block" | "timeSpent" | "rename" | "habitTick" | "newNote", "value": "<string, number, or object, optional>", "evidence": "<short description of what you saw>" }
+    { "shortId": "#abc123", "taskTitle": "<exact or close match to a known title>", "action": "complete" | "defer" | "block" | "timeSpent" | "rename" | "habitTick" | "newNote" | "createTask" | "createGoal", "value": "<string, number, or object, optional>", "evidence": "<short description of what you saw>" }
   ]
 }
 

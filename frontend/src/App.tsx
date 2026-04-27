@@ -400,6 +400,93 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         }
         break;
       }
+      case "createTask": {
+        const v =
+          typeof u.value === "object" && u.value !== null
+            ? (u.value as {
+                title?: string;
+                theme?: string;
+                dueDate?: string;
+                urgency?: string;
+              })
+            : { title: typeof u.value === "string" ? u.value : undefined };
+        const title = (v.title ?? "").trim();
+        if (!title) break;
+        const safeTheme = (
+          [
+            "work",
+            "projects",
+            "personal",
+            "school",
+            "fitness",
+            "finance",
+            "diet",
+            "medication",
+            "development",
+            "household",
+          ] as const
+        ).includes((v.theme ?? "personal") as never)
+          ? ((v.theme ?? "personal") as Task["theme"])
+          : "personal";
+        const safeUrgency = (
+          ["low", "normal", "high", "critical"] as const
+        ).includes((v.urgency ?? "normal") as never)
+          ? ((v.urgency ?? "normal") as Task["urgency"])
+          : "normal";
+        addTask({
+          title,
+          theme: safeTheme,
+          urgency: safeUrgency,
+          privacy: "private",
+          recurrence: "none",
+          isWork: safeTheme === "work",
+          isBlocker: false,
+          blockedBy: [],
+          estimatedMinutes: 30,
+          timeOfDay: "anytime",
+          dueDate: v.dueDate
+            ? new Date(`${v.dueDate}T00:00:00`).toISOString()
+            : undefined,
+          description: "Created from PDF planner notes.",
+        });
+        break;
+      }
+      case "createGoal": {
+        const v =
+          typeof u.value === "object" && u.value !== null
+            ? (u.value as { title?: string; horizon?: string; theme?: string })
+            : { title: typeof u.value === "string" ? u.value : undefined };
+        const title = (v.title ?? "").trim();
+        if (!title) break;
+        const safeHorizon = (["6m", "1y", "5y", "10y"] as const).includes(
+          (v.horizon ?? "1y") as never,
+        )
+          ? ((v.horizon ?? "1y") as "6m" | "1y" | "5y" | "10y")
+          : "1y";
+        const safeTheme = (
+          [
+            "work",
+            "projects",
+            "personal",
+            "school",
+            "fitness",
+            "finance",
+            "diet",
+            "medication",
+            "development",
+            "household",
+          ] as const
+        ).includes((v.theme ?? "personal") as never)
+          ? ((v.theme ?? "personal") as Task["theme"])
+          : "personal";
+        addGoal({
+          title,
+          horizon: safeHorizon,
+          theme: safeTheme,
+          notes: "Created from PDF planner notes.",
+        });
+        break;
+      }
     }
   };
 
