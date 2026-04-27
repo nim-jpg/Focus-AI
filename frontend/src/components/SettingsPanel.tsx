@@ -8,6 +8,7 @@ import {
 } from "@/types/task";
 import { TimeField } from "./TimeField";
 import { fetchCalendars, type CalendarMeta } from "@/lib/googleCalendar";
+import { clearErrorLog, getErrorLog, type ErrorEntry } from "@/lib/errorLog";
 
 interface Props {
   prefs: UserPrefs;
@@ -56,6 +57,7 @@ export function SettingsPanel({
   const [calendars, setCalendars] = useState<CalendarMeta[] | null>(null);
   const [connectMsg, setConnectMsg] = useState<string | null>(null);
   const [connectBusy, setConnectBusy] = useState(false);
+  const [errorLog, setErrorLog] = useState<ErrorEntry[]>(() => getErrorLog());
 
   // Pull the user's Google calendars when the Calendar section is visible.
   useEffect(() => {
@@ -761,6 +763,55 @@ export function SettingsPanel({
                   }}
                 >
                   Undo last scan
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* Recent errors — built-in logger so testers can paste a
+              reproducible trace without opening devtools. */}
+          {errorLog.length > 0 && (
+            <section>
+              <h4 className="text-sm font-semibold text-slate-700">
+                Recent errors ({errorLog.length})
+              </h4>
+              <p className="text-xs text-slate-500">
+                The most recent uncaught errors and rejected promises in
+                your browser. Paste these when reporting an issue.
+              </p>
+              <details className="mt-2 text-xs">
+                <summary className="cursor-pointer text-slate-700 hover:text-slate-900">
+                  Show last {Math.min(errorLog.length, 5)} entries
+                </summary>
+                <ul className="mt-2 space-y-2">
+                  {errorLog.slice(0, 5).map((e, i) => (
+                    <li
+                      key={i}
+                      className="rounded border border-slate-200 bg-slate-50 p-2"
+                    >
+                      <p className="font-mono text-[10px] text-slate-500">
+                        {new Date(e.ts).toLocaleString()} · {e.source}
+                      </p>
+                      <p className="font-medium text-slate-800">{e.message}</p>
+                      {e.stack && (
+                        <pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-[10px] text-slate-600">
+                          {e.stack.split("\n").slice(0, 5).join("\n")}
+                        </pre>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+              <div className="mt-2">
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  onClick={() => {
+                    clearErrorLog();
+                    setErrorLog([]);
+                  }}
+                >
+                  Clear error log
                 </button>
               </div>
             </section>
