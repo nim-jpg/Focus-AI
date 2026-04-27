@@ -98,6 +98,7 @@ function preferredCandidatesFor(
   date: Date,
   wh: WorkingHours,
   isHoliday = false,
+  preferredHourOrder: number[] = [],
 ): Date[] {
   const dayOfWeek = date.getDay();
   const isWorkingDay = !isHoliday && wh.days.includes(dayOfWeek);
@@ -115,11 +116,33 @@ function preferredCandidatesFor(
     c.setHours(Math.floor(m / 60), m % 60, 0, 0);
     out.push(c);
   }
+  // Habitual-time bias: if the user has run this task before, prefer
+  // candidates whose hour matches their dominant past hours. Applied AFTER
+  // the working-day / weekend ordering so it's a tiebreaker, not an
+  // override (still respects work-hours, busy, etc. downstream).
+  const preferredSet = new Set(preferredHourOrder);
+  const preferredRank = new Map(
+    preferredHourOrder.map((h, i) => [h, i]),
+  );
+
   if (!isWorkingDay) {
-    // Already in ascending time order — that's the weekend preference.
+    if (preferredSet.size > 0) {
+      out.sort((a, b) => {
+        const ah = a.getHours();
+        const bh = b.getHours();
+        const aPref = preferredSet.has(ah) ? 0 : 1;
+        const bPref = preferredSet.has(bh) ? 0 : 1;
+        if (aPref !== bPref) return aPref - bPref;
+        if (aPref === 0) {
+          return (preferredRank.get(ah) ?? 99) - (preferredRank.get(bh) ?? 99);
+        }
+        return a.getTime() - b.getTime();
+      });
+    }
     return out;
   }
   // Working day: bucket by relationship to work hours, prefer evenings.
+  // Within each bucket, prefer the user's habitual hours when known.
   const workEndH = wh.end;
   const workStartH = wh.start;
   out.sort((a, b) => {
@@ -130,6 +153,17 @@ function preferredCandidatesFor(
     const ab = bucket(ah);
     const bb = bucket(bh);
     if (ab !== bb) return ab - bb;
+    if (preferredSet.size > 0) {
+      const aPref = preferredSet.has(a.getHours()) ? 0 : 1;
+      const bPref = preferredSet.has(b.getHours()) ? 0 : 1;
+      if (aPref !== bPref) return aPref - bPref;
+      if (aPref === 0) {
+        return (
+          (preferredRank.get(a.getHours()) ?? 99) -
+          (preferredRank.get(b.getHours()) ?? 99)
+        );
+      }
+    }
     return a.getTime() - b.getTime();
   });
   return out;
@@ -225,6 +259,27 @@ export interface SuggestOptions {
    *  inside the user's work hours, on the assumption that gym/yoga can
    *  reasonably happen on a lunch break. */
   theme?: string;
+  /** Past sessionTimes for this task (across all of history). Used to
+   *  bias the candidate ordering toward the user's habitual time-of-day
+   *  windows so auto-schedule "learns" the rhythm they actually keep. */
+  pastSessionIsoTimes?: string[];
+}
+
+/** Find the dominant hour-bands the user has run this task in. Returns
+ *  the centre hour (0-23) of the most-used bands, in descending frequency. */
+function dominantHourBands(isoTimes: string[]): number[] {
+  if (!isoTimes || isoTimes.length === 0) return [];
+  const counts = new Array<number>(24).fill(0);
+  for (const iso of isoTimes) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) continue;
+    counts[d.getHours()] += 1;
+  }
+  // Pick all hours with at least one occurrence, sorted by frequency desc.
+  const ranked: Array<{ hour: number; n: number }> = [];
+  for (let h = 0; h < 24; h++) if (counts[h] > 0) ranked.push({ hour: h, n: counts[h] });
+  ranked.sort((a, b) => b.n - a.n);
+  return ranked.map((r) => r.hour);
 }
 
 export function suggestSessionTimes(
@@ -262,6 +317,7 @@ export function suggestSessionTimesDetailed(
       windowEnd: fmtHour(effectiveBedHour(wh) - 1),
     };
   const n = Math.min(count, 7);
+  const habitHourOrder = dominantHourBands(options.pastSessionIsoTimes ?? []);
 
   const placed: Date[] = [];
   const attempts: SlotAttempt[] = [];
@@ -269,7 +325,12 @@ export function suggestSessionTimesDetailed(
 
   const tryDayWithSlot = (dayOffset: number): Date | null => {
     const date = new Date(weekStart.getTime() + dayOffset * DAY_MS);
-    const candidates = preferredCandidatesFor(date, wh, isHolidayOf(date, wh));
+    const candidates = preferredCandidatesFor(
+      date,
+      wh,
+      isHolidayOf(date, wh),
+      habitHourOrder,
+    );
     for (const candidate of candidates) {
       if (candidate.getTime() < Date.now()) {
         attempts.push({ candidate, reason: "past" });

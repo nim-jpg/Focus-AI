@@ -546,7 +546,10 @@ export function WeekSchedule({
         weekStart,
         busy,
         prefs,
-        { theme: t.theme },
+        {
+          theme: t.theme,
+          pastSessionIsoTimes: t.sessionTimes ?? [],
+        },
       );
       if (result.slots.length === 0) {
         skippedTotal++;
@@ -606,7 +609,10 @@ export function WeekSchedule({
       rollStart,
       busy,
       prefs,
-      { theme: task.theme },
+      {
+        theme: task.theme,
+        pastSessionIsoTimes: task.sessionTimes ?? [],
+      },
     );
     const slots = result.slots;
     if (slots.length === 0) {
