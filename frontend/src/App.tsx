@@ -661,6 +661,24 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     return m;
   }, [aiCache]);
 
+  // How many open candidate tasks have been edited since their cached AI
+  // rank was computed? Surfaced as a "stale" badge on the Refresh button so
+  // the user knows when the displayed ranking is out of date.
+  const aiStaleCount = useMemo(() => {
+    if (aiCache.size === 0) return 0;
+    let stale = 0;
+    for (const t of tasks) {
+      if (t.status === "completed") continue;
+      const cached = aiCache.get(t.id);
+      if (!cached) continue; // new task — not "stale", just unranked
+      if (cached.hash !== hashTaskForRanking(t)) stale++;
+    }
+    return stale;
+    // hashTaskForRanking is stable (declared inline in component but no
+    // captured deps that change per render); intentionally not in deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiCache, tasks]);
+
   // When the visible Top Three changes, stamp those tasks as surfaced. The hook
   // also auto-bumps avoidanceWeeks when 7+ days have passed without action.
   const surfacedFingerprint = prioritized.map((p) => p.task.id).join(",");
@@ -955,20 +973,24 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
                 </span>
                 <button
                   type="button"
-                  className="btn-secondary"
+                  className={`btn-secondary ${aiStaleCount > 0 ? "ring-2 ring-amber-400" : ""}`}
                   onClick={handleAiRefresh}
                   disabled={loading || tasks.length === 0}
                   title={
-                    aiCache.size > 0
-                      ? "Ask Claude to rank any new or changed tasks (existing ranks are preserved)"
-                      : "Ask Claude to rank your tasks"
+                    aiStaleCount > 0
+                      ? `${aiStaleCount} task${aiStaleCount === 1 ? "" : "s"} edited since the last AI rank — click to re-rank just those`
+                      : aiCache.size > 0
+                        ? "Ask Claude to rank any new or changed tasks (existing ranks are preserved)"
+                        : "Ask Claude to rank your tasks"
                   }
                 >
                   {loading
                     ? "Asking Claude…"
-                    : source === "claude" && aiCache.size > 0
-                    ? "Refresh AI (incremental)"
-                    : "Refresh with AI"}
+                    : aiStaleCount > 0
+                      ? `Refresh AI · ${aiStaleCount} stale`
+                      : source === "claude" && aiCache.size > 0
+                        ? "Refresh AI (incremental)"
+                        : "Refresh with AI"}
                 </button>
               </div>
             </div>
