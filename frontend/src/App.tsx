@@ -1107,6 +1107,19 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             onUnlinkTaskFromGoogle={(taskId) =>
               updateTask(taskId, { calendarEventId: undefined })
             }
+            onPushSessionToGoogle={async (task, startIso) => {
+              if (!googleStatus?.connected) return;
+              const start = new Date(startIso);
+              const end = new Date(
+                start.getTime() + (task.estimatedMinutes ?? 60) * 60_000,
+              );
+              try {
+                await scheduleTask(task, start, end);
+              } catch {
+                // Silent — user already has the local session; the message
+                // banner reports the auto-schedule outcome separately.
+              }
+            }}
           />
 
           <TomorrowPreview

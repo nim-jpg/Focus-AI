@@ -220,12 +220,20 @@ function fmtHour(h: number): string {
   return `${hh}:${mm}${dayLabel}`;
 }
 
+export interface SuggestOptions {
+  /** Task theme — when "fitness", allows a lunch-window slot (12:00–13:30)
+   *  inside the user's work hours, on the assumption that gym/yoga can
+   *  reasonably happen on a lunch break. */
+  theme?: string;
+}
+
 export function suggestSessionTimes(
   count: number,
   durationMinutes: number,
   weekStart: Date,
   busy: BusyBlock[],
   prefs?: UserPrefs,
+  options: SuggestOptions = {},
 ): Date[] {
   return suggestSessionTimesDetailed(
     count,
@@ -233,6 +241,7 @@ export function suggestSessionTimes(
     weekStart,
     busy,
     prefs,
+    options,
   ).slots;
 }
 
@@ -242,6 +251,7 @@ export function suggestSessionTimesDetailed(
   weekStart: Date,
   busy: BusyBlock[],
   prefs?: UserPrefs,
+  options: SuggestOptions = {},
 ): SuggestResult {
   const wh = workingHoursFromPrefs(prefs);
   if (count <= 0)
@@ -273,8 +283,15 @@ export function suggestSessionTimesDetailed(
         continue;
       }
       if (isWorkHours(candidate, wh)) {
-        attempts.push({ candidate, reason: "work-hours" });
-        continue;
+        // Theme exception: fitness tasks may use a lunch slot
+        // (12:00–13:30) inside work hours — gym / yoga / a walk.
+        const t = candidate.getHours() + candidate.getMinutes() / 60;
+        const isLunch = t >= 12 && t < 13.5;
+        const isFitness = options.theme === "fitness";
+        if (!(isFitness && isLunch)) {
+          attempts.push({ candidate, reason: "work-hours" });
+          continue;
+        }
       }
       const start = candidate.getTime();
       const end = start + durationMinutes * 60 * 1000;

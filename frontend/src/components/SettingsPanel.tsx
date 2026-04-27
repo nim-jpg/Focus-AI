@@ -416,6 +416,25 @@ export function SettingsPanel({
                   : "Not connected."}
               </p>
               {calendar.connected && (
+                <label className="mt-2 flex items-start gap-2 text-xs text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={prefs.autoPushSessionsToGoogle ?? false}
+                    onChange={(e) =>
+                      onChange({
+                        autoPushSessionsToGoogle: e.target.checked,
+                      })
+                    }
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Push auto-scheduled sessions to Google Calendar (so phone
+                    reminders fire). Off by default to avoid cluttering Google
+                    with many short blocks.
+                  </span>
+                </label>
+              )}
+              {calendar.connected && (
                 <div className="mt-2 rounded-md border border-slate-200 bg-white p-2">
                   <p className="mb-1 text-xs font-medium text-slate-700">
                     Per-calendar mode

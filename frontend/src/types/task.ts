@@ -202,6 +202,10 @@ export interface UserPrefs {
   shadowedSeriesIds?: string[];
   /** Default home-page schedule range: 1, 3, or 7 days. */
   homeViewDays?: 1 | 3 | 7;
+  /** When true, auto-schedule also pushes each placed session as a
+   *  Google Calendar event so phone reminders fire. Off by default
+   *  (avoids cluttering Google with many short blocks). */
+  autoPushSessionsToGoogle?: boolean;
   /** Specific dates the user has marked as holidays — working-hours
    *  shading is suppressed and the day is treated as non-working. ISO
    *  date strings ("YYYY-MM-DD"). */

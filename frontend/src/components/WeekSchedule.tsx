@@ -23,6 +23,12 @@ interface Props {
   /** Re-push a task whose Google event has gone missing — clears the stale
    *  calendarEventId and creates a fresh event at the same scheduled time. */
   onRepushToGoogle?: (taskId: string) => Promise<void> | void;
+  /** Push a single placed session as a Google Calendar event. Used by
+   *  auto-schedule when prefs.autoPushSessionsToGoogle is enabled. */
+  onPushSessionToGoogle?: (
+    task: Task,
+    startIso: string,
+  ) => Promise<void> | void;
   /** Called when the user deletes a Google event that's linked to a Focus3
    *  task. Clears the calendarEventId so the task isn't ghostly linked
    *  to a vanished event. */
@@ -144,6 +150,7 @@ export function WeekSchedule({
   onShadowEvent,
   onUpdatePrefs,
   onRepushToGoogle,
+  onPushSessionToGoogle,
   onUnlinkTaskFromGoogle,
   onMessage,
   gridStartHour = 6,
@@ -539,6 +546,7 @@ export function WeekSchedule({
         weekStart,
         busy,
         prefs,
+        { theme: t.theme },
       );
       if (result.slots.length === 0) {
         skippedTotal++;
@@ -550,6 +558,14 @@ export function WeekSchedule({
       ];
       onSetSessionTimes(t.id, merged);
       placedTotal += result.slots.length;
+      // Optionally push each placed session to Google Calendar so phone
+      // reminders fire. No per-session id is tracked locally — deletions
+      // happen manually from Google.
+      if (prefs.autoPushSessionsToGoogle && onPushSessionToGoogle) {
+        for (const d of result.slots) {
+          void onPushSessionToGoogle(t, d.toISOString());
+        }
+      }
     }
     onMessage?.(
       placedTotal > 0
@@ -590,6 +606,7 @@ export function WeekSchedule({
       rollStart,
       busy,
       prefs,
+      { theme: task.theme },
     );
     const slots = result.slots;
     if (slots.length === 0) {
@@ -642,6 +659,11 @@ export function WeekSchedule({
         ...slots.map((d) => d.toISOString()),
       ];
       onSetSessionTimes(taskId, next);
+      if (prefs.autoPushSessionsToGoogle && onPushSessionToGoogle) {
+        for (const d of slots) {
+          void onPushSessionToGoogle(task, d.toISOString());
+        }
+      }
       if (slots.length < need) {
         onMessage?.(
           `Auto-schedule placed ${slots.length} of ${need} sessions for "${task.title}". Run again later or schedule the rest manually.`,
