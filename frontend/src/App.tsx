@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { TaskFormModal } from "@/components/TaskFormModal";
 import { TaskList } from "@/components/TaskList";
 import { TopThree } from "@/components/TopThree";
+import { SlippedTasks, findSlippedTasks } from "@/components/SlippedTasks";
 import { ModeSwitch } from "@/components/ModeSwitch";
 import { isInWorkMode } from "@/lib/modeFilter";
 import { BrainDump } from "@/components/BrainDump";
@@ -941,6 +942,13 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
 
       {view === "today" && (
         <div className="space-y-8">
+          <SlippedTasks
+            tasks={findSlippedTasks(tasks)}
+            onComplete={toggleComplete}
+            onReschedule={openSchedulePicker}
+            onSnooze={(id, until) => updateTask(id, { snoozedUntil: until })}
+          />
+
           <Foundations
             tasks={foundations}
             onComplete={toggleComplete}
