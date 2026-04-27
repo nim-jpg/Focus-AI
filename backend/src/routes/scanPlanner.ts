@@ -27,6 +27,7 @@ DAILY HABITS (anchor by shortId on each habit row):
 - For non-counter habits: each ticked DAY box → action: "habitTick", value = { "day": "Mon"|"Tue"|"Wed"|"Thu"|"Fri"|"Sat"|"Sun" }
 - For counter habits: count the ticked small boxes for each day → action: "habitTick", value = { "day": "Mon"...., "count": <integer> }
 - Emit one "habitTick" per day that has at least one tick. Don't emit zero-count records.
+- IGNORE ticks on days that are in the FUTURE relative to "today's date" provided in the user message — the user may have ticked ahead by accident, or the planner is a pre-print. Past + current days are fine.
 
 NOTES / DOODLES box:
 - If the user has written something in the notes box, transcribe it (typed). Then INTERPRET the intent:
@@ -98,6 +99,8 @@ scanPlannerRouter.post("/", async (req, res) => {
 
   // Build the user message — image-first when available, falling back to
   // the OCR text.
+  const today = new Date().toISOString().slice(0, 10);
+  const todayLine = `Today's date: ${today}. Ignore any ticks for days/dates AFTER today — the user may have marked ahead or the planner is a pre-print.`;
   const knownIds =
     shortIds && shortIds.length > 0
       ? `Known task IDs (key + stretch): ${shortIds.join(", ")}.`
@@ -121,6 +124,7 @@ scanPlannerRouter.post("/", async (req, res) => {
     content.push({
       type: "text",
       text: [
+        todayLine,
         knownIds,
         knownTitles,
         "Read the planner image above and emit the JSON described in the system prompt.",
@@ -134,7 +138,7 @@ scanPlannerRouter.post("/", async (req, res) => {
   } else {
     content.push({
       type: "text",
-      text: [knownIds, knownTitles, "Scanned planner text:", text!]
+      text: [todayLine, knownIds, knownTitles, "Scanned planner text:", text!]
         .filter(Boolean)
         .join("\n\n"),
     });
