@@ -1196,6 +1196,24 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
 
       <footer className="pt-4 text-center text-xs text-slate-400">
         Local MVP · Calendar via Google · OCR via Tesseract · PDF planner
+        <br />
+        <a
+          href="/privacy.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:underline"
+        >
+          Privacy
+        </a>
+        {" · "}
+        <a
+          href="/terms.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:underline"
+        >
+          Terms
+        </a>
       </footer>
 
       {taskBeingScheduled && (

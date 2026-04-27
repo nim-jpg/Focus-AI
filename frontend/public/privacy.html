@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Focus3 — Privacy Policy</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          sans-serif;
+        max-width: 720px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        line-height: 1.55;
+        color: #111;
+      }
+      h1 {
+        font-size: 1.6rem;
+      }
+      h2 {
+        font-size: 1.15rem;
+        margin-top: 1.6rem;
+      }
+      a {
+        color: #2563eb;
+      }
+      .meta {
+        color: #64748b;
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Focus3 — Privacy Policy</h1>
+    <p class="meta">Last updated: 2026-04-27</p>
+
+    <p>
+      Focus3 is a personal productivity app. This page describes what data
+      Focus3 stores, how it's processed, and what you can do with it.
+    </p>
+
+    <h2>What we store</h2>
+    <ul>
+      <li>
+        <strong>Tasks, goals, and preferences</strong> you create in the app.
+        In the local / single-user version these live only in your browser's
+        <code>localStorage</code>. In the multi-user version they live in our
+        Supabase Postgres database, scoped to your account by row-level
+        security.
+      </li>
+      <li>
+        <strong>Google Calendar OAuth tokens</strong> (when you connect a
+        calendar) — stored locally as
+        <code>.google-tokens.json</code> in single-user mode, or in the
+        <code>google_tokens</code> table keyed by your user id in multi-user
+        mode. Used solely to read events and create / delete events on the
+        primary calendar of the account you connected.
+      </li>
+      <li>
+        <strong>AI ranking cache</strong> — Claude's last tier + reasoning
+        per task, kept in your browser's <code>localStorage</code> so we
+        don't re-call the model on every reload.
+      </li>
+    </ul>
+
+    <h2>What we send to third parties</h2>
+    <ul>
+      <li>
+        <strong>Anthropic (Claude)</strong>: when you click Refresh AI,
+        Brain dump, Suggest dates, or Scan back, we send the relevant task
+        text (title, description prefix up to 200 chars, urgency, due date,
+        theme, recurrence) and / or the planner image. We do not send
+        full personal histories or unrelated tasks.
+      </li>
+      <li>
+        <strong>Google Calendar API</strong>: read events from calendars
+        you've selected; create / delete events you explicitly schedule
+        via Focus3. No background sync.
+      </li>
+      <li>
+        <strong>Companies House (UK)</strong>: when you add a task that
+        mentions a UK company name, we look the company up via the public
+        Companies House search API to fetch filing dates. The lookup is
+        triggered by the task title text only.
+      </li>
+    </ul>
+
+    <h2>What you can do</h2>
+    <ul>
+      <li>
+        <strong>Export everything</strong> — Settings → Backup & restore →
+        Export backup. You get a JSON file with every task, goal, and pref.
+      </li>
+      <li>
+        <strong>Delete everything</strong> — open Settings, click Disconnect
+        Calendar (clears Google tokens), and clear your browser data /
+        delete your Supabase account to remove the rest.
+      </li>
+      <li>
+        <strong>Disconnect Google</strong> at any time — Settings →
+        Disconnect Calendar revokes Focus3's access locally. To revoke
+        OAuth at Google's side too, visit
+        <a href="https://myaccount.google.com/permissions"
+          >myaccount.google.com/permissions</a
+        >.
+      </li>
+    </ul>
+
+    <h2>Cookies</h2>
+    <p>
+      Focus3 doesn't use tracking cookies. Multi-user mode uses a Supabase
+      auth session cookie strictly to keep you signed in.
+    </p>
+
+    <h2>Contact</h2>
+    <p>Questions: open an issue on the project repo.</p>
+
+    <p>
+      <a href="/">← Back to Focus3</a> ·
+      <a href="/terms.html">Terms of Service</a>
+    </p>
+  </body>
+</html>
