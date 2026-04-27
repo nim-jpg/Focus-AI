@@ -5,6 +5,8 @@ import {
   loadTasks,
   savePrefs,
   saveTasks,
+  syncPrefsFromRemote,
+  syncTasksFromRemote,
 } from "./storage";
 import { wasCompletedToday } from "./recurrence";
 import type { Task, UserPrefs } from "@/types/task";
@@ -76,6 +78,22 @@ export function useTasks() {
   useEffect(() => {
     savePrefs(prefs);
   }, [prefs]);
+
+  // On mount, if Supabase auth is configured, replace the local-cache
+  // snapshot with the canonical copy from the backend. No-op in single-user
+  // mode (functions return null).
+  useEffect(() => {
+    let cancelled = false;
+    void syncTasksFromRemote().then((remote) => {
+      if (!cancelled && remote) setTasks(migrate(remote));
+    });
+    void syncPrefsFromRemote().then((remote) => {
+      if (!cancelled && remote) setPrefsState(remote);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const addTask = useCallback((input: NewTaskInput) => {
     const now = new Date().toISOString();

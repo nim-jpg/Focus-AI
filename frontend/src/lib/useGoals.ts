@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { generateId, loadGoals, saveGoals } from "./storage";
+import {
+  generateId,
+  loadGoals,
+  saveGoals,
+  syncGoalsFromRemote,
+} from "./storage";
 import type { Goal } from "@/types/task";
 
 export type NewGoalInput = Omit<Goal, "id" | "createdAt" | "updatedAt" | "source"> &
@@ -11,6 +16,18 @@ export function useGoals() {
   useEffect(() => {
     saveGoals(goals);
   }, [goals]);
+
+  // Cache-first sync: localStorage gives instant first paint; if Supabase
+  // auth is on, the canonical copy from the backend replaces it.
+  useEffect(() => {
+    let cancelled = false;
+    void syncGoalsFromRemote().then((remote) => {
+      if (!cancelled && remote) setGoals(remote);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const addGoal = useCallback((input: NewGoalInput) => {
     const now = new Date().toISOString();
