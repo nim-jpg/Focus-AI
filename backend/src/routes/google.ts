@@ -67,10 +67,16 @@ async function loadTokens(userId?: string): Promise<StoredTokens | null> {
 
 async function saveTokens(tokens: StoredTokens, userId?: string): Promise<void> {
   if (isMultiUser()) {
-    if (!userId) return;
+    if (!userId) {
+      console.error("[google] saveTokens called without userId — token discarded");
+      return;
+    }
     const supabase = getSupabase();
-    if (!supabase) return;
-    await supabase.from("google_tokens").upsert(
+    if (!supabase) {
+      console.error("[google] saveTokens: supabase client unavailable");
+      return;
+    }
+    const { error } = await supabase.from("google_tokens").upsert(
       {
         user_id: userId,
         access_token: tokens.access_token ?? null,
@@ -83,6 +89,11 @@ async function saveTokens(tokens: StoredTokens, userId?: string): Promise<void> 
       },
       { onConflict: "user_id" },
     );
+    if (error) {
+      console.error("[google] saveTokens upsert failed:", error.message, error.details);
+      throw new Error(`saveTokens failed: ${error.message}`);
+    }
+    console.log(`[google] saveTokens ok for user=${userId} email=${tokens.email ?? "(unknown)"}`);
     return;
   }
   await fs.writeFile(TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf8");
@@ -138,6 +149,15 @@ googleRouter.get("/auth-url", (req, res) => {
   }
   // In multi-user mode we need to know who came back from Google. Stash userId
   // in the OAuth `state` parameter (signed by Google's CSRF token mechanism).
+  console.log(
+    `[google] /auth-url userId=${req.userId ?? "(none)"} multiUser=${isMultiUser()}`,
+  );
+  if (isMultiUser() && !req.userId) {
+    res
+      .status(401)
+      .json({ error: "not_signed_in", message: "Sign in before connecting calendar" });
+    return;
+  }
   const url = client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
@@ -163,6 +183,17 @@ googleRouter.get("/callback", async (req, res) => {
     typeof req.query.state === "string" && req.query.state !== "single-user"
       ? req.query.state
       : undefined;
+  console.log(
+    `[google] /callback received code=${code.slice(0, 8)}… state=${req.query.state ?? "(none)"} → userId=${stateUserId ?? "(none)"}`,
+  );
+  if (isMultiUser() && !stateUserId) {
+    res
+      .status(400)
+      .send(
+        "OAuth callback missing user state. Sign out, sign back in, and click Connect Calendar again.",
+      );
+    return;
+  }
   try {
     const { tokens } = await client.getToken(code);
     let email: string | undefined;
@@ -178,6 +209,7 @@ googleRouter.get("/callback", async (req, res) => {
     const frontend = process.env.FRONTEND_URL ?? "http://localhost:5173";
     res.redirect(`${frontend}/?google=connected`);
   } catch (err) {
+    console.error("[google] /callback failed:", err);
     res.status(500).send(
       `Google token exchange failed: ${err instanceof Error ? err.message : String(err)}`,
     );
