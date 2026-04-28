@@ -41,13 +41,10 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-// Google router gates its own auth: /callback is public (Google bounces back
-// without an Authorization header), all other paths require a Supabase JWT.
-googleRouter.use((req, res, next) => {
-  if (req.path === "/callback") return next();
-  return authMiddleware(req, res, next);
-});
-
+// Google router gates its own auth internally: /callback is public (Google
+// bounces back without an Authorization header), all other paths require a
+// Supabase JWT. The middleware registration lives inside the router itself
+// so it runs BEFORE the route handlers in stack order.
 app.use("/api/google", googleRouter);
 // Legacy alias — early .env.example used /auth/google/callback as the redirect URI.
 app.use("/auth/google", googleRouter);
