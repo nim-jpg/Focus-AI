@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { google, type Auth } from "googleapis";
 import { getSupabase, isMultiUser } from "../db.js";
+import { authMiddleware } from "../middleware/auth.js";
 
 const TOKENS_FILE = path.resolve(process.cwd(), ".google-tokens.json");
 
@@ -124,6 +125,14 @@ async function getAuthorizedClient(userId?: string): Promise<Auth.OAuth2Client |
 }
 
 export const googleRouter = Router();
+
+// Auth gate must be registered BEFORE the routes below, otherwise Express's
+// stack-walk would match the route and respond before this middleware fires —
+// leaving req.userId unset and silently bypassing auth.
+googleRouter.use((req, res, next) => {
+  if (req.path === "/callback") return next();
+  return authMiddleware(req, res, next);
+});
 
 googleRouter.get("/status", async (req, res) => {
   const client = makeClient();
