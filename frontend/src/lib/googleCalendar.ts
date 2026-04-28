@@ -21,15 +21,19 @@ export async function fetchGoogleStatus(): Promise<GoogleStatus> {
 }
 
 export async function startGoogleConnect(): Promise<void> {
+  console.log("[focus3] startGoogleConnect: fetching /api/google/auth-url");
   const res = await apiFetch("/api/google/auth-url");
+  console.log("[focus3] startGoogleConnect: response status", res.status);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    console.error("[focus3] startGoogleConnect failed:", res.status, body);
     throw new CalendarError(
       (body as { message?: string }).message ?? `HTTP ${res.status}`,
       res.status,
     );
   }
   const { url } = (await res.json()) as { url: string };
+  console.log("[focus3] startGoogleConnect: redirecting to", url.slice(0, 80));
   window.location.href = url;
 }
 

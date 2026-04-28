@@ -1360,7 +1360,15 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             email: googleStatus?.email ?? null,
             // Re-throw so SettingsPanel can render the error inline (the
             // global `calendarMsg` banner sits behind the modal).
-            onConnect: () => startGoogleConnect(),
+            onConnect: async () => {
+              try {
+                await startGoogleConnect();
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                setCalendarMsg(`Connect failed — ${msg}`);
+                throw err;
+              }
+            },
             onDisconnect: async () => {
               await disconnectGoogle();
               setGoogleStatus(await fetchGoogleStatus());
