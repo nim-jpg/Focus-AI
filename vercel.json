@@ -6,7 +6,6 @@
   "framework": "vite",
   "rewrites": [
     {
-      "_comment": "Update destination to your Fly.io backend URL after `fly deploy`.",
       "source": "/api/:path*",
       "destination": "https://focus3-backend.fly.dev/api/:path*"
     }
