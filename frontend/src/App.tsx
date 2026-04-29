@@ -770,9 +770,13 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
    *      anyway; AI ranking is the cherry on top, not a prerequisite.
    */
   const handleAutoSync = async (): Promise<AutoSyncResult> => {
-    // Pass the user's persisted Skip list so the backend filters those
-    // events out of location enrichment on this run.
-    const r = await runAutoSync(14, prefs.enrichmentSkippedEventIds ?? []);
+    // Pass the user's persisted Skip list AND the calendars they've
+    // marked as excluded — neither should be touched by enrichment.
+    const r = await runAutoSync(
+      14,
+      prefs.enrichmentSkippedEventIds ?? [],
+      prefs.excludedCalendarIds ?? [],
+    );
     if (r.imported > 0) {
       await refreshFromRemote();
     }

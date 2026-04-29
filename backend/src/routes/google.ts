@@ -467,6 +467,16 @@ googleRouter.post("/auto-sync", async (req, res) => {
         )
       : [],
   );
+  // Excluded calendars (mirrors prefs.excludedCalendarIds): drop these
+  // out of the writable list before we even fetch events. The schedule
+  // view already hides them; auto-sync should respect the same setting.
+  const excludedCalendarIds = new Set<string>(
+    Array.isArray(req.body?.excludedCalendarIds)
+      ? (req.body.excludedCalendarIds as unknown[]).filter(
+          (x): x is string => typeof x === "string",
+        )
+      : [],
+  );
   const from = new Date().toISOString();
   const to = new Date(
     Date.now() + daysForward * 24 * 60 * 60 * 1000,
@@ -485,8 +495,16 @@ googleRouter.post("/auto-sync", async (req, res) => {
       (c) =>
         c.id &&
         (c.accessRole === "owner" || c.accessRole === "writer") &&
-        c.selected !== false,
+        c.selected !== false &&
+        !excludedCalendarIds.has(c.id),
     );
+    if (excludedCalendarIds.size > 0) {
+      console.log(
+        `[auto-sync] excludedCalendarIds=${excludedCalendarIds.size} → ${
+          (calList.data.items ?? []).length
+        } total → ${writable.length} writable after exclusion`,
+      );
+    }
 
     // Pull existing Focus3 tasks for this user so we can skip events that
     // are already linked to one.
@@ -605,11 +623,7 @@ googleRouter.post("/auto-sync", async (req, res) => {
     const looksTitleCasedVenue = (s: string): boolean => {
       const words = s.trim().split(/\s+/);
       if (words.length < 2 || words.length > 6) return false;
-      const upperHeadCount = words.filter((w) => /^[A-Z]/.test(w)).length;
-      // Tighter: need at least 2 capitalised words AND lower count of
-      // common-noun patterns to filter out "Pay invoice" or "Email Bob".
-      if (upperHeadCount < 2) return false;
-      // Skip if the title is a clearly-actionable verb pattern.
+      // Skip if the title starts with a clearly-actionable verb.
       if (
         /^(submit|send|pay|email|call|finish|draft|write|review|prepare|sign|update|fix|deliver|file|book|schedule|set up|organise)\b/i.test(
           s,
@@ -617,7 +631,35 @@ googleRouter.post("/auto-sync", async (req, res) => {
       ) {
         return false;
       }
-      return upperHeadCount >= words.length - 1;
+      // Venue-like title: ≥2 capitalised words, AND every other word is
+      // a small linking stopword (the / on / of / a / and / in / at /
+      // by / to / for). Catches "Grove on the Hill", "Royal Albert
+      // Hall", "Bank of England", "House of Lords", "Battle of Britain
+      // Memorial Flight" without forcing every word to be capitalised.
+      const stopwords = new Set([
+        "of",
+        "on",
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "in",
+        "at",
+        "by",
+        "to",
+        "for",
+        "de",
+        "la",
+        "le",
+        "du",
+      ]);
+      const upperCount = words.filter((w) => /^[A-Z]/.test(w)).length;
+      if (upperCount < 2) return false;
+      const everyWordCapsOrStop = words.every(
+        (w) => /^[A-Z]/.test(w) || stopwords.has(w.toLowerCase()),
+      );
+      return everyWordCapsOrStop;
     };
     const locationCandidates = allEvents.filter((e) => {
       if (e.location) return false;
