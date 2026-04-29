@@ -210,6 +210,10 @@ export interface UserPrefs {
    *  shading is suppressed and the day is treated as non-working. ISO
    *  date strings ("YYYY-MM-DD"). */
   holidayDates?: string[];
+  /** Specific dates the employee is working from home — visual tag only,
+   *  no scheduling effect (still a working day, working hours still apply).
+   *  Surfaced for userType=employee on tagged work days. ISO date strings. */
+  wfhDates?: string[];
   /** What the user wants the prioritisation engine to bias toward — pick
    *  1-3. Empty (default) keeps the engine neutral and leans on the existing
    *  signals (deadlines, avoidance, blockers, goals). When set, tasks
@@ -272,4 +276,5 @@ export const DEFAULT_PREFS: UserPrefs = {
   shadowedSeriesIds: [],
   homeViewDays: 7,
   priorityFocus: [],
+  wfhDates: [],
 };
