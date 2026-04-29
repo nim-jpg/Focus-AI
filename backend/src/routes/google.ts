@@ -753,16 +753,15 @@ ${JSON.stringify(
         chosenAddress = d.proposedAddress;
         chosenConfidence = "high";
       } else {
-        // Places seed: when location is set, "<title> <location>"; when
-        // empty, fall back to "<title> <claude-proposed-address>" so we
-        // search for the venue Claude extracted from the description.
-        // Skip Places entirely if neither is available.
-        const placesSeed = ev.location
-          ? `${ev.summary} ${ev.location}`
-          : d?.proposedAddress
-            ? `${ev.summary} ${d.proposedAddress}`
-            : null;
-        const places = placesSeed ? await lookupPlace(placesSeed) : null;
+        // Places seed: prefer the original location; fall back to Claude's
+        // proposal (extracted from the description). lookupPlace tries
+        // multiple query shapes (title+seed, seed alone, title alone) so
+        // venue names like "Grove on the Hill" resolve even when the
+        // event title is unrelated.
+        const placesSeed = ev.location || d?.proposedAddress || "";
+        const places = placesSeed
+          ? await lookupPlace(ev.summary, placesSeed)
+          : null;
         if (places) {
           chosenAddress = places.address;
           chosenConfidence = places.confidence;
@@ -927,11 +926,10 @@ googleRouter.get("/duplicates", async (req, res) => {
  * Free tier covers ~2k Text Search requests / month — plenty for an
  * occasional auto-sync run. Cost beyond that is ~$0.032 / request.
  */
-async function lookupPlace(
+async function lookupPlaceOnce(
   query: string,
-): Promise<{ address: string; confidence: "high" } | null> {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  if (!apiKey) return null;
+  apiKey: string,
+): Promise<string | null> {
   try {
     const r = await fetch("https://places.googleapis.com/v1/places:searchText", {
       method: "POST",
@@ -942,16 +940,55 @@ async function lookupPlace(
       },
       body: JSON.stringify({ textQuery: query }),
     });
-    if (!r.ok) return null;
+    if (!r.ok) {
+      console.warn(
+        `[places] HTTP ${r.status} for query "${query}" — ${await r
+          .text()
+          .catch(() => "(no body)")}`.slice(0, 200),
+      );
+      return null;
+    }
     const data = (await r.json()) as {
       places?: Array<{ formattedAddress?: string; displayName?: { text?: string } }>;
     };
-    const first = data.places?.[0];
-    if (!first?.formattedAddress) return null;
-    return { address: first.formattedAddress, confidence: "high" };
-  } catch {
+    return data.places?.[0]?.formattedAddress ?? null;
+  } catch (err) {
+    console.warn(
+      `[places] error for query "${query}":`,
+      err instanceof Error ? err.message : err,
+    );
     return null;
   }
+}
+
+/**
+ * Try multiple query shapes against Google Places — title+location, then
+ * just the location, then just the title — so a venue name like "Grove
+ * on the Hill" is found even if the title is unrelated ("dinner with
+ * Sarah") and confuses the search. The first non-null hit wins.
+ *
+ * Returns null silently if GOOGLE_PLACES_API_KEY isn't set.
+ */
+async function lookupPlace(
+  title: string,
+  locationOrSeed: string,
+): Promise<{ address: string; confidence: "high" } | null> {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  if (!apiKey) return null;
+  // Build a deduped fallback chain — short enough to bail fast, broad
+  // enough to catch venue-only and title-only cases.
+  const queries: string[] = [];
+  const t = title.trim();
+  const l = locationOrSeed.trim();
+  if (t && l) queries.push(`${t} ${l}`);
+  if (l) queries.push(l);
+  if (t) queries.push(t);
+  // If queries are identical (rare), Set keeps it to one.
+  for (const q of new Set(queries)) {
+    const hit = await lookupPlaceOnce(q, apiKey);
+    if (hit) return { address: hit, confidence: "high" };
+  }
+  return null;
 }
 
 // ─── Location enrichment ──────────────────────────────────────────────────
@@ -1152,12 +1189,11 @@ ${JSON.stringify(claudeInput, null, 2)}`;
             confidence: "high" as const,
           };
         }
-        const placesSeed = c.currentLocation
-          ? `${c.summary} ${c.currentLocation}`
-          : claudeProposal?.address
-            ? `${c.summary} ${claudeProposal.address}`
-            : null;
-        const places = placesSeed ? await lookupPlace(placesSeed) : null;
+        const placesSeed =
+          c.currentLocation || claudeProposal?.address || "";
+        const places = placesSeed
+          ? await lookupPlace(c.summary, placesSeed)
+          : null;
         if (places) {
           return {
             ...c,
