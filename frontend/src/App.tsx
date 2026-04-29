@@ -45,10 +45,13 @@ import {
   CalendarError,
   disconnectGoogle,
   fetchGoogleStatus,
+  runAutoSync,
   scheduleTask,
   startGoogleConnect,
+  type AutoSyncResult,
   type GoogleStatus,
 } from "@/lib/googleCalendar";
+import { SyncFromGoogleButton } from "@/components/SyncFromGoogleButton";
 import type { PrioritizedTask, Task } from "@/types/task";
 
 type Source = "local" | "claude";
@@ -752,6 +755,29 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [surfacedFingerprint]);
 
+  /**
+   * One-click sync: runAutoSync (Google → tasks + writeback) → refresh
+   * the local task cache → trigger AI re-rank so newly-imported events
+   * land in their right tier without a separate click.
+   *
+   * The 2x/day cap on /api/prioritize is enforced server-side; if it's
+   * already been hit, the AI re-rank silently no-ops and returns the
+   * sync result anyway. The user still sees imports + enrichment.
+   */
+  const handleAutoSyncAndRerank = async (): Promise<AutoSyncResult> => {
+    const r = await runAutoSync(14);
+    // Refresh tasks from Supabase so newly-inserted ones from auto-sync
+    // are visible in the local cache before we ask the AI to rank them.
+    if (r.imported > 0) {
+      await refreshFromRemote();
+    }
+    // Don't await the AI re-rank — let the user see the sync summary
+    // immediately. Errors (rate-limit, API errors) are swallowed so the
+    // sync UX isn't blocked by them.
+    void handleAiRefresh().catch(() => {});
+    return r;
+  };
+
   const handleAiRefresh = async () => {
     setLoading(true);
     setAiError(null);
@@ -1107,6 +1133,16 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             />
           </section>
 
+          {/* One-click sync: pulls task-like Google events into the task
+              list, writes back enriched addresses, then re-runs AI rank so
+              the new tasks land in their right tier immediately. Hidden
+              when calendar isn't connected — user has nothing to sync. */}
+          {googleStatus?.connected && (
+            <SyncFromGoogleButton
+              onAutoSync={handleAutoSyncAndRerank}
+            />
+          )}
+
           <WeekSchedule
             tasks={tasks}
             prefs={prefs}
@@ -1387,16 +1423,6 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           prefs={prefs}
           onChange={setPrefs}
           onClose={() => setShowSettings(false)}
-          tasks={tasks}
-          onRefreshTasks={refreshFromRemote}
-          onImportEvent={(input) => {
-            const t = addTask(input);
-            // Distinguish calendar-import from manual create by emitting a
-            // dedicated event AFTER the task has been added (addTask already
-            // fires task_created with fromCalendarImport: true).
-            logMetricEvent("calendar_event_imported", { theme: input.theme });
-            return t;
-          }}
           onExport={() => {
             downloadBackup(tasks, goals, prefs);
             logMetricEvent("backup_exported", {
