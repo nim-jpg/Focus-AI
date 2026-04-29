@@ -88,3 +88,13 @@ create table if not exists public.ai_usage (
 
 alter table public.ai_usage enable row level security;
 -- service-role only, no client policies.
+
+-- ─── AI cache (Claude rank results, ported between devices) ───────────────
+create table if not exists public.ai_cache (
+  user_id     uuid primary key references auth.users(id) on delete cascade,
+  payload     jsonb not null,
+  updated_at  timestamptz not null default now()
+);
+
+alter table public.ai_cache enable row level security;
+-- Service-role only — backend reads/writes on behalf of the signed-in user.

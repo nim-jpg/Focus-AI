@@ -19,6 +19,12 @@ import { PlannerScan, type ResolvedUpdate } from "@/components/PlannerScan";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { checkAndNotify } from "@/lib/notifications";
 import { downloadBackup, readBackupFile } from "@/lib/backup";
+import {
+  loadAiCache,
+  saveAiCache,
+  syncAiCacheFromRemote,
+} from "@/lib/storage";
+import { isAuthEnabled } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/useAuth";
 import { Login } from "@/components/Login";
 import { useGoals } from "@/lib/useGoals";
@@ -598,42 +604,46 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     /** Hash of fields that influence ranking. Mismatch ⇒ re-rank. */
     hash: string;
   };
-  // aiCache survives page reloads — it's the user's last paid AI run, so
-  // we don't want to throw it away. Stored as { ranks: [[id, entry]...] }.
-  const AI_CACHE_KEY = "focus3:aiCache:v1";
+  // aiCache survives page reloads AND ports between devices when signed in.
+  // Stored as { ranks: [[id, entry]...] } locally and as a single jsonb row
+  // per user in Supabase via /api/store/ai-cache.
   const [aiCache, setAiCache] = useState<Map<string, CachedRank>>(() => {
     if (typeof window === "undefined") return new Map();
-    try {
-      const raw = localStorage.getItem(AI_CACHE_KEY);
-      if (!raw) return new Map();
-      const parsed = JSON.parse(raw) as { ranks: Array<[string, CachedRank]> };
-      return new Map(parsed.ranks);
-    } catch {
-      return new Map();
-    }
+    const cached = loadAiCache();
+    if (!cached) return new Map();
+    return new Map(cached.ranks as Array<[string, CachedRank]>);
   });
-  // Persist on every change. The cache is small (one entry per task) so a
-  // synchronous write is fine.
+  // Mirror the sync-gate pattern from useTasks: don't push the empty initial
+  // map until the backend GET has had a chance to seed it from the canonical
+  // copy. Otherwise device 2 would PUT {} and wipe the user's last AI run.
+  const aiCacheSynced = useRef(!isAuthEnabled());
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        AI_CACHE_KEY,
-        JSON.stringify({ ranks: [...aiCache.entries()] }),
-      );
-    } catch {
-      /* ignore — quota or private-mode */
-    }
+    if (!aiCacheSynced.current) return;
+    saveAiCache({ ranks: [...aiCache.entries()] });
   }, [aiCache]);
-  // Source tracks whether we're currently DISPLAYING the AI ranking. We
-  // restore source=claude on mount if there's a non-empty cache, so the
-  // user lands back on their AI-ranked Top Three after a reload.
-  const [source, setSource] = useState<Source>(() =>
-    typeof window === "undefined"
-      ? "local"
-      : localStorage.getItem(AI_CACHE_KEY)
-        ? "claude"
-        : "local",
-  );
+  useEffect(() => {
+    if (!isAuthEnabled()) return;
+    let cancelled = false;
+    void syncAiCacheFromRemote().then((remote) => {
+      if (cancelled) return;
+      if (remote) {
+        setAiCache(new Map(remote.ranks as Array<[string, CachedRank]>));
+        // If the synced cache is non-empty, restore the AI source view.
+        if (remote.ranks.length > 0) setSource("claude");
+      }
+      aiCacheSynced.current = true;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  // Source tracks whether we're currently DISPLAYING the AI ranking. Initial
+  // value uses the cache that was already loaded synchronously above.
+  const [source, setSource] = useState<Source>(() => {
+    if (typeof window === "undefined") return "local";
+    const cached = loadAiCache();
+    return cached && cached.ranks.length > 0 ? "claude" : "local";
+  });
   const [loading, setLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   // Bumped each time an AI refresh completes — TaskList watches this to
@@ -1341,6 +1351,14 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             replaceAllTasks(bundle.tasks);
             replaceAllGoals(bundle.goals);
             replacePrefs(bundle.prefs);
+            // v2 backups carry the AI rank cache. Restoring it preserves the
+            // user's last AI-ranked Top Three across the cutover.
+            if (bundle.aiCache) {
+              setAiCache(
+                new Map(bundle.aiCache.ranks as Array<[string, CachedRank]>),
+              );
+              if (bundle.aiCache.ranks.length > 0) setSource("claude");
+            }
           }}
           lastScanUndo={
             lastScanUndo

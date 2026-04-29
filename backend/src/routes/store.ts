@@ -149,3 +149,46 @@ storeRouter.put("/prefs", async (req, res) => {
   }
   res.json({ ok: true });
 });
+
+// ─── AI cache (Claude rank results) ───────────────────────────────────────
+// One opaque jsonb blob per user. Ported between devices so a user's last
+// AI-ranked top-three appears identically wherever they sign in.
+storeRouter.get("/ai-cache", async (req, res) => {
+  if (!isMultiUser()) return noStore(res);
+  const supabase = getSupabase();
+  if (!supabase) return noStore(res);
+  const { data, error } = await supabase
+    .from("ai_cache")
+    .select("payload")
+    .eq("user_id", req.userId)
+    .maybeSingle();
+  if (error) {
+    res.status(500).json({ error: "db_read_failed", message: error.message });
+    return;
+  }
+  res.json({ aiCache: data?.payload ?? null });
+});
+
+storeRouter.put("/ai-cache", async (req, res) => {
+  if (!isMultiUser()) return noStore(res);
+  const supabase = getSupabase();
+  if (!supabase) return noStore(res);
+  const aiCache = req.body?.aiCache;
+  if (!aiCache || typeof aiCache !== "object") {
+    res.status(400).json({ error: "bad_payload" });
+    return;
+  }
+  const { error } = await supabase.from("ai_cache").upsert(
+    {
+      user_id: req.userId!,
+      payload: aiCache,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" },
+  );
+  if (error) {
+    res.status(500).json({ error: "db_write_failed", message: error.message });
+    return;
+  }
+  res.json({ ok: true });
+});

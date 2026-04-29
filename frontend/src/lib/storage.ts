@@ -5,6 +5,7 @@ import { getSupabase, isAuthEnabled } from "./supabaseClient";
 const TASKS_KEY = "focus3:tasks:v1";
 const PREFS_KEY = "focus3:prefs:v1";
 const GOALS_KEY = "focus3:goals:v1";
+const AI_CACHE_KEY = "focus3:aiCache:v1";
 
 /**
  * Storage strategy:
@@ -63,6 +64,9 @@ function prefsKey(uid: string | null): string {
 }
 function goalsKey(uid: string | null): string {
   return uid ? `${GOALS_KEY}:${uid}` : GOALS_KEY;
+}
+function aiCacheKey(uid: string | null): string {
+  return uid ? `${AI_CACHE_KEY}:${uid}` : AI_CACHE_KEY;
 }
 
 function safeParse<T>(raw: string | null, fallback: T): T {
@@ -198,6 +202,56 @@ export async function syncGoalsFromRemote(): Promise<Goal[] | null> {
     const data = (await res.json()) as { goals: Goal[] };
     localStorage.setItem(goalsKey(uid), JSON.stringify(data.goals));
     return data.goals;
+  } catch {
+    return null;
+  }
+}
+
+// ─── AI cache (Claude rank results) ───────────────────────────────────────
+// Stored as { ranks: Array<[taskId, CachedRank]> } so it survives JSON.
+
+export interface AiCachePayload {
+  ranks: Array<[string, { tier: 1 | 2 | 3 | 4; reasoning: string; hash: string }]>;
+}
+
+export function loadAiCache(): AiCachePayload | null {
+  const uid = syncUserIdSnapshot();
+  return safeParse<AiCachePayload | null>(
+    localStorage.getItem(aiCacheKey(uid)),
+    null,
+  );
+}
+
+export function saveAiCache(payload: AiCachePayload): void {
+  const uid = syncUserIdSnapshot();
+  localStorage.setItem(aiCacheKey(uid), JSON.stringify(payload));
+  void pushAiCacheRemote(payload);
+}
+
+async function pushAiCacheRemote(payload: AiCachePayload): Promise<void> {
+  if (!isAuthEnabled()) return;
+  try {
+    await apiFetch("/api/store/ai-cache", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ aiCache: payload }),
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function syncAiCacheFromRemote(): Promise<AiCachePayload | null> {
+  if (!isAuthEnabled()) return null;
+  const uid = await currentUserId();
+  if (!uid) return null;
+  try {
+    const res = await apiFetch("/api/store/ai-cache");
+    if (!res.ok) return null;
+    const data = (await res.json()) as { aiCache: AiCachePayload | null };
+    if (!data.aiCache) return null;
+    localStorage.setItem(aiCacheKey(uid), JSON.stringify(data.aiCache));
+    return data.aiCache;
   } catch {
     return null;
   }
