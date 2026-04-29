@@ -30,6 +30,23 @@ For each distinct task in the input, emit a JSON object with these fields:
 - urgency: one of: low, normal, high, critical (default normal)
 - privacy: one of: private, semi-private, public (default private)
 - recurrence: one of: none, daily, weekly, monthly, quarterly, yearly (default none)
+  · CRITICAL distinction for medication/fitness/diet items:
+    - One-off action (one decision the user makes once) → recurrence: none.
+      Examples: "join gym", "book dentist appointment", "buy treadmill",
+      "see GP about knee", "find a yoga studio", "set up direct debit for
+      vitamins", "research nutritionist". These are tasks to schedule.
+    - Ongoing routine (the user does it again and again) → recurrence:
+      daily / weekly / monthly. Examples: "take Vitamin D every morning"
+      (daily), "VO2 max session twice a week" (weekly), "log calories"
+      (daily), "physio exercises Mon/Wed/Fri" (weekly), "monthly
+      pilates class" (monthly), "weekly weigh-in" (weekly). These become
+      foundation habits.
+    - When phrasing is ambiguous, prefer one-off. "Go to gym" alone is
+      one-off. "Go to gym every Tuesday" is weekly recurring.
+    - For simple verbs like "exercise", "stretch", "walk", "meditate"
+      with no frequency specified, treat as DAILY because the user
+      probably means "as a daily habit". But "do a stretch session today"
+      with explicit "today" is one-off.
 - isWork: boolean (true if theme=work, else false)
 - estimatedMinutes: integer 5-480 (default 30)
 - dueDate: ISO 8601 date "YYYY-MM-DD". Inferred liberally — see below.
