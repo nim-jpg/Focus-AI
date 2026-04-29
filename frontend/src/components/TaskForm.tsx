@@ -254,8 +254,7 @@ export function TaskForm({
           />
           {form.calendarEventId && (
             <p className="mt-1 text-[11px] text-slate-500">
-              Editing the date here only updates Focus3. Use Re-schedule to
-              also move the Google Calendar event.
+              Changing the date here will also move the Google Calendar event.
             </p>
           )}
         </div>
