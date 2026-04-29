@@ -309,6 +309,18 @@ export function useTasks() {
   const replaceAllTasks = useCallback((next: Task[]) => setTasks(next), []);
   const replacePrefs = useCallback((next: UserPrefs) => setPrefsState(next), []);
 
+  /**
+   * Re-pull tasks from the backend and replace the local cache. Used after
+   * server-side mutations (e.g. /api/google/auto-sync inserts tasks
+   * directly into Supabase) so the UI reflects the change without waiting
+   * for the next mount.
+   */
+  const refreshFromRemote = useCallback(async () => {
+    if (!isAuthEnabled()) return;
+    const remote = await syncTasksFromRemote();
+    if (remote) setTasks(migrate(remote));
+  }, []);
+
   return {
     tasks,
     prefs,
@@ -322,5 +334,6 @@ export function useTasks() {
     setPrefs,
     replaceAllTasks,
     replacePrefs,
+    refreshFromRemote,
   };
 }

@@ -100,6 +100,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     setPrefs,
     replaceAllTasks,
     replacePrefs,
+    refreshFromRemote,
   } = useTasks();
   const { goals, addGoal, updateGoal, removeGoal, replaceAllGoals } = useGoals();
 
@@ -1386,6 +1387,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           onChange={setPrefs}
           onClose={() => setShowSettings(false)}
           tasks={tasks}
+          onRefreshTasks={refreshFromRemote}
           onImportEvent={(input) => {
             const t = addTask(input);
             // Distinguish calendar-import from manual create by emitting a

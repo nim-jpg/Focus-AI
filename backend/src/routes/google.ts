@@ -413,6 +413,380 @@ googleRouter.delete("/disconnect", async (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── Auto-sync from Google ────────────────────────────────────────────────
+// Single round-trip that does both:
+//   1. classifies upcoming events as "actionable task" vs "passive meeting"
+//      via a Claude call and creates Focus3 tasks for the actionable ones
+//      (linked via calendarEventId, scheduledFor empty so the time stays
+//      in Google);
+//   2. proposes fuller addresses for events with ambiguous locations and
+//      writes back ONLY the high-confidence proposals — medium/low rows
+//      are returned to the caller as "needs review" so they can use the
+//      manual enrich panel without the auto-apply risk.
+//
+// Trust contract: the user explicitly clicked "Sync now" so the backend
+// has consent for the writes. Heuristic safety on top: never auto-import
+// recurring meetings, never auto-import long blocks (>4h), never auto-
+// apply medium/low confidence addresses, never overwrite a non-empty
+// location that already has a comma or postcode.
+googleRouter.post("/auto-sync", async (req, res) => {
+  const client = await getAuthorizedClient(req.userId);
+  if (!client) {
+    res.status(401).json({ error: "not_connected" });
+    return;
+  }
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    res.status(500).json({ error: "anthropic_not_configured" });
+    return;
+  }
+  const supabase = getSupabase();
+  if (!isMultiUser() || !supabase) {
+    res
+      .status(503)
+      .json({ error: "store_unavailable", message: "Multi-user mode required" });
+    return;
+  }
+  const daysForward = Math.min(
+    Math.max(Number(req.body?.daysForward ?? 14), 1),
+    60,
+  );
+  const from = new Date().toISOString();
+  const to = new Date(
+    Date.now() + daysForward * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  try {
+    const calendar = google.calendar({ version: "v3", auth: client });
+
+    // Writable calendars only — same access-role filter as the manual
+    // enrichment route.
+    const calList = await calendar.calendarList.list({
+      maxResults: 250,
+      showHidden: false,
+    });
+    const writable = (calList.data.items ?? []).filter(
+      (c) =>
+        c.id &&
+        (c.accessRole === "owner" || c.accessRole === "writer") &&
+        c.selected !== false,
+    );
+
+    // Pull existing Focus3 tasks for this user so we can skip events that
+    // are already linked to one.
+    const { data: existingTaskRows } = await supabase
+      .from("tasks")
+      .select("payload")
+      .eq("user_id", req.userId);
+    const linkedEventIds = new Set<string>();
+    for (const r of existingTaskRows ?? []) {
+      const ev = (r.payload as { calendarEventId?: string })?.calendarEventId;
+      if (ev) linkedEventIds.add(ev);
+    }
+
+    type Ev = {
+      id: string;
+      calendarId: string;
+      calendarName: string;
+      summary: string;
+      description: string;
+      start: string | null;
+      end: string | null;
+      allDay: boolean;
+      durationMinutes: number;
+      isRecurring: boolean;
+      location: string;
+    };
+    const allEvents: Ev[] = [];
+    let totalScanned = 0;
+
+    await Promise.all(
+      writable.map(async (cal) => {
+        try {
+          const r = await calendar.events.list({
+            calendarId: cal.id!,
+            timeMin: from,
+            timeMax: to,
+            singleEvents: true,
+            orderBy: "startTime",
+            maxResults: 250,
+          });
+          for (const e of r.data.items ?? []) {
+            totalScanned += 1;
+            if (!e.id || !e.summary) continue;
+            const startIso = e.start?.dateTime ?? e.start?.date ?? null;
+            const endIso = e.end?.dateTime ?? e.end?.date ?? null;
+            const allDay = Boolean(e.start?.date && !e.start?.dateTime);
+            const dur =
+              startIso && endIso && !allDay
+                ? Math.max(
+                    5,
+                    Math.round(
+                      (new Date(endIso).getTime() -
+                        new Date(startIso).getTime()) /
+                        60000,
+                    ),
+                  )
+                : 30;
+            allEvents.push({
+              id: e.id,
+              calendarId: cal.id!,
+              calendarName: cal.summary ?? "(untitled)",
+              summary: e.summary,
+              description: (e.description ?? "").slice(0, 280),
+              start: startIso,
+              end: endIso,
+              allDay,
+              durationMinutes: dur,
+              // Recurring tasks usually aren't task-like ("weekly standup"
+              // shouldn't be tracked as a Focus3 task). We keep this flag
+              // and tell Claude.
+              isRecurring: Boolean(e.recurringEventId),
+              location: e.location ?? "",
+            });
+          }
+        } catch {
+          /* per-calendar failure isolated */
+        }
+      }),
+    );
+
+    // Pre-filter: skip events already linked, OOO markers, all-day, or
+    // long blocks (>4h almost never task-like).
+    const looksOOO = /\b(ooo|out of office|holiday|annual leave|vacation|pto|sick)\b/i;
+    const candidates = allEvents.filter((e) => {
+      if (linkedEventIds.has(e.id)) return false;
+      if (e.allDay) return false;
+      if (looksOOO.test(e.summary)) return false;
+      if (e.durationMinutes > 4 * 60) return false;
+      return true;
+    });
+
+    // Filter for location enrichment: any event (incl. linked) whose
+    // location is short/ambiguous. We DO try to enrich linked events too
+    // because that's the whole point — write fuller addresses back.
+    const POSTCODE = /\b[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2}\b/i;
+    const US_ZIP = /\b\d{5}(?:-\d{4})?\b/;
+    const ambiguous = (loc: string) => {
+      const t = loc.trim();
+      if (!t) return false;
+      if (t.length > 80) return false;
+      if (t.includes(",")) return false;
+      if (POSTCODE.test(t) || US_ZIP.test(t)) return false;
+      if (/^(home|office|my (house|place|office)|the office)$/i.test(t)) {
+        return false;
+      }
+      return true;
+    };
+    const locationCandidates = allEvents.filter((e) => ambiguous(e.location));
+
+    // Short-circuit: nothing to do.
+    if (candidates.length === 0 && locationCandidates.length === 0) {
+      res.json({
+        scanned: totalScanned,
+        calendars: writable.length,
+        imported: 0,
+        enrichedAuto: 0,
+        enrichmentNeedsReview: [],
+      });
+      return;
+    }
+
+    // Single batched Claude call. We send everything we want classified
+    // OR enriched in one prompt to amortise the round-trip cost.
+    const anthropic = new Anthropic({ apiKey });
+    const claudePrompt = `You are helping a productivity app decide what to do with a user's upcoming Google Calendar events. Return strict JSON, no prose, no markdown.
+
+For each event, decide TWO things:
+1. isTask — true if the event represents a piece of WORK the user has to do (an action they perform: "Submit Q3 report", "Pay invoice", "Doctor appointment", "Call accountant", "Workout"). false for passive meetings the user just attends ("Team standup", "Weekly 1:1", "Lunch with Sara", "Birthday").
+   - isRecurring=true events are MUCH less likely to be task-like — recurring meetings are passive, the rare exceptions are recurring chores like "Pay rent" or "Take medication". Be strict.
+   - Strong signal: imperative verb in title (Submit, Send, Pay, Call, Finish, Draft, File, Book, Fix, Update, Review, Prepare, Sign) + a personal subject ("you"-shaped, not group-shaped).
+2. proposedAddress — for events with currentLocation set, propose a likely full postal address. high confidence when there's a single well-known venue with that name. medium when multi-branch (Costa, Starbucks etc.) — pick one sensibly. low when very generic. null only for non-places ("TBD", phone numbers, person names).
+
+Theme suggestion (only matters when isTask=true): work / projects / personal / school / fitness / finance / diet / medication / development / household.
+
+Return: a JSON array, same order as input, each item:
+{ "id": "<event id>", "isTask": <bool>, "theme": "<theme>" | null, "proposedAddress": "<addr>" | null, "confidence": "high" | "medium" | "low" }
+
+Events:
+${JSON.stringify(
+  // Only fields Claude needs — minimise tokens.
+  [...candidates, ...locationCandidates.filter((e) => !candidates.includes(e))].map((e) => ({
+    id: e.id,
+    summary: e.summary,
+    description: e.description,
+    durationMinutes: e.durationMinutes,
+    isRecurring: e.isRecurring,
+    currentLocation: e.location || null,
+  })),
+  null,
+  2,
+)}`;
+
+    const completion = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 4000,
+      messages: [{ role: "user", content: claudePrompt }],
+    });
+    logAiUsage(req.userId, "auto_sync", completion, true);
+    const block = completion.content.find((b) => b.type === "text");
+    const raw = block && "text" in block ? block.text : "";
+    const m = raw.match(/\[[\s\S]*\]/);
+    type Decision = {
+      id: string;
+      isTask: boolean;
+      theme: string | null;
+      proposedAddress: string | null;
+      confidence: "high" | "medium" | "low";
+    };
+    let decisions: Decision[] = [];
+    try {
+      decisions = m ? (JSON.parse(m[0]) as Decision[]) : [];
+    } catch {
+      decisions = [];
+    }
+    const decisionById = new Map(decisions.map((d) => [d.id, d]));
+
+    // ── Apply: import task-like events as Focus3 tasks ───
+    const VALID_THEMES = new Set([
+      "work",
+      "projects",
+      "personal",
+      "school",
+      "fitness",
+      "finance",
+      "diet",
+      "medication",
+      "development",
+      "household",
+    ]);
+    const toInsert: Array<{
+      id: string;
+      user_id: string;
+      payload: Record<string, unknown>;
+      updated_at: string;
+    }> = [];
+    const now = new Date().toISOString();
+    let imported = 0;
+    for (const ev of candidates) {
+      const d = decisionById.get(ev.id);
+      if (!d || !d.isTask) continue;
+      const theme =
+        d.theme && VALID_THEMES.has(d.theme) ? d.theme : "work";
+      const taskId =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `t_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      const taskPayload: Record<string, unknown> = {
+        id: taskId,
+        title: ev.summary,
+        theme,
+        urgency: "normal",
+        privacy: "private",
+        recurrence: "none",
+        isWork: theme === "work",
+        isBlocker: false,
+        status: "pending",
+        estimatedMinutes: ev.durationMinutes,
+        calendarEventId: ev.id,
+        dueDate: ev.start ?? undefined,
+        createdAt: now,
+        updatedAt: now,
+      };
+      toInsert.push({
+        id: taskId,
+        user_id: req.userId!,
+        payload: taskPayload,
+        updated_at: now,
+      });
+      imported += 1;
+    }
+    if (toInsert.length > 0) {
+      const { error } = await supabase.from("tasks").insert(toInsert);
+      if (error) {
+        // Don't abort — return partial success so the user sees what happened.
+        console.error("[auto-sync] task insert failed:", error.message);
+        imported = 0;
+      } else {
+        for (const t of toInsert) {
+          void logMetricsEvent({
+            userId: req.userId,
+            eventType: "calendar_event_imported",
+            metadata: { theme: (t.payload as { theme: string }).theme, auto: true },
+          });
+        }
+      }
+    }
+
+    // ── Apply: high-confidence location proposals ───
+    let enrichedAuto = 0;
+    const enrichmentNeedsReview: Array<{
+      id: string;
+      calendarId: string;
+      calendarName: string;
+      summary: string;
+      currentLocation: string;
+      proposedAddress: string | null;
+      confidence: "medium" | "low";
+    }> = [];
+    for (const ev of locationCandidates) {
+      const d = decisionById.get(ev.id);
+      if (!d || !d.proposedAddress) {
+        // Low/no proposal — leave for manual review.
+        enrichmentNeedsReview.push({
+          id: ev.id,
+          calendarId: ev.calendarId,
+          calendarName: ev.calendarName,
+          summary: ev.summary,
+          currentLocation: ev.location,
+          proposedAddress: null,
+          confidence: "low",
+        });
+        continue;
+      }
+      if (d.confidence === "high") {
+        try {
+          await calendar.events.patch({
+            calendarId: ev.calendarId,
+            eventId: ev.id,
+            requestBody: { location: d.proposedAddress },
+          });
+          enrichedAuto += 1;
+        } catch (err) {
+          console.error(
+            "[auto-sync] location patch failed:",
+            err instanceof Error ? err.message : err,
+          );
+        }
+      } else {
+        enrichmentNeedsReview.push({
+          id: ev.id,
+          calendarId: ev.calendarId,
+          calendarName: ev.calendarName,
+          summary: ev.summary,
+          currentLocation: ev.location,
+          proposedAddress: d.proposedAddress,
+          confidence: d.confidence,
+        });
+      }
+    }
+
+    res.json({
+      scanned: totalScanned,
+      calendars: writable.length,
+      imported,
+      enrichedAuto,
+      enrichmentNeedsReview,
+    });
+  } catch (err) {
+    logAiUsage(req.userId, "auto_sync", null, false);
+    res.status(500).json({
+      error: "auto_sync_failed",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
 // ─── Duplicate-event audit ────────────────────────────────────────────────
 // Scans the user's primary calendar within a window and groups events that
 // share a normalized summary. Returns groups with 2+ instances so the

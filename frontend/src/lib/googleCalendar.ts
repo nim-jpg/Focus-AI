@@ -186,6 +186,38 @@ export async function applyLocationUpdates(
   };
 }
 
+// ─── Auto-sync (one-click pull + enrich) ──────────────────────────────────
+export interface AutoSyncReviewItem {
+  id: string;
+  calendarId: string;
+  calendarName: string;
+  summary: string;
+  currentLocation: string;
+  proposedAddress: string | null;
+  confidence: "medium" | "low";
+}
+
+export interface AutoSyncResult {
+  scanned: number;
+  calendars: number;
+  imported: number;
+  enrichedAuto: number;
+  enrichmentNeedsReview: AutoSyncReviewItem[];
+}
+
+export async function runAutoSync(daysForward = 14): Promise<AutoSyncResult> {
+  const res = await apiFetch("/api/google/auto-sync", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ daysForward }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new CalendarError(body.message ?? `HTTP ${res.status}`, res.status);
+  }
+  return (await res.json()) as AutoSyncResult;
+}
+
 export async function bulkDeleteEvents(
   eventIds: string[],
 ): Promise<{ deleted: number; failures: Array<{ id: string; reason: string }> }> {

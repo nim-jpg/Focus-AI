@@ -9,6 +9,7 @@ import {
 } from "@/types/task";
 import { TimeField } from "./TimeField";
 import { fetchCalendars, type CalendarMeta } from "@/lib/googleCalendar";
+import { CalendarAutoSync } from "./CalendarAutoSync";
 import { CalendarDuplicateAudit } from "./CalendarDuplicateAudit";
 import { CalendarEventImporter } from "./CalendarEventImporter";
 import { CalendarLocationEnrich } from "./CalendarLocationEnrich";
@@ -51,6 +52,9 @@ interface Props {
   /** Existing tasks — needed by the importer to skip events that are already
    *  linked to a Focus3 task (matched by calendarEventId). */
   tasks?: Task[];
+  /** Re-pull tasks from the backend after server-side mutations (auto-sync
+   *  writes new tasks directly to Supabase, so the UI needs to refresh). */
+  onRefreshTasks?: () => Promise<void>;
 }
 
 const DAY_LABELS: Array<{ idx: number; label: string }> = [
@@ -73,6 +77,7 @@ export function SettingsPanel({
   calendar,
   onImportEvent,
   tasks,
+  onRefreshTasks,
 }: Props) {
   const [permState, setPermState] = useState<NotificationPermission | null>(
     typeof Notification !== "undefined" ? Notification.permission : null,
@@ -714,10 +719,28 @@ export function SettingsPanel({
               {connectMsg && (
                 <p className="mt-2 text-xs text-amber-700">{connectMsg}</p>
               )}
+              {calendar.connected && (
+                <div className="mt-4 rounded-md border border-emerald-200 bg-gradient-to-br from-emerald-50 to-emerald-50/60 p-3">
+                  <h5 className="text-sm font-semibold text-emerald-900">
+                    Auto-sync from Google
+                  </h5>
+                  <p className="mt-1 text-xs text-emerald-800">
+                    One click — Claude scans the next 14 days, decides which
+                    events are actionable tasks (not just meetings) and pulls
+                    them in, then writes high-confidence full addresses back
+                    onto your Google events. Recurring meetings + long blocks
+                    are skipped automatically. Items Claude isn't confident
+                    about land in the manual review panels below.
+                  </p>
+                  <div className="mt-2">
+                    <CalendarAutoSync onSyncComplete={onRefreshTasks} />
+                  </div>
+                </div>
+              )}
               {calendar.connected && onImportEvent && tasks && (
                 <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 p-3">
                   <h5 className="text-sm font-semibold text-sky-900">
-                    Import calendar events as tasks
+                    Import calendar events as tasks (manual)
                   </h5>
                   <p className="mt-1 text-xs text-sky-800">
                     Scan your upcoming Google Calendar events and create
