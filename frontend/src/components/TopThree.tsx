@@ -13,13 +13,62 @@ interface Props {
   onOpenGoal?: (goalId: string) => void;
 }
 
-/** Short reference label for a goal chip — first 2 meaningful words, capped at 14 chars. */
+/**
+ * One-or-two-word label for a goal chip. The full title only shows on hover
+ * via `title=`. Strategy:
+ *  1. Drop common filler ("get", "to", "the", "a", "my", "more"…)
+ *  2. Pick the first remaining noun-ish word; if that word is short (<5 chars)
+ *     keep the second word too so the chip reads as a phrase.
+ *  3. Cap at 16 chars without ellipsis — short enough for a single chip but
+ *     no truncation noise.
+ */
 function shortGoalLabel(title: string): string {
-  const trimmed = title.trim();
-  if (trimmed.length <= 14) return trimmed;
-  const words = trimmed.split(/\s+/).filter((w) => w.length > 0);
-  const head = words.slice(0, 2).join(" ");
-  return (head.length <= 14 ? head : head.slice(0, 13)) + "…";
+  const filler = new Set([
+    "get",
+    "to",
+    "a",
+    "an",
+    "the",
+    "my",
+    "be",
+    "more",
+    "less",
+    "of",
+    "for",
+    "with",
+    "and",
+    "or",
+    "in",
+    "on",
+    "at",
+    "by",
+    "from",
+    "into",
+    "make",
+    "do",
+    "have",
+    "build",
+    "become",
+  ]);
+  const words = title
+    .trim()
+    .split(/\s+/)
+    .map((w) => w.replace(/[^\w\-]/g, ""))
+    .filter((w) => w.length > 0);
+  const meaningful = words.filter((w) => !filler.has(w.toLowerCase()));
+  if (meaningful.length === 0) {
+    // All filler? Fall back to the original first word.
+    return (words[0] ?? title).slice(0, 16);
+  }
+  const first = meaningful[0];
+  // If the lead word is short, attach the second meaningful word so the chip
+  // reads as a phrase ("home gym", "side project") rather than a fragment
+  // ("home", "side").
+  if (first.length < 5 && meaningful[1]) {
+    const phrase = `${first} ${meaningful[1]}`;
+    if (phrase.length <= 16) return phrase.toLowerCase();
+  }
+  return first.toLowerCase().slice(0, 16);
 }
 
 const SNOOZE_OPTIONS: Array<{ label: string; days: number }> = [
@@ -31,10 +80,10 @@ const SNOOZE_OPTIONS: Array<{ label: string; days: number }> = [
 ];
 
 const TIER_LABELS: Record<1 | 2 | 3 | 4, string> = {
-  1: "Must do now",
-  2: "Moves you forward",
+  1: "Now",
+  2: "Soon",
   3: "Balance",
-  4: "Background",
+  4: "Later",
 };
 
 // Tier visuals: each tier gets a subtle gradient + soft tinted shadow so the

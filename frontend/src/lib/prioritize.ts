@@ -8,11 +8,16 @@ import type {
 import { isFoundation, isDueNow } from "./recurrence";
 import { isInWorkMode } from "./modeFilter";
 
+// Tasks linked to one of the user's goals are the things they actually want
+// to make progress on — those should heavily outrank generic background work,
+// even goal-less items with high urgency. Weights bumped from the original
+// 60/90/140/180 so a 1y goal-linked task lands ahead of a vague "high"
+// urgency unflagged item.
 const GOAL_HORIZON_WEIGHT: Record<Goal["horizon"], number> = {
-  "6m": 60,
-  "1y": 90,
-  "5y": 140,
-  "10y": 180,
+  "6m": 120,
+  "1y": 180,
+  "5y": 240,
+  "10y": 280,
 };
 
 const HOURS = 60 * 60 * 1000;
@@ -147,13 +152,13 @@ interface Scored {
 }
 
 const FOCUS_LABEL: Record<ImpactDim, string> = {
-  financial: "financial impact",
-  health: "health priority",
-  stress: "stress relief",
-  family: "family priority",
-  career: "career-driving",
-  learning: "learning priority",
-  creativity: "creative project",
+  financial: "money",
+  health: "health",
+  stress: "stress",
+  family: "family",
+  career: "work",
+  learning: "learning",
+  creativity: "creative work",
 };
 
 /**
@@ -179,37 +184,35 @@ function scoreTask(
   const hoursLeft = hoursUntil(task.dueDate, now);
   const avoidance = task.avoidanceWeeks ?? 0;
 
-  // Tier 1 — must do now.
+  // Tier 1 — needs hands today.
   if (hoursLeft !== null && hoursLeft <= 48 && hoursLeft >= -24) {
     score += 600;
     promote(1);
     reasons.push(
       hoursLeft <= 0
-        ? "deadline already passed — handle today"
-        : `deadline in ${Math.max(1, Math.round(hoursLeft))}h`,
+        ? "overdue — sort today"
+        : `due in ${Math.max(1, Math.round(hoursLeft))}h`,
     );
   }
   if (task.urgency === "critical") {
     score += 400;
     promote(1);
-    reasons.push("flagged critical");
+    reasons.push("you marked this critical");
   }
   // Avoidance is a primary signal — long-avoided work is what Top Three exists for.
   if (avoidance >= 3) {
     score += 350 + avoidance * 30;
     promote(1);
-    reasons.push(`avoided ${avoidance} weeks — time to break the pattern`);
+    reasons.push(`avoided ${avoidance} weeks — break the pattern`);
   }
 
-  // Tier 2 — moves you forward.
+  // Tier 2 — soon, plan ahead.
   const unlocks = unblocksCount(task, all);
   if (unlocks >= 1) {
     score += 150 + unlocks * 80;
     promote(2);
     reasons.push(
-      unlocks === 1
-        ? "unblocks 1 other task"
-        : `unblocks ${unlocks} other tasks`,
+      unlocks === 1 ? "unblocks 1 other thing" : `unblocks ${unlocks} more`,
     );
   }
   if (task.isBlocker) {
@@ -219,17 +222,17 @@ function scoreTask(
   if (task.theme === "finance" && hoursLeft !== null && hoursLeft <= 7 * 24) {
     score += 180;
     promote(2);
-    reasons.push("finance cutoff this week");
+    reasons.push("money deadline this week");
   }
   if (task.theme === "fitness" && task.recurrence !== "none") {
     score += 90;
     promote(2);
-    reasons.push("fitness consistency compounds");
+    reasons.push("keeps your streak");
   }
   if (task.theme === "development" && task.recurrence !== "none") {
     score += 80;
     promote(2);
-    reasons.push("learning momentum");
+    reasons.push("keeps you learning");
   }
 
   // Deadline pressure (graded).
@@ -255,7 +258,7 @@ function scoreTask(
   if (avoidance === 2) {
     score += 120;
     promote(3);
-    reasons.push("dodged 2 weeks — surfacing before it grows");
+    reasons.push("avoided 2 weeks — worth nudging");
   }
 
   // Goal-pull: tasks laddered to a goal get a bump scaled by the longest
@@ -278,7 +281,7 @@ function scoreTask(
         : a,
     );
     reasons.push(
-      `ladders up to "${longestHorizon.title}" (${longestHorizon.horizon} goal)`,
+      `your goal: ${longestHorizon.title}`,
     );
   }
 
@@ -297,7 +300,7 @@ function scoreTask(
       score += 260;
       promote(2);
       if (!firstFocusReason) {
-        firstFocusReason = `matches your ${FOCUS_LABEL[d]} focus`;
+        firstFocusReason = `your ${FOCUS_LABEL[d]} focus`;
       }
     } else if (!focused) {
       // Neutral mode: small +30 per dimension so impact-touching tasks
@@ -315,17 +318,15 @@ function scoreTask(
     if (overlap >= 2) {
       score += 200;
       promote(1);
-      reasons.unshift(
-        `max impact — hits ${overlap} of your priority areas`,
-      );
+      reasons.unshift(`fits ${overlap} of your focus areas`);
     } else if (firstFocusReason) {
       reasons.unshift(firstFocusReason);
     }
   }
 
-  // Risk weighting — biggest-risk items get an extra push so Top Three is
-  // honest about consequences. "Risk" = impact × likelihood-of-missing.
-  // Likelihood proxies: overdue, near deadline, and high avoidance.
+  // Risk weighting — items with real consequence + a real clock get an
+  // extra push. The reasoning text reads honestly without the
+  // business-speak overhang.
   const isOverdue = hoursLeft !== null && hoursLeft < 0;
   const nearDeadline = hoursLeft !== null && hoursLeft >= 0 && hoursLeft <= 48;
   if (
@@ -337,13 +338,13 @@ function scoreTask(
   ) {
     score += 200;
     promote(1);
-    if (!reasons.some((r) => r.startsWith("biggest risk"))) {
+    if (!reasons.some((r) => r.startsWith("slipping"))) {
       reasons.unshift(
         isOverdue
-          ? "biggest risk — overdue with high consequence"
+          ? "slipping — overdue and matters"
           : nearDeadline
-            ? "biggest risk — near deadline with high consequence"
-            : "biggest risk — long-avoided with high consequence",
+            ? "slipping — close to due and matters"
+            : "slipping — long-avoided and matters",
       );
     }
   }

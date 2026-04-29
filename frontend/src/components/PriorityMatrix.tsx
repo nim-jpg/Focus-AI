@@ -10,13 +10,22 @@ interface Props {
 
 const HOUR = 60 * 60 * 1000;
 
+/**
+ * Urgent means "needs hands today" — a real time clock, not just a tag.
+ * - Has a deadline ≤24h away (today or tomorrow morning)
+ * - OR is overdue and hasn't been completed
+ *
+ * Critical-urgency tags WITHOUT a deadline don't qualify — they're important,
+ * but the user can still schedule them. This is what keeps Q2 ("important
+ * not urgent") populated instead of everything stampeding into Q1.
+ */
 function isUrgent(task: Task, now: Date): boolean {
-  if (task.urgency === "critical") return true;
   if (!task.dueDate) return false;
   const due = new Date(task.dueDate).getTime();
   if (Number.isNaN(due)) return false;
   const hoursLeft = (due - now.getTime()) / HOUR;
-  return hoursLeft <= 48 && hoursLeft >= -24;
+  // Window: actually overdue (negative) OR within 24h.
+  return hoursLeft <= 24;
 }
 
 /** Themes that almost always mean "this matters" — finance, work, projects,
@@ -153,29 +162,29 @@ export function PriorityMatrix({ tasks, prefs, onEdit }: Props) {
   const quadrants: Quadrant[] = [
     {
       key: "q1",
-      title: "Urgent & Important",
-      hint: "do now — fires that matter",
+      title: "Today",
+      hint: "due now or overdue",
       tasks: buckets.q1,
-      classes: "border-red-200 bg-red-50/60",
+      classes: "border-rose-200 bg-rose-50/60",
     },
     {
       key: "q2",
-      title: "Important, Not Urgent",
-      hint: "schedule — long-term wins live here",
+      title: "Plan ahead",
+      hint: "important — schedule time for these",
       tasks: buckets.q2,
-      classes: "border-blue-200 bg-blue-50/60",
+      classes: "border-sky-200 bg-sky-50/60",
     },
     {
       key: "q3",
-      title: "Urgent, Not Important",
-      hint: "interrupts — delegate, batch, or decline",
+      title: "Distractions",
+      hint: "urgent but lower-impact — batch or delegate",
       tasks: buckets.q3,
       classes: "border-amber-200 bg-amber-50/60",
     },
     {
       key: "q4",
-      title: "Low priority",
-      hint: "no deadline pressure or impact signal yet — review weekly",
+      title: "Later",
+      hint: "no clock, no clear impact — review weekly",
       tasks: buckets.q4,
       classes: "border-slate-200 bg-slate-50/60",
     },
@@ -195,25 +204,24 @@ export function PriorityMatrix({ tasks, prefs, onEdit }: Props) {
   return (
     <section>
       <div className="mb-3">
-        <h2 className="text-lg font-semibold">Priority matrix</h2>
+        <h2 className="text-lg font-semibold">What matters now</h2>
         <p className="text-xs text-slate-500">
-          Urgent × Important. Top-left fires, top-right matters most for the long
-          run.
+          Today on the left, planning on the right. Plan ahead is where the
+          best work lives — the stuff that's important but not on fire yet.
         </p>
         {priorityFocus.length > 0 && (
           <p className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-slate-600">
-            <span className="text-slate-500">Bias:</span>
+            <span className="text-slate-500">Focus:</span>
             {priorityFocus.map((p) => (
               <span
                 key={p}
-                className="rounded-full bg-slate-900 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide text-white"
+                className="rounded-full bg-slate-900 px-1.5 py-0 text-[10px] font-medium text-white"
               >
                 {p}
               </span>
             ))}
             <span className="ml-1 text-slate-400">
-              — tasks matching these are flagged with a chip and bumped to the
-              important quadrants.
+              — tasks matching get flagged with a chip below.
             </span>
           </p>
         )}
@@ -255,8 +263,8 @@ export function PriorityMatrix({ tasks, prefs, onEdit }: Props) {
                         <ThemeBadge theme={t.theme} />
                         {dims.length > 0 && (
                           <span
-                            className="rounded-full bg-slate-900 px-1.5 py-0 text-[9px] font-medium uppercase tracking-wide text-white"
-                            title={`Matches your priority: ${dims.join(", ")}`}
+                            className="rounded-full bg-slate-900 px-1.5 py-0 text-[10px] font-medium text-white"
+                            title={`Matches your focus: ${dims.join(", ")}`}
                           >
                             {dims[0]}
                           </span>
