@@ -352,10 +352,18 @@ export function TaskList({
                     type="button"
                     onClick={() => onSchedule(task.id)}
                     className="btn-secondary w-full px-2 py-0.5 text-xs"
-                    aria-label={`Schedule ${task.title}`}
-                    title="Pick a time / push to Calendar"
+                    aria-label={
+                      task.calendarEventId
+                        ? `Re-schedule ${task.title}`
+                        : `Schedule ${task.title}`
+                    }
+                    title={
+                      task.calendarEventId
+                        ? "Already on Google Calendar — click to move it to a new time"
+                        : "Pick a time / push to Calendar"
+                    }
                   >
-                    Schedule
+                    {task.calendarEventId ? "Re-schedule" : "Schedule"}
                   </button>
                 )}
                 {onEdit && (
