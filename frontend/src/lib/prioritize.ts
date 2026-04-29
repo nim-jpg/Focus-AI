@@ -379,7 +379,13 @@ export function prioritize(
   const priorityFocus = (options.prefs?.priorityFocus ?? []) as ImpactDim[];
   const goalsById = new Map(goals.map((g) => [g.id, g]));
 
-  const FAR_FUTURE_HOURS = 90 * 24; // 3 months
+  // Hard 6-month cutoff: a deadline more than 6 months out is, by
+  // definition, not what you should be focusing on now. The whole point of
+  // a "Top Three" is short-to-medium-horizon attention; quarterly /
+  // annual filings due in 2027 don't belong on today's page even if their
+  // urgency tag is high. Recurring tasks (medication, fitness, weekly
+  // habits) and tasks with NO deadline are NOT affected.
+  const SIX_MONTHS_HOURS = 6 * 30 * 24;
 
   const userType = options.prefs?.userType;
   const candidates = tasks.filter((t) => {
@@ -394,19 +400,10 @@ export function prioritize(
     if (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > now.getTime()) {
       return false;
     }
-    // Far-future tasks (>3 months out) stay quiet unless they have another
-    // reason to surface — high/critical urgency, blocker, or already avoided.
-    // The user shouldn't be nagged about Jan 2027 in May 2026.
-    if (t.dueDate) {
+    // Hard 6-month cutoff for non-recurring tasks with deadlines.
+    if (t.recurrence === "none" && t.dueDate) {
       const hoursLeft = hoursUntil(t.dueDate, now);
-      if (hoursLeft !== null && hoursLeft > FAR_FUTURE_HOURS) {
-        const hasOtherSignal =
-          t.urgency === "high" ||
-          t.urgency === "critical" ||
-          t.isBlocker ||
-          (t.avoidanceWeeks ?? 0) >= 2;
-        if (!hasOtherSignal) return false;
-      }
+      if (hoursLeft !== null && hoursLeft > SIX_MONTHS_HOURS) return false;
     }
     return true;
   });

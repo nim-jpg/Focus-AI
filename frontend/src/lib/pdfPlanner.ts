@@ -85,30 +85,36 @@ function pickKeyTasks(
   tasks: Task[],
   prefs: UserPrefs,
   weekStart: Date,
-  weekEnd: Date,
+  // weekEnd kept for signature compatibility, no longer used in the new
+  // ranking-based pick.
+  _weekEnd: Date,
+  aiRanking?: AiRankMap,
 ): Task[] {
-  const eligible = tasks.filter(isSignificantWorkItem);
-
-  const inWeek = eligible
-    .filter((t) => {
-      if (!t.dueDate) return false;
-      const d = new Date(t.dueDate).getTime();
-      return d >= weekStart.getTime() && d < weekEnd.getTime();
-    })
-    .sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime());
-
-  const key: Task[] = inWeek.slice(0, 3);
-  if (key.length < 3) {
-    const seen = new Set(key.map((t) => t.id));
+  // Consistency fix: the printable Top 3 was a separate logic path
+  // (week-dated tasks sorted by due date) that drifted away from what the
+  // app was showing in Today's Top Three. Now use the SAME prioritize()
+  // engine + AI cache, evaluated with `now: weekStart`, so today's printed
+  // sheet matches today's app view. This also flows the new 6-month cutoff
+  // through automatically.
+  if (aiRanking && aiRanking.size > 0) {
+    const ranked = tasks
+      .filter(isSignificantWorkItem)
+      .filter((t) => aiRanking.has(t.id))
+      .sort(
+        (a, b) =>
+          (aiRanking.get(a.id) ?? 5) - (aiRanking.get(b.id) ?? 5),
+      );
+    if (ranked.length >= 3) return ranked.slice(0, 3);
+    const seen = new Set(ranked.map((t) => t.id));
     const filler = prioritize(tasks, { prefs, limit: 16, now: weekStart })
       .map((p) => p.task)
       .filter((t) => !seen.has(t.id) && isSignificantWorkItem(t));
-    for (const t of filler) {
-      key.push(t);
-      if (key.length >= 3) break;
-    }
+    return [...ranked, ...filler].slice(0, 3);
   }
-  return key;
+  return prioritize(tasks, { prefs, limit: 16, now: weekStart })
+    .map((p) => p.task)
+    .filter(isSignificantWorkItem)
+    .slice(0, 3);
 }
 
 /**
@@ -377,7 +383,7 @@ export async function exportWeeklyPlanner(
   // Build content for each task list. Stretch capacity is computed from the
   // space left in the left column after key tasks and the fluids tracker —
   // we want to fill the gap, not leave it empty.
-  const keyTasks = pickKeyTasks(allowedTasks, prefs, start, end);
+  const keyTasks = pickKeyTasks(allowedTasks, prefs, start, end, aiRanking);
   const keyIds = new Set(keyTasks.map((t) => t.id));
   // Reserve at the bottom-left for the fluids tracker (and footer).
   const FLUIDS_H = 110;

@@ -19,13 +19,16 @@ interface Suggestion extends NewTaskInput {
   _selected: boolean;
 }
 
-const PLACEHOLDER = `Paste anything — a todo list, a meeting note, an email.
+const PLACEHOLDER = `Just dump everything — no need to fill out forms.
+
+Paste a list, type whatever's on your mind, or photograph hand-written notes. Claude reads it and pulls out tasks, themes, and dates automatically.
 
 e.g.
 - take vitamin D every morning
-- file Q1 tax return by EOM, takes ~2 hours
+- file Q1 tax return by end of month, ~2 hours
 - run 3x this week
 - email landlord about boiler — they said next Tuesday
+- dentist on the 15th
 - finish the React migration so QA can start testing`;
 
 export function BrainDump({
@@ -142,8 +145,14 @@ export function BrainDump({
 
   return (
     <div className="card space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold">Brain dump</h3>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold">Brain dump</h3>
+          <p className="text-xs text-slate-500">
+            The fast way to add lots of tasks at once — paste, type, or scan.
+            Claude infers theme, date and effort so you don't have to.
+          </p>
+        </div>
         <button
           type="button"
           className="text-xs text-slate-500 hover:text-slate-800"
@@ -160,7 +169,7 @@ export function BrainDump({
       {!suggestions && (
         <>
           <textarea
-            className="input min-h-[160px] font-mono text-xs"
+            className="input min-h-[260px] font-mono text-xs sm:min-h-[320px]"
             placeholder={PLACEHOLDER}
             value={text}
             onChange={(e) => setText(e.target.value)}

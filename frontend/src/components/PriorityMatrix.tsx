@@ -144,9 +144,20 @@ interface Quadrant {
 
 export function PriorityMatrix({ tasks, prefs, onEdit }: Props) {
   const now = new Date();
-  const candidates = tasks.filter(
-    (t) => t.status !== "completed" && !isFoundation(t),
-  );
+  // Same 6-month cutoff as the prioritize engine — tasks dated past that
+  // drop off the matrix entirely. Quarterly / annual filings due in 2027
+  // don't belong on a "what matters now" view.
+  const SIX_MONTHS_MS = 6 * 30 * 24 * 60 * 60 * 1000;
+  const t0 = now.getTime();
+  const candidates = tasks.filter((t) => {
+    if (t.status === "completed") return false;
+    if (isFoundation(t)) return false;
+    if (t.recurrence === "none" && t.dueDate) {
+      const due = new Date(t.dueDate).getTime();
+      if (!Number.isNaN(due) && due - t0 > SIX_MONTHS_MS) return false;
+    }
+    return true;
+  });
   const priorityFocus = prefs?.priorityFocus ?? [];
 
   const buckets: Record<Quadrant["key"], Task[]> = { q1: [], q2: [], q3: [], q4: [] };

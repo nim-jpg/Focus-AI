@@ -719,6 +719,10 @@ ${JSON.stringify(
     }
 
     // ── Apply: high-confidence location proposals ───
+    // For each ambiguous-location event: take Claude's proposal if HIGH;
+    // otherwise try Google Places (the API knows real venue names) — its
+    // hit becomes the high-confidence answer. Anything still low/medium
+    // falls back to manual review.
     let enrichedAuto = 0;
     const enrichmentNeedsReview: Array<{
       id: string;
@@ -731,25 +735,27 @@ ${JSON.stringify(
     }> = [];
     for (const ev of locationCandidates) {
       const d = decisionById.get(ev.id);
-      if (!d || !d.proposedAddress) {
-        // Low/no proposal — leave for manual review.
-        enrichmentNeedsReview.push({
-          id: ev.id,
-          calendarId: ev.calendarId,
-          calendarName: ev.calendarName,
-          summary: ev.summary,
-          currentLocation: ev.location,
-          proposedAddress: null,
-          confidence: "low",
-        });
-        continue;
+      let chosenAddress: string | null = null;
+      let chosenConfidence: "high" | "medium" | "low" = "low";
+      if (d?.proposedAddress && d.confidence === "high") {
+        chosenAddress = d.proposedAddress;
+        chosenConfidence = "high";
+      } else {
+        const places = await lookupPlace(`${ev.summary} ${ev.location}`);
+        if (places) {
+          chosenAddress = places.address;
+          chosenConfidence = places.confidence;
+        } else if (d?.proposedAddress) {
+          chosenAddress = d.proposedAddress;
+          chosenConfidence = d.confidence;
+        }
       }
-      if (d.confidence === "high") {
+      if (chosenAddress && chosenConfidence === "high") {
         try {
           await calendar.events.patch({
             calendarId: ev.calendarId,
             eventId: ev.id,
-            requestBody: { location: d.proposedAddress },
+            requestBody: { location: chosenAddress },
           });
           enrichedAuto += 1;
         } catch (err) {
@@ -765,8 +771,8 @@ ${JSON.stringify(
           calendarName: ev.calendarName,
           summary: ev.summary,
           currentLocation: ev.location,
-          proposedAddress: d.proposedAddress,
-          confidence: d.confidence,
+          proposedAddress: chosenAddress,
+          confidence: chosenConfidence === "high" ? "medium" : chosenConfidence,
         });
       }
     }
@@ -889,6 +895,43 @@ googleRouter.get("/duplicates", async (req, res) => {
     });
   }
 });
+
+/**
+ * Optional Google Places Text Search lookup. When GOOGLE_PLACES_API_KEY is
+ * set on the backend, we hit Places before falling back to Claude — this
+ * gives real, verified addresses for venues like "Grove on the Hill" that
+ * Claude can only guess at. When the env var is missing, returns null and
+ * the caller falls back to Claude.
+ *
+ * Free tier covers ~2k Text Search requests / month — plenty for an
+ * occasional auto-sync run. Cost beyond that is ~$0.032 / request.
+ */
+async function lookupPlace(
+  query: string,
+): Promise<{ address: string; confidence: "high" } | null> {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const r = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "places.formattedAddress,places.displayName",
+      },
+      body: JSON.stringify({ textQuery: query }),
+    });
+    if (!r.ok) return null;
+    const data = (await r.json()) as {
+      places?: Array<{ formattedAddress?: string; displayName?: { text?: string } }>;
+    };
+    const first = data.places?.[0];
+    if (!first?.formattedAddress) return null;
+    return { address: first.formattedAddress, confidence: "high" };
+  } catch {
+    return null;
+  }
+}
 
 // ─── Location enrichment ──────────────────────────────────────────────────
 // Find upcoming events whose `location` field looks short / ambiguous and
@@ -1050,15 +1093,41 @@ ${JSON.stringify(claudeInput, null, 2)}`;
     }
     const proposalById = new Map(parsed.map((p) => [p.id, p]));
 
-    res.json({
-      candidates: candidates.map((c) => {
-        const p = proposalById.get(c.id);
+    // Layer 2: for every candidate Claude returned with low/medium
+    // confidence (or null), try Google Places Text Search using the title
+    // + currentLocation. A real Places hit always beats Claude's guess.
+    // Skipped entirely when GOOGLE_PLACES_API_KEY isn't set (no extra
+    // latency), and per-event errors are silent.
+    const enriched = await Promise.all(
+      candidates.map(async (c) => {
+        const claudeProposal = proposalById.get(c.id);
+        const claudeStrong =
+          claudeProposal?.address && claudeProposal.confidence === "high";
+        if (claudeStrong) {
+          return {
+            ...c,
+            proposedAddress: claudeProposal!.address,
+            confidence: "high" as const,
+          };
+        }
+        const places = await lookupPlace(`${c.summary} ${c.currentLocation}`);
+        if (places) {
+          return {
+            ...c,
+            proposedAddress: places.address,
+            confidence: places.confidence,
+          };
+        }
         return {
           ...c,
-          proposedAddress: p?.address ?? null,
-          confidence: p?.confidence ?? "low",
+          proposedAddress: claudeProposal?.address ?? null,
+          confidence: claudeProposal?.confidence ?? "low",
         };
       }),
+    );
+
+    res.json({
+      candidates: enriched,
       scanned: totalScanned,
       calendars: writable.length,
     });

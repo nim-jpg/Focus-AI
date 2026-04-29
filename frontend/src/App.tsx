@@ -1335,6 +1335,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             }
           }}
           onClose={closeTaskForm}
+          onSwitchToBrainDump={() => setShowBrainDump(true)}
         />
       )}
 
