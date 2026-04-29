@@ -1281,6 +1281,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             aiTierById={aiTierMap}
             mode={prefs.mode}
             userType={prefs.userType}
+            ignoredEventIds={prefs.ignoredEventIds}
             onRefreshAi={handleAiRefresh}
             aiBusy={loading}
             aiRefreshTick={aiRefreshTick}

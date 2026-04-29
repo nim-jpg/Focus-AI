@@ -388,6 +388,13 @@ export function prioritize(
   const SIX_MONTHS_HOURS = 6 * 30 * 24;
 
   const userType = options.prefs?.userType;
+  // Tasks that came from a Google event the user later muted should drop
+  // out of Top Three / matrix entirely. The schedule view already hides
+  // muted events; if the user "ignored" it everywhere, that includes
+  // this task too. ignoredSeriesIds tracks recurring-series mutes — but
+  // imported tasks carry the instance id (calendarEventId), not the
+  // series id, so we only check ignoredEventIds here.
+  const ignoredEventIds = new Set(options.prefs?.ignoredEventIds ?? []);
   const candidates = tasks.filter((t) => {
     if (t.status === "completed") return false;
     if (mode === "work" && !isInWorkMode(t, userType)) return false;
@@ -398,6 +405,11 @@ export function prioritize(
     if (t.recurrence !== "none" && !isDueNow(t, now)) return false;
     // Snoozed tasks hide until snoozedUntil passes.
     if (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > now.getTime()) {
+      return false;
+    }
+    // Imported-from-Google task whose underlying event has been muted →
+    // hide here too. The user said "ignore" once and meant it.
+    if (t.calendarEventId && ignoredEventIds.has(t.calendarEventId)) {
       return false;
     }
     // Hard 6-month cutoff applies to ANY task whose dueDate is more than

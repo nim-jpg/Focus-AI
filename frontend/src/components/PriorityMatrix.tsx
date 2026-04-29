@@ -149,9 +149,15 @@ export function PriorityMatrix({ tasks, prefs, onEdit }: Props) {
   // don't belong on a "what matters now" view.
   const SIX_MONTHS_MS = 6 * 30 * 24 * 60 * 60 * 1000;
   const t0 = now.getTime();
+  const ignoredEventIds = new Set(prefs?.ignoredEventIds ?? []);
   const candidates = tasks.filter((t) => {
     if (t.status === "completed") return false;
     if (isFoundation(t)) return false;
+    // Hide imported-from-Google tasks whose source event the user has
+    // muted — "ignored" should mean ignored everywhere.
+    if (t.calendarEventId && ignoredEventIds.has(t.calendarEventId)) {
+      return false;
+    }
     // 6-month cutoff applies regardless of recurrence — yearly / quarterly
     // tasks (e.g. "file annual accounts") whose next dueDate is well over
     // 6 months out shouldn't appear on a "what matters now" view.
