@@ -260,48 +260,189 @@ const TAB_SUBTITLES: Record<Tab, string> = {
 
 // ─── TODAY ───────────────────────────────────────────────────────────
 function TodayTab(p: IosShellProps) {
-  const top = p.prioritized[0];
-  const rest = p.prioritized.slice(1);
+  const allOpen = useMemo(
+    () => p.tasks.filter((t) => t.status !== "completed"),
+    [p.tasks],
+  );
+  const allDoneToday = useMemo(
+    () =>
+      p.tasks.filter((t) => {
+        if (t.recurrence === "none") {
+          return t.status === "completed" && isToday(t.updatedAt);
+        }
+        return wasCompletedToday(t);
+      }).length,
+    [p.tasks],
+  );
   const fdnDoneCount = useMemo(
     () => p.foundations.filter((t) => wasCompletedToday(t)).length,
     [p.foundations],
   );
+  const totalTracked = allOpen.length + allDoneToday;
+  const progressPct = totalTracked > 0
+    ? Math.round((allDoneToday / totalTracked) * 100)
+    : 0;
+  const dueWeek = useMemo(
+    () =>
+      p.tasks.filter((t) => {
+        if (t.status === "completed" || !t.dueDate) return false;
+        const ms = new Date(t.dueDate).getTime() - Date.now();
+        return ms > 0 && ms < 7 * 86400000;
+      }).length,
+    [p.tasks],
+  );
 
   return (
     <div className="space-y-4 pt-2">
-      {/* Hero card — the single most important task right now */}
-      {top ? (
-        <HeroCard
-          task={top.task}
-          tier={top.tier}
-          reasoning={top.reasoning}
-          onComplete={() => p.onComplete(top.task.id)}
-          onSchedule={() => p.onSchedule(top.task.id)}
-          onSnooze={(until) => p.onSnooze(top.task.id, until)}
-        />
-      ) : (
-        <EmptyHero onAdd={p.onAddTask} />
-      )}
+      {/* Daily Progress hero — gradient card with a circular progress ring
+          on the right. The big number on the left is "today's done /
+          today's open", which is the user's actual progress count. */}
+      <div
+        className="overflow-hidden rounded-3xl px-5 py-4"
+        style={{
+          background:
+            "linear-gradient(135deg, #1A1D29 0%, #2D2440 60%, #4A1D5C 100%)",
+          border: "1px solid var(--ios-border)",
+          boxShadow: "0 12px 32px -8px rgba(124, 58, 237, 0.35)",
+        }}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[18px] font-bold leading-tight" style={{ color: "white" }}>
+              Daily Progress
+            </p>
+            <p className="mt-0.5 text-[12px]" style={{ color: "rgba(255,255,255,0.6)" }}>
+              Today's task completion
+            </p>
+            <p
+              className="mt-2 text-[28px] font-bold tabular-nums leading-none"
+              style={{ color: "white" }}
+            >
+              {allDoneToday}
+              <span className="text-[16px] font-medium" style={{ color: "rgba(255,255,255,0.55)" }}>
+                /{totalTracked || allOpen.length}
+              </span>
+            </p>
+          </div>
+          <ProgressRing
+            value={progressPct}
+            size={64}
+            stroke={6}
+            color="#A78BFA"
+            track="rgba(255,255,255,0.12)"
+            label={`${progressPct}%`}
+            labelColor="white"
+          />
+        </div>
+      </div>
 
-      {/* Up next */}
-      {rest.length > 0 && (
-        <Section title="Up next">
-          <div className="space-y-2">
-            {rest.map((p2) => (
-              <NextCard
-                key={p2.task.id}
-                task={p2.task}
-                tier={p2.tier}
-                reasoning={p2.reasoning}
-                onComplete={() => p.onComplete(p2.task.id)}
-                onSchedule={() => p.onSchedule(p2.task.id)}
+      {/* Today's Tasks — hero icon tile (priority count) + 3 priority rows */}
+      <div
+        className="rounded-3xl p-4"
+        style={{
+          background: "var(--ios-surface)",
+          border: "1px solid var(--ios-border)",
+        }}
+      >
+        <div className="mb-3 flex items-baseline justify-between">
+          <h2 className="text-[18px] font-bold">Today's tasks</h2>
+          <button
+            type="button"
+            onClick={p.onRefreshAi}
+            disabled={p.aiBusy}
+            className="text-[12px] font-medium"
+            style={{ color: "var(--ios-accent)" }}
+          >
+            {p.aiBusy ? "…" : "Refresh AI"}
+          </button>
+        </div>
+        <div className="flex items-stretch gap-3">
+          {/* Big icon tile with the count */}
+          <button
+            type="button"
+            onClick={p.onAddTask}
+            className="flex flex-col items-center justify-center rounded-2xl p-3 text-white transition-transform active:scale-95"
+            style={{
+              background: "linear-gradient(135deg, #DC2626, #EF4444)",
+              minWidth: "92px",
+            }}
+          >
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 11l3 3L22 4" />
+              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+            </svg>
+            <p className="mt-2 text-[20px] font-bold tabular-nums leading-none">
+              {allDoneToday}
+              <span className="text-[12px] font-medium opacity-70">/{totalTracked}</span>
+            </p>
+            <p className="mt-1 text-[10px] uppercase tracking-wider opacity-80">
+              Today
+            </p>
+          </button>
+
+          {/* Priority rows */}
+          <div className="flex min-w-0 flex-1 flex-col justify-between">
+            {p.prioritized.length === 0 && (
+              <p className="text-[13px]" style={{ color: "var(--ios-text-secondary)" }}>
+                Nothing surfaced — tap + to add a task.
+              </p>
+            )}
+            {p.prioritized.slice(0, 3).map((pt) => (
+              <PriorityRow
+                key={pt.task.id}
+                task={pt.task}
+                tier={pt.tier}
+                onComplete={() => p.onComplete(pt.task.id)}
+                onSchedule={() => p.onSchedule(pt.task.id)}
               />
             ))}
           </div>
-        </Section>
-      )}
+        </div>
+      </div>
 
-      {/* Foundations strip */}
+      {/* Overall status — two stat cards with rings */}
+      <div>
+        <div className="mb-2 flex items-baseline justify-between px-1">
+          <h2 className="text-[18px] font-bold">Overall status</h2>
+          <button
+            type="button"
+            onClick={() => undefined}
+            className="text-[12px] font-medium"
+            style={{ color: "var(--ios-accent)" }}
+          >
+            See more ›
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard
+            iconBg="linear-gradient(135deg, #FACC15, #F59E0B)"
+            icon={
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12l5 5 9-9" />
+              </svg>
+            }
+            title="Tasks completed"
+            sub={`${allDoneToday} done today`}
+            ring={progressPct}
+            ringColor="#F59E0B"
+          />
+          <StatCard
+            iconBg="linear-gradient(135deg, #FB7185, #EF4444)"
+            icon={
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 2" />
+              </svg>
+            }
+            title="Due this week"
+            sub={dueWeek === 0 ? "All clear" : `${dueWeek} approaching`}
+            ring={Math.min(100, dueWeek * 14)}
+            ringColor="#EF4444"
+          />
+        </div>
+      </div>
+
+      {/* Foundations strip — habit chips */}
       {p.foundations.length > 0 && (
         <Section
           title="Foundations"
@@ -332,239 +473,172 @@ function TodayTab(p: IosShellProps) {
   );
 }
 
-function HeroCard({
+function isToday(iso?: string): boolean {
+  if (!iso) return false;
+  const d = new Date(iso);
+  const t = new Date();
+  return d.toDateString() === t.toDateString();
+}
+
+function ProgressRing({
+  value,
+  size,
+  stroke,
+  color,
+  track,
+  label,
+  labelColor,
+}: {
+  value: number;
+  size: number;
+  stroke: number;
+  color: string;
+  track: string;
+  label?: string;
+  labelColor?: string;
+}) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const dash = (Math.max(0, Math.min(100, value)) / 100) * c;
+  return (
+    <div className="relative flex flex-none items-center justify-center" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={r} stroke={track} strokeWidth={stroke} fill="none" />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          stroke={color}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={`${dash} ${c - dash}`}
+          fill="none"
+          style={{ transition: "stroke-dasharray 600ms cubic-bezier(0.32, 0.72, 0, 1)" }}
+        />
+      </svg>
+      {label && (
+        <span
+          className="absolute text-[12px] font-bold tabular-nums"
+          style={{ color: labelColor ?? "var(--ios-text)" }}
+        >
+          {label}
+        </span>
+      )}
+    </div>
+  );
+}
+
+const PRIORITY_BAR_COLORS: Record<1 | 2 | 3 | 4, string> = {
+  1: "#EF4444", // red
+  2: "#A78BFA", // violet
+  3: "#FBBF24", // amber
+  4: "#94A3B8", // slate
+};
+
+function PriorityRow({
   task,
   tier,
-  reasoning,
   onComplete,
   onSchedule,
-  onSnooze,
 }: {
   task: Task;
   tier: 1 | 2 | 3 | 4;
-  reasoning: string;
   onComplete: () => void;
   onSchedule: () => void;
-  onSnooze: (untilIso: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const dueLabel = task.dueDate ? fmtDate(task.dueDate) : "";
+  const recurLabel =
+    task.recurrence !== "none" ? task.recurrence : "";
+  // Stat in X/Y form — completionLog count vs target proxy. For one-off
+  // tasks just show 0/1 → 1/1 when done.
+  const log = task.completionLog ?? [];
+  const stat =
+    task.recurrence === "none"
+      ? `${task.status === "completed" ? 1 : 0}/1`
+      : `${log.length}/?`;
   return (
-    <div
-      className="overflow-hidden rounded-3xl"
-      style={{
-        background:
-          "linear-gradient(160deg, rgba(124, 58, 237, 0.18), rgba(236, 72, 153, 0.10) 60%, rgba(255,255,255,0.02))",
-        border: "1px solid var(--ios-border)",
-        boxShadow: "0 12px 32px -8px rgba(124, 58, 237, 0.25)",
-      }}
+    <button
+      type="button"
+      onClick={onComplete}
+      className="flex w-full items-center gap-2 py-1.5 text-left transition-transform active:scale-[0.99]"
     >
-      <div className="px-5 pb-4 pt-5">
-        <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider">
-          <TierDot tier={tier} />
-          <span style={{ color: "var(--ios-text-secondary)" }}>
-            {TIER_LABELS[tier]} · do this next
-          </span>
-        </div>
-        <h2 className="text-2xl font-bold leading-tight" style={{ color: "var(--ios-text)" }}>
+      {/* coloured priority bar — 3px, full row height, accent per tier */}
+      <span
+        className="h-9 w-[3px] flex-none rounded-full"
+        style={{ background: PRIORITY_BAR_COLORS[tier] }}
+      />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-semibold" style={{ color: "var(--ios-text)" }}>
           {task.title}
-        </h2>
-        <p className="mt-2 text-[13px]" style={{ color: "var(--ios-text-secondary)" }}>
-          {reasoning}
         </p>
-
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          <Tag>{task.theme}</Tag>
-          <Tag>{task.estimatedMinutes ?? 30}m</Tag>
-          {task.dueDate && <Tag>due {fmtDate(task.dueDate)}</Tag>}
-        </div>
-
-        <div className="mt-4 flex gap-2">
-          <button
-            type="button"
-            onClick={onComplete}
-            className="flex-1 rounded-2xl px-4 py-3 text-[14px] font-semibold text-white transition-transform active:scale-95"
-            style={{
-              background:
-                "linear-gradient(135deg, var(--ios-accent-grad-from), var(--ios-accent-grad-to))",
-              boxShadow: "0 6px 16px -4px rgba(124, 58, 237, 0.5)",
-            }}
-          >
-            Done
-          </button>
-          <button
-            type="button"
-            onClick={onSchedule}
-            className="rounded-2xl px-4 py-3 text-[14px] font-semibold transition-transform active:scale-95"
-            style={{
-              background: "rgba(255,255,255,0.06)",
-              color: "var(--ios-text)",
-              border: "1px solid var(--ios-border)",
-            }}
-          >
-            {task.calendarEventId ? "Re-schedule" : "Schedule"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            className="flex h-12 w-12 items-center justify-center rounded-2xl transition-transform active:scale-95"
-            style={{
-              background: "rgba(255,255,255,0.06)",
-              color: "var(--ios-text)",
-              border: "1px solid var(--ios-border)",
-            }}
-            aria-label="More"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <circle cx="6" cy="12" r="2" />
-              <circle cx="12" cy="12" r="2" />
-              <circle cx="18" cy="12" r="2" />
-            </svg>
-          </button>
-        </div>
-
-        {open && (
-          <div
-            className="mt-3 grid grid-cols-3 gap-1.5 rounded-xl p-1"
-            style={{ background: "rgba(255,255,255,0.04)" }}
-          >
-            {SNOOZE_OPTIONS.map((s) => (
-              <button
-                key={s.days}
-                type="button"
-                onClick={() => {
-                  const u = new Date();
-                  u.setDate(u.getDate() + s.days);
-                  onSnooze(u.toISOString());
-                  setOpen(false);
-                }}
-                className="rounded-lg py-2 text-[12px] font-medium transition-transform active:scale-95"
-                style={{
-                  background: "rgba(255,255,255,0.04)",
-                  color: "var(--ios-text)",
-                }}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        )}
+        <p className="text-[10px]" style={{ color: "var(--ios-text-secondary)" }}>
+          {TIER_LABELS[tier]} priority
+          {recurLabel ? ` · ${recurLabel}` : ""}
+          {dueLabel ? ` · ${dueLabel}` : ""}
+        </p>
       </div>
-    </div>
+      <span
+        className="text-[12px] font-semibold tabular-nums"
+        style={{ color: "var(--ios-text-secondary)" }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSchedule();
+        }}
+      >
+        {stat}
+      </span>
+    </button>
   );
 }
 
-function NextCard({
-  task,
-  tier,
-  reasoning,
-  onComplete,
-  onSchedule,
+function StatCard({
+  iconBg,
+  icon,
+  title,
+  sub,
+  ring,
+  ringColor,
 }: {
-  task: Task;
-  tier: 1 | 2 | 3 | 4;
-  reasoning: string;
-  onComplete: () => void;
-  onSchedule: () => void;
+  iconBg: string;
+  icon: React.ReactNode;
+  title: string;
+  sub: string;
+  ring: number;
+  ringColor: string;
 }) {
   return (
     <div
-      className="rounded-2xl px-3 py-3"
+      className="rounded-2xl p-3"
       style={{
         background: "var(--ios-surface)",
         border: "1px solid var(--ios-border)",
       }}
     >
-      <div className="flex items-start gap-3">
-        <button
-          type="button"
-          onClick={onComplete}
-          aria-label={`Complete ${task.title}`}
-          className="mt-0.5 flex h-6 w-6 flex-none items-center justify-center rounded-full transition-transform active:scale-90"
-          style={{
-            border: `1.5px solid var(--ios-border-strong)`,
-            background: "transparent",
-          }}
+      <div className="flex items-start justify-between gap-2">
+        <div
+          className="flex h-9 w-9 flex-none items-center justify-center rounded-xl"
+          style={{ background: iconBg }}
         >
-          <span style={{ color: "var(--ios-text-muted)" }}>○</span>
-        </button>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <TierDot tier={tier} />
-            <p
-              className="truncate text-[15px] font-semibold"
-              style={{ color: "var(--ios-text)" }}
-            >
-              {task.title}
-            </p>
-          </div>
-          <p
-            className="mt-0.5 line-clamp-1 text-[12px]"
-            style={{ color: "var(--ios-text-secondary)" }}
-          >
-            {reasoning}
-          </p>
-          <div className="mt-1.5 flex flex-wrap items-center gap-1">
-            <Tag size="sm">{task.theme}</Tag>
-            <Tag size="sm">{task.estimatedMinutes ?? 30}m</Tag>
-            {task.dueDate && <Tag size="sm">due {fmtDate(task.dueDate)}</Tag>}
-          </div>
+          {icon}
         </div>
-        <button
-          type="button"
-          onClick={onSchedule}
-          className="rounded-full px-2.5 py-1 text-[11px] font-medium transition-transform active:scale-95"
-          style={{
-            background: "var(--ios-accent-soft)",
-            color: "var(--ios-accent)",
-          }}
-        >
-          {task.calendarEventId ? "Re-time" : "Time"}
-        </button>
+        <ProgressRing
+          value={ring}
+          size={36}
+          stroke={3.5}
+          color={ringColor}
+          track="rgba(255,255,255,0.08)"
+          label={`${ring}%`}
+          labelColor="var(--ios-text)"
+        />
       </div>
+      <p className="mt-2 text-[13px] font-semibold leading-tight">{title}</p>
+      <p className="mt-0.5 text-[11px]" style={{ color: "var(--ios-text-secondary)" }}>
+        {sub}
+      </p>
     </div>
   );
 }
 
-function EmptyHero({ onAdd }: { onAdd: () => void }) {
-  return (
-    <div
-      className="rounded-3xl px-6 py-10 text-center"
-      style={{
-        background: "var(--ios-surface)",
-        border: "1px solid var(--ios-border)",
-      }}
-    >
-      <div
-        className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl"
-        style={{
-          background:
-            "linear-gradient(135deg, var(--ios-accent-grad-from), var(--ios-accent-grad-to))",
-        }}
-      >
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-      </div>
-      <p className="mt-3 text-base font-semibold" style={{ color: "var(--ios-text)" }}>
-        Nothing on your plate
-      </p>
-      <p className="mt-1 text-[13px]" style={{ color: "var(--ios-text-secondary)" }}>
-        Add a task to start. Focus3 will rank it for you.
-      </p>
-      <button
-        type="button"
-        onClick={onAdd}
-        className="mt-4 rounded-full px-5 py-2.5 text-[13px] font-semibold text-white transition-transform active:scale-95"
-        style={{
-          background:
-            "linear-gradient(135deg, var(--ios-accent-grad-from), var(--ios-accent-grad-to))",
-        }}
-      >
-        Add a task
-      </button>
-    </div>
-  );
-}
 
 function FoundationChip({
   task,
@@ -1387,11 +1461,6 @@ function SheetButton({
   );
 }
 
-const SNOOZE_OPTIONS = [
-  { label: "1 day", days: 1 },
-  { label: "3 days", days: 3 },
-  { label: "1 week", days: 7 },
-];
 
 function fmtDate(iso?: string): string {
   if (!iso) return "";
