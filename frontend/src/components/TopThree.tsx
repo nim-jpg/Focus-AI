@@ -55,6 +55,15 @@ const TIER_ACCENTS: Record<1 | 2 | 3 | 4, string> = {
   4: "shadow-[inset_4px_0_0_0_rgb(100_116_139)]",
 };
 
+// Compact tier-numbered chip — replaces the larger white circle while
+// keeping the tier colour visible without explicit text.
+const TIER_NUMBER_CLASSES: Record<1 | 2 | 3 | 4, string> = {
+  1: "bg-rose-600 text-white",
+  2: "bg-sky-600 text-white",
+  3: "bg-violet-600 text-white",
+  4: "bg-slate-600 text-white",
+};
+
 export function TopThree({
   prioritized,
   onComplete,
@@ -75,70 +84,83 @@ export function TopThree({
   }
 
   return (
-    <ol className="space-y-3">
+    <ol className="space-y-2">
       {prioritized.map(({ task, tier, reasoning }, idx) => (
         <li
           key={task.id}
-          className={`rounded-xl border p-4 shadow-sm transition-all hover:shadow-md ${TIER_CLASSES[tier]} ${TIER_ACCENTS[tier]}`}
+          className={`rounded-lg border px-3 py-2 shadow-sm transition-all hover:shadow-md ${TIER_CLASSES[tier]} ${TIER_ACCENTS[tier]}`}
         >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-3">
-            <div className="flex items-start gap-3 sm:flex-1 sm:min-w-0">
-              <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-sm font-semibold text-slate-700 shadow">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <div className="flex min-w-0 items-center gap-2 sm:flex-1">
+              {/* Tier number replaces the 8x8 white badge — tier-coloured
+                  small chip carries the same info in a third the space. */}
+              <span
+                className={`flex h-6 w-6 flex-none items-center justify-center rounded-md text-xs font-semibold ${TIER_NUMBER_CLASSES[tier]}`}
+                title={`Tier ${tier} · ${TIER_LABELS[tier]}`}
+              >
                 {idx + 1}
               </span>
-              <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="font-semibold">{task.title}</h3>
-                <ThemeBadge theme={task.theme} />
-                <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-700">
-                  Tier {tier} · {TIER_LABELS[tier]}
-                </span>
-              </div>
-              <p className="mt-1 text-sm text-slate-700">{reasoning}</p>
-              {(task.goalIds ?? []).length > 0 && (
-                <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-slate-600">
-                  <span className="text-slate-400">ladders up to</span>
-                  {(task.goalIds ?? [])
-                    .map((id) => goalById.get(id))
-                    .filter((g): g is NonNullable<typeof g> => Boolean(g))
-                    .map((g) => {
-                      const short = shortGoalLabel(g.title);
-                      const className =
-                        "rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800 hover:border-emerald-500";
-                      return onOpenGoal ? (
-                        <button
-                          key={g.id}
-                          type="button"
-                          onClick={() => onOpenGoal(g.id)}
-                          className={`${className} cursor-pointer`}
-                          title={`${g.title} — click to open in Goals`}
-                        >
-                          {short}
-                        </button>
-                      ) : (
-                        <span key={g.id} className={className} title={g.title}>
-                          {short}
-                        </span>
-                      );
-                    })}
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <h3 className="truncate text-sm font-semibold">{task.title}</h3>
+                  <ThemeBadge theme={task.theme} />
                 </div>
-              )}
-              <p className="mt-1 text-xs text-slate-500">
-                {task.estimatedMinutes ?? 30} min ·{" "}
-                {task.dueDate
-                  ? `due ${new Date(task.dueDate).toLocaleDateString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                      year: "2-digit",
-                    })}`
-                  : "no deadline"}
-              </p>
+                <p className="mt-0.5 line-clamp-2 text-xs text-slate-600">
+                  {reasoning}
+                </p>
+                {/* Meta row: only what changes the user's decision —
+                    duration, due date, goal links. Inline, single line,
+                    truncates instead of wrapping. */}
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
+                  <span>{task.estimatedMinutes ?? 30}m</span>
+                  {task.dueDate && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>
+                        due{" "}
+                        {new Date(task.dueDate).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </span>
+                    </>
+                  )}
+                  {(task.goalIds ?? []).length > 0 && (
+                    <>
+                      <span aria-hidden>·</span>
+                      {(task.goalIds ?? [])
+                        .map((id) => goalById.get(id))
+                        .filter((g): g is NonNullable<typeof g> => Boolean(g))
+                        .slice(0, 2)
+                        .map((g) => {
+                          const short = shortGoalLabel(g.title);
+                          const className =
+                            "rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0 text-[10px] text-emerald-800 hover:border-emerald-500";
+                          return onOpenGoal ? (
+                            <button
+                              key={g.id}
+                              type="button"
+                              onClick={() => onOpenGoal(g.id)}
+                              className={`${className} cursor-pointer`}
+                              title={`${g.title} — click to open in Goals`}
+                            >
+                              {short}
+                            </button>
+                          ) : (
+                            <span key={g.id} className={className} title={g.title}>
+                              {short}
+                            </span>
+                          );
+                        })}
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
-            </div>
-            <div className="flex flex-row flex-wrap items-center gap-2 sm:w-28 sm:flex-none sm:flex-col">
+            <div className="flex flex-row flex-wrap items-center gap-1.5 sm:flex-none">
               <button
                 type="button"
-                className="btn-secondary w-full"
+                className="btn-secondary !min-h-[32px] !px-2.5 !py-1 text-xs"
                 onClick={() => onSchedule(task.id)}
                 title={
                   !calendarConnected
@@ -148,11 +170,11 @@ export function TopThree({
                     : "Schedule on Google Calendar"
                 }
               >
-                {task.calendarEventId ? "Re-schedule" : "Schedule"}
+                {task.calendarEventId ? "Re-sched" : "Schedule"}
               </button>
               <button
                 type="button"
-                className="btn-primary"
+                className="btn-primary !min-h-[32px] !px-2.5 !py-1 text-xs"
                 onClick={() => onComplete(task.id)}
               >
                 Done

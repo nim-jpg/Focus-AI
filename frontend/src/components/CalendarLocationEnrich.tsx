@@ -222,16 +222,32 @@ export function CalendarLocationEnrich() {
                     </span>
                   </div>
                   <div className="mt-1.5">
-                    <label className="text-[10px] uppercase tracking-wide text-slate-500">
-                      Proposed address
-                    </label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] uppercase tracking-wide text-slate-500">
+                        Proposed address
+                      </label>
+                      {/* Open Google Maps with a query made from the title +
+                          current location — handy for "Grove on the Hill"
+                          style names where Claude's guess is low-confidence
+                          and the user wants to verify before applying. */}
+                      <a
+                        href={`https://www.google.com/maps/search/${encodeURIComponent(
+                          `${c.summary} ${c.currentLocation}`,
+                        )}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-slate-500 hover:text-slate-900 hover:underline"
+                      >
+                        look up on Maps ↗
+                      </a>
+                    </div>
                     <input
                       type="text"
                       className="input mt-0.5 text-xs"
                       placeholder={
                         c.proposedAddress
                           ? c.proposedAddress
-                          : "Claude couldn't resolve this — type the real address to apply"
+                          : "Claude couldn't resolve this — type the real address or paste from Maps"
                       }
                       value={drafts[c.id] ?? ""}
                       onChange={(e) =>

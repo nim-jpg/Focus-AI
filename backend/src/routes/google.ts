@@ -641,7 +641,14 @@ googleRouter.post("/enrich-locations/scan", async (req, res) => {
       summary: c.summary,
       currentLocation: c.currentLocation,
     }));
-    const prompt = `For each of these calendar entries, propose a likely full postal address for the place named in "currentLocation". Use the event title as context. If the place is too generic to resolve confidently (e.g. "the office", "lunch spot", a person's name), return null for that entry.
+    const prompt = `You're enriching short or ambiguous calendar event locations with fuller postal addresses. For each entry, propose the most-likely full address based on the place name in "currentLocation" plus the event title as context.
+
+Bias toward proposing SOMETHING:
+- A named business or venue (e.g. "Grove on the Hill", "Costa", "St Pancras") — return the most plausible UK / common address with confidence "medium" (or "high" if there's only one well-known venue with that name).
+- A landmark / district / neighbourhood without a number — return a representative postal address for that area at confidence "low".
+- ONLY return null when the location is genuinely a non-place (e.g. "TBD", "to be confirmed", a person's name with no business attached, a phone number).
+
+If multiple branches exist (e.g. "Costa" — many), pick the one most consistent with the event title's clues; if no clue, default to the most central UK location and mark confidence "low".
 
 Return ONLY a JSON array, same order, each item: { "id": "...", "address": "..." | null, "confidence": "high" | "medium" | "low" }.
 
