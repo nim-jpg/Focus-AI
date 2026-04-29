@@ -64,13 +64,13 @@ export function SlippedTasks({
 }: Props) {
   if (tasks.length === 0) return null;
   return (
-    <section className="mb-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm">
+    <section className="mb-3 rounded-lg border border-amber-300 bg-gradient-to-r from-amber-50 to-amber-50/40 p-3 text-sm shadow-sm">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="font-medium text-rose-900">
+        <p className="font-medium text-amber-900">
           {tasks.length} task{tasks.length === 1 ? "" : "s"} slipped — was
           scheduled in the past, not done yet
         </p>
-        <span className="text-[11px] text-rose-700">
+        <span className="text-[11px] text-amber-800">
           Recurring habits aren't shown here; quarterly + yearly filings are.
         </span>
       </div>
@@ -80,13 +80,13 @@ export function SlippedTasks({
           return (
             <li
               key={t.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded border border-rose-100 bg-white px-2 py-1.5"
+              className="flex flex-wrap items-center justify-between gap-2 rounded border border-amber-200 bg-white px-2 py-1.5"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium text-slate-800">{t.title}</span>
                   <ThemeBadge theme={t.theme} />
-                  <span className="text-xs text-rose-700">
+                  <span className="text-xs text-amber-700">
                     slipped {formatRelativePast(target)}
                   </span>
                 </div>

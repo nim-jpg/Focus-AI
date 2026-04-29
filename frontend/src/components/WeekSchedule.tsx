@@ -1383,18 +1383,25 @@ export function WeekSchedule({
                 // Sessions / tasks keep their themed solid fill.
                 const isShadow = b.shadow ?? false;
                 const eventBg = b.event?.calendarColor ?? "#dbeafe";
+                // Three-bucket colour scheme:
+                //   emerald — Google calendar events that DO impact your
+                //             availability (synced from Google).
+                //   violet  — Focus3 work (tasks + sessions). One colour
+                //             across both because the user owns either.
+                //   slate   — shadow Google events (visible but non-
+                //             blocking — they don't take your time).
+                // Per-calendar colour overrides intentionally dropped in
+                // favour of this consistent vocabulary.
                 const colour =
                   b.kind === "event"
                     ? isShadow
-                      ? "bg-slate-100 text-slate-500 border-slate-200 hover:text-slate-900"
-                      : "border text-slate-900"
-                    : b.kind === "session"
-                    ? "border-violet-300 bg-violet-100 text-violet-900"
-                    : "border-emerald-300 bg-emerald-100 text-emerald-900";
-                const inlineBg =
-                  b.kind === "event" && !isShadow
-                    ? { backgroundColor: eventBg, borderColor: eventBg }
-                    : undefined;
+                      ? "bg-slate-100 text-slate-500 border-slate-300 hover:text-slate-900"
+                      : "border-emerald-400 bg-emerald-100 text-emerald-900"
+                    : "border-violet-400 bg-violet-100 text-violet-900";
+                const inlineBg = undefined;
+                // Silences "eventBg unused" warnings without removing the
+                // upstream lookup (still useful for tooltips / legends).
+                void eventBg;
                 const title =
                   b.event?.summary ??
                   (b.task?.title
@@ -1774,16 +1781,16 @@ export function WeekSchedule({
           long row collapses gracefully on narrow screens. */}
       <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
         <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-blue-200" />
-          event
+          <span className="inline-block h-2.5 w-2.5 rounded-sm border border-emerald-400 bg-emerald-100" />
+          Google event
         </span>
         <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-200" />
-          task
+          <span className="inline-block h-2.5 w-2.5 rounded-sm border border-violet-400 bg-violet-100" />
+          Focus3
         </span>
         <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-200" />
-          session
+          <span className="inline-block h-2.5 w-2.5 rounded-sm border border-slate-300 bg-slate-100" />
+          shadow (non-blocking)
         </span>
         <span className="inline-flex items-center gap-1">
           <span
