@@ -568,28 +568,40 @@ googleRouter.post("/auto-sync", async (req, res) => {
       return true;
     });
 
-    // Filter for location enrichment: any event (incl. linked) whose
-    // location is short/ambiguous OR (location empty AND description
-    // hints at a venue). We DO try to enrich linked events too because
-    // that's the whole point — write fuller addresses back.
-    const POSTCODE = /\b[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2}\b/i;
-    const US_ZIP = /\b\d{5}(?:-\d{4})?\b/;
-    const ambiguous = (loc: string) => {
-      const t = loc.trim();
-      if (!t) return false;
-      if (t.length > 80) return false;
-      if (t.includes(",")) return false;
-      if (POSTCODE.test(t) || US_ZIP.test(t)) return false;
-      if (/^(home|office|my (house|place|office)|the office)$/i.test(t)) {
-        return false;
-      }
-      return true;
+    // Filter for location enrichment: events with NO location set, where
+    // the title (or description) suggests a real-world venue would be
+    // useful — concerts, dinners, appointments, named places, etc.
+    //
+    // Anything that ALREADY has a location field is left alone — the user
+    // explicitly said: focus on the events that need help, ignore the
+    // ones with text in the location field (even if it looks ambiguous).
+    //
+    // Heuristic gate: title contains a "needs-a-venue" word, OR the
+    // description has more than a trivial amount of text. Claude makes
+    // the final call about whether to propose an address.
+    const VENUE_HINT =
+      /\b(lunch|dinner|breakfast|brunch|coffee|drinks|tea|supper|meal|concert|gig|show|movie|cinema|theatre|theater|performance|recital|festival|party|wedding|ceremony|reception|gala|launch|doctor|dentist|gp|hospital|clinic|appointment|consultation|meeting|interview|match|game|training|gym|swim|class|lesson|workshop|conference|seminar|talk|tour|visit|viewing|date|drinks|hangout|catch[\s-]?up)\b/i;
+    const looksTitleCasedVenue = (s: string): boolean => {
+      // "Grove on the Hill", "Royal Albert Hall" — mostly capitalised
+      // multi-word names. Heuristic: ≥2 words AND first letters mostly
+      // uppercase, AND no obvious sentence punctuation.
+      const words = s.trim().split(/\s+/);
+      if (words.length < 2 || words.length > 6) return false;
+      const upperHeadCount = words.filter((w) => /^[A-Z]/.test(w)).length;
+      return upperHeadCount >= words.length - 1;
     };
     const locationCandidates = allEvents.filter((e) => {
-      if (e.location && ambiguous(e.location)) return true;
-      // Description-fallback: location absent, but description has enough
-      // text to potentially mention a venue.
-      if (!e.location && e.description && e.description.trim().length > 20) {
+      if (e.location) return false;            // already has a location → skip
+      if (e.allDay) return false;              // all-day events rarely have venues
+      const title = e.summary.trim();
+      if (!title) return false;
+      const desc = e.description.trim();
+      if (
+        VENUE_HINT.test(title) ||
+        VENUE_HINT.test(desc) ||
+        looksTitleCasedVenue(title) ||
+        desc.length > 30
+      ) {
         return true;
       }
       return false;
@@ -597,49 +609,30 @@ googleRouter.post("/auto-sync", async (req, res) => {
     console.log(
       `[auto-sync] scanned=${totalScanned} writableCalendars=${writable.length} importCandidates=${candidates.length} locationCandidates=${locationCandidates.length}`,
     );
-    // List every calendar that was checked so the user can spot any that
-    // were missed (e.g. a personal calendar where the event lives but
-    // wasn't selected / writable).
     for (const cal of writable) {
       console.log(
         `[auto-sync] writable-calendar "${cal.summary}" accessRole=${cal.accessRole}`,
       );
     }
-    // Dump every event that has ANY location text — even ones that were
-    // filtered out as "already-an-address" — so we can see Grove on the
-    // Hill / Louis Tomlinson if they're in the window at all.
-    const eventsWithLocation = allEvents.filter((e) => e.location);
-    console.log(
-      `[auto-sync] eventsWithLocation=${eventsWithLocation.length} (showing all)`,
-    );
-    for (const ev of eventsWithLocation) {
-      const isLocCand = locationCandidates.includes(ev);
+    // The new policy: only events with EMPTY location qualify. Dump all
+    // location candidates so we can see Grove on the Hill / Louis
+    // Tomlinson / etc. that we're now picking up.
+    for (const ev of locationCandidates.slice(0, 30)) {
       console.log(
-        `[auto-sync] event title="${ev.summary.slice(0, 50)}" cal="${ev.calendarName}" loc="${ev.location.slice(0, 60)}" qualifies=${isLocCand} reason=${
-          isLocCand
-            ? "ambiguous"
-            : ev.location.includes(",")
-              ? "has-comma"
-              : /\b[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2}\b/i.test(ev.location)
-                ? "has-postcode"
-                : ev.location.length > 80
-                  ? "too-long"
-                  : /^(home|office|my (house|place|office)|the office)$/i.test(
-                        ev.location,
-                      )
-                    ? "personal-ref"
-                    : "unknown"
-        }`,
+        `[auto-sync] location-candidate title="${ev.summary.slice(0, 60)}" cal="${ev.calendarName}" descLen=${ev.description.length}`,
       );
     }
-    // Also dump events with no location but a description — they qualify
-    // for the description-fallback path.
-    const eventsDescOnly = allEvents.filter(
-      (e) => !e.location && e.description && e.description.trim().length > 20,
+    // For diagnostics: events with empty location that DID NOT qualify so
+    // the user can see if a relevant one was missed by the heuristic.
+    const skippedEmptyLoc = allEvents.filter(
+      (e) => !e.location && !e.allDay && !locationCandidates.includes(e),
     );
-    for (const ev of eventsDescOnly.slice(0, 10)) {
+    console.log(
+      `[auto-sync] skipped-empty-location=${skippedEmptyLoc.length} (no venue hint in title/description)`,
+    );
+    for (const ev of skippedEmptyLoc.slice(0, 10)) {
       console.log(
-        `[auto-sync] desc-only-candidate title="${ev.summary.slice(0, 50)}" cal="${ev.calendarName}" descLen=${ev.description.length}`,
+        `[auto-sync] skipped title="${ev.summary.slice(0, 60)}" descLen=${ev.description.length}`,
       );
     }
 
@@ -665,10 +658,22 @@ For each event, decide TWO things:
 1. isTask — true if the event represents a piece of WORK the user has to do (an action they perform: "Submit Q3 report", "Pay invoice", "Doctor appointment", "Call accountant", "Workout"). false for passive meetings the user just attends ("Team standup", "Weekly 1:1", "Lunch with Sara", "Birthday").
    - isRecurring=true events are MUCH less likely to be task-like — recurring meetings are passive, the rare exceptions are recurring chores like "Pay rent" or "Take medication". Be strict.
    - Strong signal: imperative verb in title (Submit, Send, Pay, Call, Finish, Draft, File, Book, Fix, Update, Review, Prepare, Sign) + a personal subject ("you"-shaped, not group-shaped).
-2. proposedAddress — propose a likely full postal address.
-   - If currentLocation is set: interpret it as a place name + use title as context. high confidence when there's a single well-known venue with that name. medium when multi-branch (Costa, Starbucks etc.) — pick one sensibly. low when very generic.
-   - If currentLocation is null AND description hints at a venue ("meet at Grove on the Hill", "back booth at Le Cafe", "address in invite email"): extract the venue from the description and propose its address. medium confidence usually.
-   - null when nothing resolvable (TBD, phone numbers, person names with no venue, description with no venue clue).
+2. proposedAddress — propose a likely full postal address ONLY when the event clearly happens at a real-world venue. Events with a currentLocation already set are not in this batch — every entry here has currentLocation=null and we want to know whether it should have one.
+   - YES, propose an address when:
+     · The TITLE is a venue name ("Grove on the Hill", "Royal Albert Hall", "O2 Arena", "British Museum", "Pret a Manger Soho").
+     · The TITLE describes an event-at-a-venue ("Louis Tomlinson concert", "Arsenal vs Spurs", "Hamilton matinée") — search for the most likely venue for that performer/team/show in that timeframe.
+     · The TITLE or DESCRIPTION names a place + activity ("dinner at Grove on the Hill", "drinks at Sketch", "Beauty and the Beast at the Lyceum").
+     · The DESCRIPTION mentions an address, a venue name, or a place that can be resolved.
+   - NO, return null when:
+     · The event is a phone/video call ("Zoom call with Sarah", "1:1 with manager").
+     · The event is location-agnostic work ("Submit report", "Review PR", "Pay invoice", "Take medication").
+     · The title is a person's name only ("Lunch with Sarah") with no venue clue.
+     · The title is a generic activity with no anchor ("Workout", "Run", "Read") that could happen anywhere.
+     · It's clearly a placeholder ("TBD", "to be confirmed", a phone number).
+   - Confidence:
+     · high — single famous venue, no ambiguity ("Royal Albert Hall", "Stamford Bridge").
+     · medium — well-known but multiple branches, you've picked one ("Costa Soho"), or you've inferred a likely venue from a performer/event name.
+     · low — best guess, multiple plausible answers ("a Pret in central London"), should be flagged for review.
 
 Theme suggestion (only matters when isTask=true): work / projects / personal / school / fitness / finance / diet / medication / development / household.
 
