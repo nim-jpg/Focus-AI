@@ -15,6 +15,10 @@ interface Props {
   /** Mode toggle from the header — filters the list by work / personal bucket. */
   mode?: "both" | "work" | "personal";
   userType?: UserType;
+  /** Google event ids the user has muted — imported tasks linked to those
+   *  events drop out of the list entirely (mirrors the Top Three / matrix
+   *  behaviour: ignore once, gone everywhere). */
+  ignoredEventIds?: string[];
   /** Refresh-AI hook — when supplied, the toolbar shows a Refresh AI button
    *  so the user can re-rank from this tab too. */
   onRefreshAi?: () => void;
@@ -61,10 +65,15 @@ export function TaskList({
   aiTierById,
   mode = "both",
   userType,
+  ignoredEventIds = [],
   onRefreshAi,
   aiBusy = false,
   aiRefreshTick = 0,
 }: Props) {
+  const ignoredEventIdSet = useMemo(
+    () => new Set(ignoredEventIds),
+    [ignoredEventIds],
+  );
   const now = Date.now();
   const [selectedThemes, setSelectedThemes] = useState<Set<Theme>>(new Set());
   const [search, setSearch] = useState("");
@@ -89,6 +98,12 @@ export function TaskList({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = tasks.filter((t) => {
+      if (
+        t.calendarEventId &&
+        ignoredEventIdSet.has(t.calendarEventId)
+      ) {
+        return false;
+      }
       if (selectedThemes.size > 0 && !selectedThemes.has(t.theme)) return false;
       if (statusFilter === "open" && t.status === "completed") return false;
       if (statusFilter === "completed" && t.status !== "completed") return false;
@@ -140,7 +155,7 @@ export function TaskList({
       }
     };
     return [...list].sort(cmp);
-  }, [tasks, selectedThemes, search, statusFilter, now, sortKey, aiTierById, mode, userType]);
+  }, [tasks, selectedThemes, search, statusFilter, now, sortKey, aiTierById, mode, userType, ignoredEventIdSet]);
 
   const toggleTheme = (theme: Theme) =>
     setSelectedThemes((prev) => {
