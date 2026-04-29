@@ -45,9 +45,18 @@ const THEME_LABELS: Record<Theme, string> = {
   household: "Household",
 };
 
-function formatDue(iso?: string): string {
+function formatDue(iso?: string, includeTime = false): string {
   if (!iso) return "—";
   const d = new Date(iso);
+  if (includeTime) {
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
   return d.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
@@ -341,8 +350,14 @@ export function TaskList({
                   <p className="mt-1 text-sm text-slate-600">{task.description}</p>
                 )}
                 <p className="mt-1 text-xs text-slate-500">
-                  Due {formatDue(task.dueDate)} · {task.urgency} urgency ·{" "}
-                  {task.estimatedMinutes ?? 30} min · {task.recurrence}
+                  {/* Imported-from-Google tasks show the time too — the
+                      dueDate carries the event's start time, and seeing
+                      it inline answers "when was this scheduled" without
+                      jumping to Google. Plain tasks keep date-only. */}
+                  {task.calendarEventId ? "When " : "Due "}
+                  {formatDue(task.dueDate, Boolean(task.calendarEventId))} ·{" "}
+                  {task.urgency} urgency · {task.estimatedMinutes ?? 30} min ·{" "}
+                  {task.recurrence}
                 </p>
               </div>
 
