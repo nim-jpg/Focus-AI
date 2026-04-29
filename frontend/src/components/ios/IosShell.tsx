@@ -7,7 +7,7 @@ import {
   wasCompletedToday,
 } from "@/lib/recurrence";
 
-type Tab = "today" | "tasks" | "insights" | "goals";
+type Tab = "today" | "tasks" | "timeline" | "insights" | "goals";
 
 interface IosShellProps {
   tasks: Task[];
@@ -70,13 +70,14 @@ export function IosShell(props: IosShellProps) {
           WebkitBackdropFilter: scrolled ? "saturate(180%) blur(24px)" : "none",
         }}
       >
-        <div className="flex items-end justify-between px-5 pb-3 pt-2">
+        <div className="flex items-end justify-between px-5 pb-4 pt-2">
           <div className="min-w-0 flex-1">
             <h1
               className="font-bold tracking-tight transition-all"
               style={{
-                fontSize: scrolled ? "18px" : "32px",
-                lineHeight: scrolled ? "22px" : "38px",
+                fontSize: scrolled ? "20px" : "40px",
+                lineHeight: scrolled ? "24px" : "44px",
+                letterSpacing: scrolled ? "-0.01em" : "-0.03em",
                 color: "var(--ios-text)",
               }}
             >
@@ -84,7 +85,7 @@ export function IosShell(props: IosShellProps) {
             </h1>
             {!scrolled && (
               <p
-                className="mt-0.5 text-[13px]"
+                className="mt-1 text-[14px] font-medium"
                 style={{ color: "var(--ios-text-secondary)" }}
               >
                 {TAB_SUBTITLES[tab]}
@@ -113,6 +114,7 @@ export function IosShell(props: IosShellProps) {
         <div key={tab} className="ios-fade-in">
           {tab === "today" && <TodayTab {...props} />}
           {tab === "tasks" && <TasksTab {...props} />}
+          {tab === "timeline" && <TimelineTab {...props} />}
           {tab === "insights" && <InsightsTab {...props} />}
           {tab === "goals" && <GoalsTab {...props} setTab={setTab} />}
         </div>
@@ -132,11 +134,12 @@ export function IosShell(props: IosShellProps) {
         <div className="mx-auto grid max-w-md grid-cols-5 items-end px-2 pt-1">
           <TabButton label="Today" icon={IconToday} active={tab === "today"} onClick={() => setTab("today")} />
           <TabButton label="Tasks" icon={IconTasks} active={tab === "tasks"} onClick={() => setTab("tasks")} />
-          <div className="relative -mt-7 flex justify-center">
+          {/* Timeline sits in the middle slot, with the FAB floating above */}
+          <div className="flex flex-col items-center">
             <button
               type="button"
               onClick={() => setFabOpen(true)}
-              className="ios-fab flex h-14 w-14 items-center justify-center rounded-full text-white"
+              className="ios-fab -mt-7 flex h-14 w-14 items-center justify-center rounded-full text-white"
               style={{
                 background:
                   "linear-gradient(135deg, var(--ios-accent-grad-from), var(--ios-accent-grad-to))",
@@ -148,6 +151,16 @@ export function IosShell(props: IosShellProps) {
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                 <path d="M12 5v14M5 12h14" />
               </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("timeline")}
+              className="-mt-1 flex flex-col items-center gap-0.5 px-1 pb-2 transition-transform active:scale-95"
+              style={{ color: tab === "timeline" ? "var(--ios-accent)" : "var(--ios-text-secondary)" }}
+            >
+              <span className="text-[10px] tracking-tight" style={{ fontWeight: tab === "timeline" ? 600 : 500 }}>
+                Timeline
+              </span>
             </button>
           </div>
           <TabButton label="Insights" icon={IconInsights} active={tab === "insights"} onClick={() => setTab("insights")} />
@@ -248,12 +261,14 @@ export function IosShell(props: IosShellProps) {
 const TAB_TITLES: Record<Tab, string> = {
   today: "Today",
   tasks: "Tasks",
+  timeline: "Timeline",
   insights: "Insights",
   goals: "Goals",
 };
 const TAB_SUBTITLES: Record<Tab, string> = {
   today: "Three things, plus your foundations.",
   tasks: "Everything in your queue.",
+  timeline: "Your week at a glance.",
   insights: "Where the work sits.",
   goals: "What it ladders up to.",
 };
@@ -298,7 +313,7 @@ function TodayTab(p: IosShellProps) {
           on the right. The big number on the left is "today's done /
           today's open", which is the user's actual progress count. */}
       <div
-        className="overflow-hidden rounded-3xl px-5 py-4"
+        className="overflow-hidden rounded-3xl px-5 py-5"
         style={{
           background:
             "linear-gradient(135deg, #1A1D29 0%, #2D2440 60%, #4A1D5C 100%)",
@@ -308,26 +323,35 @@ function TodayTab(p: IosShellProps) {
       >
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[18px] font-bold leading-tight" style={{ color: "white" }}>
+            <p
+              className="text-[22px] font-bold leading-tight"
+              style={{ color: "white", letterSpacing: "-0.02em" }}
+            >
               Daily Progress
             </p>
-            <p className="mt-0.5 text-[12px]" style={{ color: "rgba(255,255,255,0.6)" }}>
+            <p
+              className="mt-1 text-[13px] font-medium"
+              style={{ color: "rgba(255,255,255,0.65)" }}
+            >
               Today's task completion
             </p>
             <p
-              className="mt-2 text-[28px] font-bold tabular-nums leading-none"
-              style={{ color: "white" }}
+              className="mt-3 text-[44px] font-bold tabular-nums leading-none"
+              style={{ color: "white", letterSpacing: "-0.04em" }}
             >
               {allDoneToday}
-              <span className="text-[16px] font-medium" style={{ color: "rgba(255,255,255,0.55)" }}>
+              <span
+                className="text-[22px] font-semibold"
+                style={{ color: "rgba(255,255,255,0.55)" }}
+              >
                 /{totalTracked || allOpen.length}
               </span>
             </p>
           </div>
           <ProgressRing
             value={progressPct}
-            size={64}
-            stroke={6}
+            size={84}
+            stroke={7}
             color="#A78BFA"
             track="rgba(255,255,255,0.12)"
             label={`${progressPct}%`}
@@ -344,16 +368,24 @@ function TodayTab(p: IosShellProps) {
           border: "1px solid var(--ios-border)",
         }}
       >
-        <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="text-[18px] font-bold">Today's tasks</h2>
+        <div className="mb-4 flex items-baseline justify-between">
+          <h2
+            className="text-[22px] font-bold"
+            style={{ letterSpacing: "-0.02em" }}
+          >
+            Today's tasks
+          </h2>
           <button
             type="button"
             onClick={p.onRefreshAi}
             disabled={p.aiBusy}
-            className="text-[12px] font-medium"
-            style={{ color: "var(--ios-accent)" }}
+            className="rounded-full px-3 py-1 text-[12px] font-semibold"
+            style={{
+              color: "var(--ios-accent)",
+              background: "var(--ios-accent-soft)",
+            }}
           >
-            {p.aiBusy ? "…" : "Refresh AI"}
+            {p.aiBusy ? "Asking…" : "Refresh AI"}
           </button>
         </div>
         <div className="flex items-stretch gap-3">
@@ -364,18 +396,24 @@ function TodayTab(p: IosShellProps) {
             className="flex flex-col items-center justify-center rounded-2xl p-3 text-white transition-transform active:scale-95"
             style={{
               background: "linear-gradient(135deg, #DC2626, #EF4444)",
-              minWidth: "92px",
+              minWidth: "108px",
+              boxShadow: "0 8px 24px -6px rgba(239, 68, 68, 0.5)",
             }}
           >
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 11l3 3L22 4" />
               <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
             </svg>
-            <p className="mt-2 text-[20px] font-bold tabular-nums leading-none">
+            <p
+              className="mt-3 text-[26px] font-bold tabular-nums leading-none"
+              style={{ letterSpacing: "-0.03em" }}
+            >
               {allDoneToday}
-              <span className="text-[12px] font-medium opacity-70">/{totalTracked}</span>
+              <span className="text-[14px] font-semibold opacity-70">
+                /{totalTracked}
+              </span>
             </p>
-            <p className="mt-1 text-[10px] uppercase tracking-wider opacity-80">
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-wider opacity-90">
               Today
             </p>
           </button>
@@ -402,12 +440,17 @@ function TodayTab(p: IosShellProps) {
 
       {/* Overall status — two stat cards with rings */}
       <div>
-        <div className="mb-2 flex items-baseline justify-between px-1">
-          <h2 className="text-[18px] font-bold">Overall status</h2>
+        <div className="mb-3 flex items-baseline justify-between px-1">
+          <h2
+            className="text-[22px] font-bold"
+            style={{ letterSpacing: "-0.02em" }}
+          >
+            Overall status
+          </h2>
           <button
             type="button"
             onClick={() => undefined}
-            className="text-[12px] font-medium"
+            className="text-[12px] font-semibold"
             style={{ color: "var(--ios-accent)" }}
           >
             See more ›
@@ -547,47 +590,61 @@ function PriorityRow({
   onSchedule: () => void;
 }) {
   const dueLabel = task.dueDate ? fmtDate(task.dueDate) : "";
-  const recurLabel =
-    task.recurrence !== "none" ? task.recurrence : "";
-  // Stat in X/Y form — completionLog count vs target proxy. For one-off
-  // tasks just show 0/1 → 1/1 when done.
+  const recurLabel = task.recurrence !== "none" ? task.recurrence : "";
   const log = task.completionLog ?? [];
   const stat =
     task.recurrence === "none"
       ? `${task.status === "completed" ? 1 : 0}/1`
-      : `${log.length}/?`;
+      : `${log.length}`;
+  // Three explicit click targets: checkbox (complete), middle (schedule),
+  // stat (informational). No nested-button confusion.
   return (
-    <button
-      type="button"
-      onClick={onComplete}
-      className="flex w-full items-center gap-2 py-1.5 text-left transition-transform active:scale-[0.99]"
-    >
-      {/* coloured priority bar — 3px, full row height, accent per tier */}
+    <div className="flex w-full items-center gap-2.5 py-2">
       <span
-        className="h-9 w-[3px] flex-none rounded-full"
+        className="h-10 w-[4px] flex-none rounded-full"
         style={{ background: PRIORITY_BAR_COLORS[tier] }}
       />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[13px] font-semibold" style={{ color: "var(--ios-text)" }}>
+      <button
+        type="button"
+        onClick={onComplete}
+        aria-label={`Mark ${task.title} done`}
+        className="flex h-7 w-7 flex-none items-center justify-center rounded-full transition-transform active:scale-90"
+        style={{
+          border: `2px solid ${PRIORITY_BAR_COLORS[tier]}40`,
+          background: "transparent",
+        }}
+      >
+        <span style={{ color: PRIORITY_BAR_COLORS[tier], fontSize: "10px" }}>
+          ●
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={onSchedule}
+        className="flex min-w-0 flex-1 flex-col items-start text-left transition-transform active:scale-[0.99]"
+      >
+        <span
+          className="truncate text-[15px] font-bold leading-tight"
+          style={{ color: "var(--ios-text)", letterSpacing: "-0.01em" }}
+        >
           {task.title}
-        </p>
-        <p className="text-[10px]" style={{ color: "var(--ios-text-secondary)" }}>
+        </span>
+        <span
+          className="text-[11px] font-semibold uppercase tracking-wider"
+          style={{ color: PRIORITY_BAR_COLORS[tier] }}
+        >
           {TIER_LABELS[tier]} priority
           {recurLabel ? ` · ${recurLabel}` : ""}
           {dueLabel ? ` · ${dueLabel}` : ""}
-        </p>
-      </div>
+        </span>
+      </button>
       <span
-        className="text-[12px] font-semibold tabular-nums"
+        className="flex-none text-right text-[14px] font-bold tabular-nums"
         style={{ color: "var(--ios-text-secondary)" }}
-        onClick={(e) => {
-          e.stopPropagation();
-          onSchedule();
-        }}
       >
         {stat}
       </span>
-    </button>
+    </div>
   );
 }
 
@@ -608,7 +665,7 @@ function StatCard({
 }) {
   return (
     <div
-      className="rounded-2xl p-3"
+      className="rounded-2xl p-4"
       style={{
         background: "var(--ios-surface)",
         border: "1px solid var(--ios-border)",
@@ -616,23 +673,28 @@ function StatCard({
     >
       <div className="flex items-start justify-between gap-2">
         <div
-          className="flex h-9 w-9 flex-none items-center justify-center rounded-xl"
+          className="flex h-11 w-11 flex-none items-center justify-center rounded-2xl"
           style={{ background: iconBg }}
         >
           {icon}
         </div>
         <ProgressRing
           value={ring}
-          size={36}
-          stroke={3.5}
+          size={44}
+          stroke={4}
           color={ringColor}
           track="rgba(255,255,255,0.08)"
           label={`${ring}%`}
           labelColor="var(--ios-text)"
         />
       </div>
-      <p className="mt-2 text-[13px] font-semibold leading-tight">{title}</p>
-      <p className="mt-0.5 text-[11px]" style={{ color: "var(--ios-text-secondary)" }}>
+      <p
+        className="mt-3 text-[16px] font-bold leading-tight"
+        style={{ letterSpacing: "-0.01em" }}
+      >
+        {title}
+      </p>
+      <p className="mt-0.5 text-[12px] font-medium" style={{ color: "var(--ios-text-secondary)" }}>
         {sub}
       </p>
     </div>
@@ -984,6 +1046,269 @@ function ThemeDropdown({
 }
 
 // ─── INSIGHTS ────────────────────────────────────────────────────────
+// ─── TIMELINE (Gantt-style) ───────────────────────────────────────────
+function TimelineTab(p: IosShellProps) {
+  // Show next 14 days. Each row is a task with a date; bar spans from
+  // start (scheduledFor or dueDate) for estimatedMinutes (or 1 day if no
+  // duration is meaningful). Hover/tap a bar → quick complete.
+  const today = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+  const DAY_MS = 86400000;
+  const DAYS = 14;
+  const days = useMemo(
+    () =>
+      Array.from({ length: DAYS }, (_, i) => {
+        const d = new Date(today.getTime() + i * DAY_MS);
+        return {
+          date: d,
+          label: d.toLocaleDateString(undefined, {
+            weekday: "short",
+            day: "numeric",
+          }),
+          isToday: i === 0,
+          isWeekend: d.getDay() === 0 || d.getDay() === 6,
+        };
+      }),
+    [today],
+  );
+
+  const dated = useMemo(() => {
+    return p.tasks
+      .filter((t) => {
+        if (t.status === "completed") return false;
+        const start = t.scheduledFor ?? t.dueDate;
+        if (!start) return false;
+        const ms = new Date(start).getTime();
+        return ms >= today.getTime() && ms < today.getTime() + DAYS * DAY_MS;
+      })
+      .sort(
+        (a, b) =>
+          new Date(a.scheduledFor ?? a.dueDate ?? 0).getTime() -
+          new Date(b.scheduledFor ?? b.dueDate ?? 0).getTime(),
+      );
+  }, [p.tasks, today]);
+
+  const undated = useMemo(
+    () =>
+      p.tasks.filter(
+        (t) => t.status !== "completed" && !t.scheduledFor && !t.dueDate,
+      ),
+    [p.tasks],
+  );
+
+  // Width per day cell on mobile — keeps the chart legible while still
+  // fitting 14 days in a horizontal scroll container.
+  const COL_W = 56;
+  const ROW_H = 44;
+
+  return (
+    <div className="space-y-4 pt-2">
+      <div
+        className="rounded-3xl p-3"
+        style={{
+          background: "var(--ios-surface)",
+          border: "1px solid var(--ios-border)",
+        }}
+      >
+        <div className="mb-3 flex items-baseline justify-between px-2">
+          <h2 className="text-[20px] font-bold tracking-tight">Next 14 days</h2>
+          <span
+            className="text-[12px] font-medium"
+            style={{ color: "var(--ios-text-secondary)" }}
+          >
+            {dated.length} scheduled
+          </span>
+        </div>
+
+        <div className="overflow-x-auto -mx-3">
+          <div className="px-3" style={{ minWidth: `${COL_W * DAYS}px` }}>
+            {/* Day header */}
+            <div className="grid pb-2" style={{ gridTemplateColumns: `repeat(${DAYS}, ${COL_W}px)` }}>
+              {days.map((d, i) => (
+                <div
+                  key={i}
+                  className="flex flex-col items-center"
+                  style={{ width: COL_W }}
+                >
+                  <span
+                    className="text-[10px] font-semibold uppercase tracking-wider"
+                    style={{
+                      color: d.isToday
+                        ? "var(--ios-accent)"
+                        : d.isWeekend
+                          ? "var(--ios-text-muted)"
+                          : "var(--ios-text-secondary)",
+                    }}
+                  >
+                    {d.date.toLocaleDateString(undefined, { weekday: "short" })}
+                  </span>
+                  <span
+                    className={`mt-0.5 flex h-7 w-7 items-center justify-center rounded-full text-[13px] font-bold ${
+                      d.isToday ? "text-white" : ""
+                    }`}
+                    style={{
+                      background: d.isToday
+                        ? "linear-gradient(135deg, var(--ios-accent-grad-from), var(--ios-accent-grad-to))"
+                        : "transparent",
+                      color: d.isToday ? "white" : "var(--ios-text)",
+                    }}
+                  >
+                    {d.date.getDate()}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Bar grid — each row a task */}
+            <div className="space-y-1.5">
+              {dated.length === 0 && (
+                <p
+                  className="px-2 py-6 text-center text-[13px]"
+                  style={{ color: "var(--ios-text-secondary)" }}
+                >
+                  No scheduled work in the next two weeks.
+                </p>
+              )}
+              {dated.map((t) => {
+                const start = new Date(t.scheduledFor ?? t.dueDate ?? "");
+                start.setHours(0, 0, 0, 0);
+                const dayIdx = Math.floor(
+                  (start.getTime() - today.getTime()) / DAY_MS,
+                );
+                if (dayIdx < 0 || dayIdx >= DAYS) return null;
+                const tier = p.aiTierMap?.get(t.id) ?? 4;
+                const barColor =
+                  tier === 1
+                    ? "linear-gradient(90deg, #DC2626, #EF4444)"
+                    : tier === 2
+                      ? "linear-gradient(90deg, #7C3AED, #A78BFA)"
+                      : tier === 3
+                        ? "linear-gradient(90deg, #D97706, #FBBF24)"
+                        : "linear-gradient(90deg, #475569, #94A3B8)";
+                // Width: estimatedMinutes ≥ 60 → 1 day; else half a day.
+                // For multi-day if the user has a multi-day window → all
+                // those days. Simple approximation.
+                const widthDays = Math.max(
+                  1,
+                  Math.min(DAYS - dayIdx, Math.ceil((t.estimatedMinutes ?? 30) / 240)),
+                );
+                return (
+                  <div
+                    key={t.id}
+                    className="relative"
+                    style={{ height: ROW_H }}
+                  >
+                    {/* Day grid background */}
+                    <div
+                      className="absolute inset-0 grid"
+                      style={{ gridTemplateColumns: `repeat(${DAYS}, ${COL_W}px)` }}
+                    >
+                      {days.map((d, i) => (
+                        <div
+                          key={i}
+                          className="border-r"
+                          style={{
+                            borderColor: "var(--ios-border)",
+                            background: d.isWeekend
+                              ? "rgba(255,255,255,0.02)"
+                              : d.isToday
+                                ? "rgba(167, 139, 250, 0.05)"
+                                : "transparent",
+                          }}
+                        />
+                      ))}
+                    </div>
+                    {/* Bar */}
+                    <button
+                      type="button"
+                      onClick={() => p.onEditTask(t.id)}
+                      className="absolute flex items-center gap-1.5 overflow-hidden rounded-lg px-2 text-left transition-transform active:scale-[0.97]"
+                      style={{
+                        left: `${dayIdx * COL_W + 4}px`,
+                        width: `${widthDays * COL_W - 8}px`,
+                        top: 6,
+                        bottom: 6,
+                        background: barColor,
+                        boxShadow: "0 2px 8px -2px rgba(0,0,0,0.4)",
+                      }}
+                    >
+                      <span
+                        className="truncate text-[12px] font-semibold text-white"
+                        style={{ textShadow: "0 1px 2px rgba(0,0,0,0.25)" }}
+                      >
+                        {t.title}
+                      </span>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Undated bucket — tasks without a date */}
+      {undated.length > 0 && (
+        <div
+          className="rounded-3xl p-4"
+          style={{
+            background: "var(--ios-surface)",
+            border: "1px solid var(--ios-border)",
+          }}
+        >
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-[20px] font-bold tracking-tight">Undated</h2>
+            <span
+              className="text-[12px] font-medium"
+              style={{ color: "var(--ios-text-secondary)" }}
+            >
+              {undated.length} backlog
+            </span>
+          </div>
+          <div className="space-y-2">
+            {undated.slice(0, 8).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => p.onSchedule(t.id)}
+                className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition-transform active:scale-[0.99]"
+                style={{
+                  background: "var(--ios-bg-elev)",
+                  border: "1px solid var(--ios-border)",
+                }}
+              >
+                <span className="truncate text-[14px] font-semibold">
+                  {t.title}
+                </span>
+                <span
+                  className="ml-2 flex-none rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                  style={{
+                    background: "var(--ios-accent-soft)",
+                    color: "var(--ios-accent)",
+                  }}
+                >
+                  Schedule
+                </span>
+              </button>
+            ))}
+            {undated.length > 8 && (
+              <p
+                className="pt-1 text-center text-[11px]"
+                style={{ color: "var(--ios-text-muted)" }}
+              >
+                + {undated.length - 8} more
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function InsightsTab(p: IosShellProps) {
   const open = p.tasks.filter((t) => t.status !== "completed").length;
   const dueWeek = p.tasks.filter((t) => {
