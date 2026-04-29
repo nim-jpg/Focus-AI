@@ -617,7 +617,7 @@ googleRouter.post("/auto-sync", async (req, res) => {
     // attached ("Dinner at Grove on the Hill") the title heuristic
     // catches it.
     const STRONG_VENUE_HINT =
-      /\b(concert|gig|show|movie|cinema|theatre|theater|performance|recital|festival|wedding|ceremony|reception|gala|matin[ée]e|opera|ballet|launch event|conference|seminar|exhibition|exhibit|tour|viewing|matin[ée]e|doctor|dentist|gp|hospital|clinic|appointment|consultation|surgery|specialist|interview|match|fixture|race|training|gym|swim|class|lesson|workshop|graduation)\b/i;
+      /\b(concert|gig|show|movie|cinema|theatre|theater|performance|recital|festival|wedding|ceremony|reception|gala|matin[ée]e|opera|ballet|launch event|conference|seminar|exhibition|exhibit|tour|viewing|matin[ée]e|doctor|dentist|gp|hospital|clinic|appointment|consultation|surgery|specialist|interview|match|fixture|race|training|gym|swim|class|lesson|workshop|graduation|lunch|dinner|brunch|breakfast|supper|drinks|coffee|tea|date)\b/i;
     const DESC_VENUE_HINT =
       /\b(address|venue|location|directions|at the|at\s+[A-Z]|map link|address:)\b/;
     const looksTitleCasedVenue = (s: string): boolean => {
@@ -737,7 +737,8 @@ For each event, decide TWO things:
      · You can name the venue with reasonable confidence — no shrugging.
      · A reasonable person reading the title alone would think "of course this has a venue".
    - NO, return null when ANY of these apply:
-     · The title is a generic activity that could happen anywhere ("Workout", "Run", "Coffee with Sam", "Lunch", "Dinner with Mum") — even though they imply going SOMEWHERE, you cannot know WHERE.
+     · The title is a generic activity or social meal that names a person but no venue ("Lunch with Sarah", "Coffee with Sam", "Dinner with Mum", "Drinks with the team"). The user wants to ADD the venue manually for these — the row will still appear in their review list with an empty input. Don't guess a restaurant for them.
+     · The title is a workout/exercise that could happen anywhere ("Workout", "Run").
      · The title is a phone/video meeting ("Zoom with X", "Catch-up call", "1:1").
      · The title is admin/work that doesn't need a venue ("Submit report", "Pay invoice", "Email Bob").
      · The title is a person's name only ("Sarah", "Mum's birthday") with no venue.
