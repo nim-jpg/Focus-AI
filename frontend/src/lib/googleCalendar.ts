@@ -134,6 +134,11 @@ export async function fetchDuplicates(
 // ─── Location enrichment ──────────────────────────────────────────────────
 export interface LocationCandidate {
   id: string;
+  /** Source calendar — needed at apply-time so the PATCH lands on the
+   *  right calendar (events have unique ids only within their calendar). */
+  calendarId: string;
+  /** Human-readable calendar name shown in the UI ("Work", "Personal", etc.). */
+  calendarName: string;
   summary: string;
   start: string | null;
   currentLocation: string;
@@ -142,8 +147,12 @@ export interface LocationCandidate {
 }
 
 export async function scanAmbiguousLocations(
-  daysForward = 30,
-): Promise<{ candidates: LocationCandidate[]; scanned: number }> {
+  daysForward = 14,
+): Promise<{
+  candidates: LocationCandidate[];
+  scanned: number;
+  calendars: number;
+}> {
   const res = await apiFetch("/api/google/enrich-locations/scan", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -156,11 +165,12 @@ export async function scanAmbiguousLocations(
   return (await res.json()) as {
     candidates: LocationCandidate[];
     scanned: number;
+    calendars: number;
   };
 }
 
 export async function applyLocationUpdates(
-  updates: Array<{ id: string; location: string }>,
+  updates: Array<{ id: string; calendarId: string; location: string }>,
 ): Promise<{ updated: number; failures: Array<{ id: string; reason: string }> }> {
   const res = await apiFetch("/api/google/enrich-locations/apply", {
     method: "POST",
