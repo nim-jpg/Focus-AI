@@ -1380,6 +1380,8 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           prefs={prefs}
           onChange={setPrefs}
           onClose={() => setShowSettings(false)}
+          tasks={tasks}
+          onImportEvent={(input) => addTask(input)}
           onExport={() => downloadBackup(tasks, goals, prefs)}
           onImport={async (file) => {
             const bundle = await readBackupFile(file);

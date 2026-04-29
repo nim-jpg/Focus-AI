@@ -2,6 +2,7 @@ import { Router } from "express";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { google, type Auth } from "googleapis";
+import Anthropic from "@anthropic-ai/sdk";
 import { getSupabase, isMultiUser } from "../db.js";
 import { authMiddleware } from "../middleware/auth.js";
 
@@ -512,6 +513,171 @@ googleRouter.get("/duplicates", async (req, res) => {
       message: err instanceof Error ? err.message : String(err),
     });
   }
+});
+
+// ─── Location enrichment ──────────────────────────────────────────────────
+// Find upcoming events whose `location` field looks short / ambiguous and
+// ask Claude to propose a fuller address. The user reviews + approves before
+// any writeback. Focus3 deliberately does NOT track location locally —
+// enrichment is a one-way write into Google.
+googleRouter.post("/enrich-locations/scan", async (req, res) => {
+  const client = await getAuthorizedClient(req.userId);
+  if (!client) {
+    res.status(401).json({ error: "not_connected" });
+    return;
+  }
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    res.status(500).json({ error: "anthropic_not_configured" });
+    return;
+  }
+  const daysForward = Math.min(
+    Math.max(Number(req.body?.daysForward ?? 30), 1),
+    180,
+  );
+  const from = new Date().toISOString();
+  const to = new Date(
+    Date.now() + daysForward * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  try {
+    const calendar = google.calendar({ version: "v3", auth: client });
+    const r = await calendar.events.list({
+      calendarId: "primary",
+      timeMin: from,
+      timeMax: to,
+      singleEvents: true,
+      orderBy: "startTime",
+      maxResults: 250,
+    });
+
+    type Candidate = {
+      id: string;
+      summary: string;
+      start: string | null;
+      currentLocation: string;
+    };
+    // Heuristic: a location is "ambiguous" when it lacks postcode-shaped
+    // tokens AND has no comma (which usually signals a multi-line address)
+    // AND is reasonably short. UK postcode regex is permissive — Claude is
+    // the safety net for false negatives.
+    const POSTCODE = /\b[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2}\b/i;
+    const US_ZIP = /\b\d{5}(?:-\d{4})?\b/;
+    const looksAmbiguous = (loc: string): boolean => {
+      const t = loc.trim();
+      if (!t) return false;
+      if (t.length > 80) return false; // long string → almost certainly a real address
+      if (t.includes(",")) return false; // multi-part → looks like an address
+      if (POSTCODE.test(t) || US_ZIP.test(t)) return false;
+      // Personal references we shouldn't try to enrich.
+      if (/^(home|office|my (house|place|office)|the office)$/i.test(t)) {
+        return false;
+      }
+      return true;
+    };
+    const candidates: Candidate[] = (r.data.items ?? [])
+      .filter((e) => e.id && e.summary && e.location)
+      .filter((e) => looksAmbiguous(e.location!))
+      .map((e) => ({
+        id: e.id!,
+        summary: e.summary!,
+        start: e.start?.dateTime ?? e.start?.date ?? null,
+        currentLocation: e.location!,
+      }));
+
+    if (candidates.length === 0) {
+      res.json({ candidates: [], scanned: r.data.items?.length ?? 0 });
+      return;
+    }
+
+    // Single batched Claude call: ask for proposed full addresses for each
+    // ambiguous location. Order is preserved by `id`.
+    const anthropic = new Anthropic({ apiKey });
+    const prompt = `For each of these calendar entries, propose a likely full postal address for the place named in "currentLocation". Use the event title as context. If the place is too generic to resolve confidently (e.g. "the office", "lunch spot", a person's name), return null for that entry.
+
+Return ONLY a JSON array, same order, each item: { "id": "...", "address": "..." | null, "confidence": "high" | "medium" | "low" }.
+
+Entries:
+${JSON.stringify(candidates, null, 2)}`;
+
+    const completion = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 2000,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const block = completion.content.find((b) => b.type === "text");
+    const raw = block && "text" in block ? block.text : "";
+    const m = raw.match(/\[[\s\S]*\]/);
+    let parsed: Array<{
+      id: string;
+      address: string | null;
+      confidence: "high" | "medium" | "low";
+    }> = [];
+    try {
+      parsed = m ? JSON.parse(m[0]) : [];
+    } catch {
+      parsed = [];
+    }
+    const proposalById = new Map(parsed.map((p) => [p.id, p]));
+
+    res.json({
+      candidates: candidates.map((c) => {
+        const p = proposalById.get(c.id);
+        return {
+          ...c,
+          proposedAddress: p?.address ?? null,
+          confidence: p?.confidence ?? "low",
+        };
+      }),
+      scanned: r.data.items?.length ?? 0,
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: "enrich_scan_failed",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+// Apply a batch of approved location updates back to Google.
+googleRouter.post("/enrich-locations/apply", async (req, res) => {
+  const client = await getAuthorizedClient(req.userId);
+  if (!client) {
+    res.status(401).json({ error: "not_connected" });
+    return;
+  }
+  const updates = req.body?.updates;
+  if (
+    !Array.isArray(updates) ||
+    updates.some(
+      (u) =>
+        !u ||
+        typeof u !== "object" ||
+        typeof u.id !== "string" ||
+        typeof u.location !== "string",
+    )
+  ) {
+    res.status(400).json({ error: "bad_payload" });
+    return;
+  }
+  const calendar = google.calendar({ version: "v3", auth: client });
+  let updated = 0;
+  const failures: Array<{ id: string; reason: string }> = [];
+  for (const u of updates as Array<{ id: string; location: string }>) {
+    try {
+      await calendar.events.patch({
+        calendarId: "primary",
+        eventId: u.id,
+        requestBody: { location: u.location },
+      });
+      updated += 1;
+    } catch (err) {
+      failures.push({
+        id: u.id,
+        reason: err instanceof Error ? err.message : "unknown",
+      });
+    }
+  }
+  res.json({ updated, failures });
 });
 
 // Bulk delete a set of event ids from the primary calendar. Used by the
