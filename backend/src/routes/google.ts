@@ -467,6 +467,16 @@ googleRouter.post("/auto-sync", async (req, res) => {
         )
       : [],
   );
+  // Excluded calendars (mirrors prefs.excludedCalendarIds): drop these
+  // out of the writable list before we even fetch events. The schedule
+  // view already hides them; auto-sync should respect the same setting.
+  const excludedCalendarIds = new Set<string>(
+    Array.isArray(req.body?.excludedCalendarIds)
+      ? (req.body.excludedCalendarIds as unknown[]).filter(
+          (x): x is string => typeof x === "string",
+        )
+      : [],
+  );
   const from = new Date().toISOString();
   const to = new Date(
     Date.now() + daysForward * 24 * 60 * 60 * 1000,
@@ -485,8 +495,16 @@ googleRouter.post("/auto-sync", async (req, res) => {
       (c) =>
         c.id &&
         (c.accessRole === "owner" || c.accessRole === "writer") &&
-        c.selected !== false,
+        c.selected !== false &&
+        !excludedCalendarIds.has(c.id),
     );
+    if (excludedCalendarIds.size > 0) {
+      console.log(
+        `[auto-sync] excludedCalendarIds=${excludedCalendarIds.size} → ${
+          (calList.data.items ?? []).length
+        } total → ${writable.length} writable after exclusion`,
+      );
+    }
 
     // Pull existing Focus3 tasks for this user so we can skip events that
     // are already linked to one.

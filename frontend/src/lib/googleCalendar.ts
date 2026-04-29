@@ -208,11 +208,12 @@ export interface AutoSyncResult {
 export async function runAutoSync(
   daysForward = 14,
   skipEventIds: string[] = [],
+  excludedCalendarIds: string[] = [],
 ): Promise<AutoSyncResult> {
   const res = await apiFetch("/api/google/auto-sync", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ daysForward, skipEventIds }),
+    body: JSON.stringify({ daysForward, skipEventIds, excludedCalendarIds }),
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { message?: string };
