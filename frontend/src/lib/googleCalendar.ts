@@ -205,11 +205,14 @@ export interface AutoSyncResult {
   enrichmentNeedsReview: AutoSyncReviewItem[];
 }
 
-export async function runAutoSync(daysForward = 14): Promise<AutoSyncResult> {
+export async function runAutoSync(
+  daysForward = 14,
+  skipEventIds: string[] = [],
+): Promise<AutoSyncResult> {
   const res = await apiFetch("/api/google/auto-sync", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ daysForward }),
+    body: JSON.stringify({ daysForward, skipEventIds }),
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { message?: string };

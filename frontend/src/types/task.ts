@@ -214,6 +214,11 @@ export interface UserPrefs {
    *  no scheduling effect (still a working day, working hours still apply).
    *  Surfaced for userType=employee on tagged work days. ISO date strings. */
   wfhDates?: string[];
+  /** Google event ids the user has explicitly SKIPPED in the location-
+   *  enrichment review flow. Auto-sync will not propose addresses for
+   *  these events on subsequent runs, even if they still match the
+   *  heuristic gate. The user can reset by clearing this list. */
+  enrichmentSkippedEventIds?: string[];
   /** What the user wants the prioritisation engine to bias toward — pick
    *  1-3. Empty (default) keeps the engine neutral and leans on the existing
    *  signals (deadlines, avoidance, blockers, goals). When set, tasks
@@ -277,4 +282,5 @@ export const DEFAULT_PREFS: UserPrefs = {
   homeViewDays: 7,
   priorityFocus: [],
   wfhDates: [],
+  enrichmentSkippedEventIds: [],
 };

@@ -457,6 +457,16 @@ googleRouter.post("/auto-sync", async (req, res) => {
     Math.max(Number(req.body?.daysForward ?? 14), 1),
     60,
   );
+  // Persisted-skip list: events the user has already reviewed and
+  // chosen NOT to enrich. We exclude these from the location candidate
+  // set so future syncs don't surface them again.
+  const skipEventIds = new Set<string>(
+    Array.isArray(req.body?.skipEventIds)
+      ? (req.body.skipEventIds as unknown[]).filter(
+          (x): x is string => typeof x === "string",
+        )
+      : [],
+  );
   const from = new Date().toISOString();
   const to = new Date(
     Date.now() + daysForward * 24 * 60 * 60 * 1000,
@@ -612,6 +622,9 @@ googleRouter.post("/auto-sync", async (req, res) => {
     const locationCandidates = allEvents.filter((e) => {
       if (e.location) return false;
       if (e.allDay) return false;
+      // Honour the user's persistent Skip — they've already said "don't
+      // enrich this one", we don't surface it again.
+      if (skipEventIds.has(e.id)) return false;
       const title = e.summary.trim();
       if (!title) return false;
       const desc = e.description.trim();

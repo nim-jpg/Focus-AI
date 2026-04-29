@@ -770,7 +770,9 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
    *      anyway; AI ranking is the cherry on top, not a prerequisite.
    */
   const handleAutoSync = async (): Promise<AutoSyncResult> => {
-    const r = await runAutoSync(14);
+    // Pass the user's persisted Skip list so the backend filters those
+    // events out of location enrichment on this run.
+    const r = await runAutoSync(14, prefs.enrichmentSkippedEventIds ?? []);
     if (r.imported > 0) {
       await refreshFromRemote();
     }
@@ -1137,7 +1139,14 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               the new tasks land in their right tier immediately. Hidden
               when calendar isn't connected — user has nothing to sync. */}
           {googleStatus?.connected && (
-            <SyncFromGoogleButton onAutoSync={handleAutoSync} />
+            <SyncFromGoogleButton
+              onAutoSync={handleAutoSync}
+              onSkipEvent={(eventId) => {
+                const cur = prefs.enrichmentSkippedEventIds ?? [];
+                if (cur.includes(eventId)) return;
+                setPrefs({ enrichmentSkippedEventIds: [...cur, eventId] });
+              }}
+            />
           )}
 
           <WeekSchedule
