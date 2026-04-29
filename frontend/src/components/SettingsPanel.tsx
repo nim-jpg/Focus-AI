@@ -93,24 +93,25 @@ export function SettingsPanel({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 px-4 py-6"
+      className="fixed inset-0 z-50 flex items-stretch justify-center overflow-y-auto bg-slate-900/40 sm:items-start sm:px-4 sm:py-6"
       onClick={onClose}
     >
       <div
-        className="my-auto flex max-h-[90vh] w-full max-w-lg flex-col rounded-lg bg-white shadow-xl"
+        className="flex min-h-screen w-full max-w-lg flex-col bg-white shadow-xl sm:my-auto sm:min-h-0 sm:max-h-[90vh] sm:rounded-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 sm:px-5">
           <h3 className="text-base font-semibold">Settings</h3>
           <button
             type="button"
-            className="text-slate-500 hover:text-slate-900"
+            className="-mr-1 inline-flex h-10 w-10 items-center justify-center rounded text-2xl text-slate-500 hover:bg-slate-100 hover:text-slate-900"
             onClick={onClose}
+            aria-label="Close settings"
           >
             ×
           </button>
         </div>
-        <div className="overflow-y-auto px-5 py-4">
+        <div className="overflow-y-auto px-4 py-4 sm:px-5">
 
         <div className="space-y-5">
           {/* Name — used on the printed PDF header */}
@@ -545,7 +546,7 @@ export function SettingsPanel({
                                 {(prefs.calendarColorOverrides ?? {})[c.id] && (
                                   <button
                                     type="button"
-                                    className="ml-1 text-[10px] text-slate-400 hover:text-slate-700"
+                                    className="ml-1 rounded border border-slate-200 px-1.5 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                                     onClick={() => {
                                       const next = {
                                         ...(prefs.calendarColorOverrides ?? {}),

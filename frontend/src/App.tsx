@@ -852,13 +852,13 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
   return (
     <div className="mx-auto max-w-4xl space-y-8 px-4 py-8">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Focus3</h1>
-          <p className="text-sm text-slate-600">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Focus3</h1>
+          <p className="hidden text-sm text-slate-600 sm:block">
             Three things, every day. Your non-negotiables, surfaced.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
           {/* Compact calendar status: "Calendar 🔗" connected (click → open
               Google Calendar) or "Calendar ⛓️‍💥" not connected (click → start
               OAuth). Disconnect lives in Settings. */}
@@ -914,13 +914,14 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               onClick={() => void auth.signOut()}
               title={auth.user.email ?? "Sign out"}
             >
-              Sign out
+              <span className="hidden sm:inline">Sign out</span>
+              <span className="sm:hidden" aria-label="Sign out">⏻</span>
             </button>
           )}
         </div>
       </header>
 
-      <nav className="flex items-center gap-1 border-b border-slate-200">
+      <nav className="flex flex-wrap items-center gap-1 border-b border-slate-200">
         {TAB_DEFS.map((t) => {
           const active = view === t.key;
           return (
@@ -938,7 +939,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             </button>
           );
         })}
-        <div className="ml-auto flex items-center gap-1.5 pr-1">
+        <div className="ml-auto flex flex-wrap items-center gap-1.5 pr-1">
           <button
             type="button"
             className="btn-secondary text-xs"
@@ -948,7 +949,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             title="Download a 7-day Top Three planner as PDF"
             disabled={tasks.length === 0}
           >
-            Export PDF
+            <span className="hidden sm:inline">Export </span>PDF
           </button>
           <button
             type="button"
@@ -957,7 +958,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             title="Scan a marked-up planner photo back into the app"
             disabled={tasks.length === 0}
           >
-            📥 Scan
+            📥<span className="hidden sm:inline"> Scan</span>
           </button>
           <button
             type="button"
@@ -965,7 +966,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             onClick={() => setShowBrainDump(true)}
             title="Paste a list and let Claude parse it into tasks"
           >
-            ✨ Brain dump
+            ✨<span className="hidden sm:inline"> Brain dump</span>
           </button>
           <button
             type="button"
@@ -973,7 +974,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             onClick={startNew}
             title="Add a single task"
           >
-            + Task
+            + <span className="hidden sm:inline">Task</span>
           </button>
         </div>
       </nav>
@@ -1299,7 +1300,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
 
       {showBrainDump && (
         <div
-          className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/40 px-4 py-8"
+          className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/40 px-2 py-4 sm:px-4 sm:py-8"
           onClick={() => setShowBrainDump(false)}
         >
           <div
@@ -1318,7 +1319,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
 
       {showPlannerScan && (
         <div
-          className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/40 px-4 py-8"
+          className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/40 px-2 py-4 sm:px-4 sm:py-8"
           onClick={() => setShowPlannerScan(false)}
         >
           <div

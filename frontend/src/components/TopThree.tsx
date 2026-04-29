@@ -70,11 +70,12 @@ export function TopThree({
           key={task.id}
           className={`rounded-lg border p-4 shadow-sm ${TIER_CLASSES[tier]}`}
         >
-          <div className="flex items-start gap-3">
-            <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-sm font-semibold text-slate-700 shadow">
-              {idx + 1}
-            </span>
-            <div className="flex-1 min-w-0">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-3">
+            <div className="flex items-start gap-3 sm:flex-1 sm:min-w-0">
+              <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white text-sm font-semibold text-slate-700 shadow">
+                {idx + 1}
+              </span>
+              <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="font-semibold">{task.title}</h3>
                 <ThemeBadge theme={task.theme} />
@@ -122,7 +123,8 @@ export function TopThree({
                   : "no deadline"}
               </p>
             </div>
-            <div className="flex w-28 flex-none flex-col gap-2">
+            </div>
+            <div className="flex flex-row flex-wrap items-center gap-2 sm:w-28 sm:flex-none sm:flex-col">
               <button
                 type="button"
                 className="btn-secondary w-full"
@@ -156,7 +158,7 @@ export function TopThree({
                   Snooze ▾
                 </button>
                 {snoozeOpenFor === task.id && (
-                  <div className="absolute right-0 z-10 mt-1 w-32 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
+                  <div className="absolute left-0 right-auto z-20 mt-1 w-32 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg sm:left-auto sm:right-0">
                     {SNOOZE_OPTIONS.map((opt) => (
                       <button
                         key={opt.days}
