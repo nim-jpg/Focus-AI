@@ -83,16 +83,33 @@ export function nextDueAt(task: Task, now: Date = new Date()): Date | null {
 }
 
 /**
- * A "foundation" is anything you do every day. It lives in the Foundations
- * rail and never crowds the Top Three — Top Three is reserved for meaningful,
- * often-avoided work that drives long-term goals.
+ * "Foundation" tasks live in the Foundations rail and never appear in Top
+ * Three or the priority matrix. They're the ongoing routines / habits the
+ * user wants to keep, not discrete actions to schedule.
  *
- * The treatAsFoundation flag is kept as an explicit override for non-daily
- * tasks the user wants treated as foundations.
+ * The rules, in order of precedence:
+ *  1. Manual override (`treatAsFoundation: true`).
+ *  2. Any task that recurs daily — universal habit shape.
+ *  3. Any RECURRING task tagged as medication / fitness / diet — these are
+ *     habit-shaped by definition. "Take Vitamin D" weekly, "VO2 interval"
+ *     twice a week, "log calories" daily — all foundations.
+ *
+ * Note: a one-off ("recurrence: none") in those themes is NOT a foundation.
+ * "Join gym", "book doctor's appointment", "buy treadmill" are discrete
+ * actions and rightly compete for Top Three slots — they only happen once.
  */
 export function isFoundation(task: Task): boolean {
   if (task.treatAsFoundation) return true;
-  return task.recurrence === "daily";
+  if (task.recurrence === "daily") return true;
+  if (
+    task.recurrence !== "none" &&
+    (task.theme === "medication" ||
+      task.theme === "fitness" ||
+      task.theme === "diet")
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /** Counter-style foundations (e.g. drink 8 glasses) — tap to increment, not tick. */
