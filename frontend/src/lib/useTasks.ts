@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   generateId,
   loadPrefs,
@@ -8,6 +8,7 @@ import {
   syncPrefsFromRemote,
   syncTasksFromRemote,
 } from "./storage";
+import { isAuthEnabled } from "./supabaseClient";
 import { wasCompletedToday } from "./recurrence";
 import type { Task, UserPrefs } from "@/types/task";
 
@@ -70,12 +71,19 @@ function migrate(tasks: Task[]): Task[] {
 export function useTasks() {
   const [tasks, setTasks] = useState<Task[]>(() => migrate(loadTasks()));
   const [prefs, setPrefsState] = useState<UserPrefs>(() => loadPrefs());
+  // Suppress saves until the initial pull from the backend completes — otherwise
+  // a fresh device with an empty cache would PUT [] and wipe the user's data
+  // before the GET could load it. Single-user mode has no backend, so the save
+  // gate opens immediately.
+  const synced = useRef(!isAuthEnabled());
 
   useEffect(() => {
+    if (!synced.current) return;
     saveTasks(tasks);
   }, [tasks]);
 
   useEffect(() => {
+    if (!synced.current) return;
     savePrefs(prefs);
   }, [prefs]);
 
@@ -83,13 +91,23 @@ export function useTasks() {
   // snapshot with the canonical copy from the backend. No-op in single-user
   // mode (functions return null).
   useEffect(() => {
+    if (!isAuthEnabled()) return;
     let cancelled = false;
-    void syncTasksFromRemote().then((remote) => {
-      if (!cancelled && remote) setTasks(migrate(remote));
-    });
-    void syncPrefsFromRemote().then((remote) => {
-      if (!cancelled && remote) setPrefsState(remote);
-    });
+    Promise.allSettled([syncTasksFromRemote(), syncPrefsFromRemote()]).then(
+      ([tasksRes, prefsRes]) => {
+        if (cancelled) return;
+        if (tasksRes.status === "fulfilled" && tasksRes.value) {
+          setTasks(migrate(tasksRes.value));
+        }
+        if (prefsRes.status === "fulfilled" && prefsRes.value) {
+          setPrefsState(prefsRes.value);
+        }
+        // Only allow saves to push remote AFTER we've reconciled with the
+        // backend. State changes that happen between mount and this point
+        // (e.g. initial migrate()) get persisted on the next user action.
+        synced.current = true;
+      },
+    );
     return () => {
       cancelled = true;
     };
