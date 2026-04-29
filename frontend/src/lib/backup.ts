@@ -1,12 +1,19 @@
 import type { Goal, Task, UserPrefs } from "@/types/task";
+import { loadAiCache, type AiCachePayload } from "./storage";
 
 export interface BackupBundle {
   schema: "focus3-backup";
-  version: 1;
+  /**
+   * v1 = tasks + goals + prefs only.
+   * v2 = adds aiCache (Claude rank results). Older v1 backups still load —
+   * the aiCache field is optional on read.
+   */
+  version: 1 | 2;
   exportedAt: string;
   tasks: Task[];
   goals: Goal[];
   prefs: UserPrefs;
+  aiCache?: AiCachePayload | null;
 }
 
 /** Pull current localStorage state into a BackupBundle and download it. */
@@ -17,11 +24,12 @@ export function downloadBackup(
 ): void {
   const bundle: BackupBundle = {
     schema: "focus3-backup",
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     tasks,
     goals,
     prefs,
+    aiCache: loadAiCache(),
   };
   const blob = new Blob([JSON.stringify(bundle, null, 2)], {
     type: "application/json",
@@ -56,6 +64,10 @@ export async function readBackupFile(file: File): Promise<BackupBundle> {
     !obj.prefs
   ) {
     throw new BackupError("Not a Focus3 backup file (schema mismatch).");
+  }
+  // version is 1 (legacy, no aiCache) or 2 (with aiCache). Default to 1.
+  if (obj.version !== 1 && obj.version !== 2) {
+    obj.version = 1;
   }
   return obj as BackupBundle;
 }

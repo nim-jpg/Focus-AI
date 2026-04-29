@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   generateId,
   loadGoals,
   saveGoals,
   syncGoalsFromRemote,
 } from "./storage";
+import { isAuthEnabled } from "./supabaseClient";
 import type { Goal } from "@/types/task";
 
 export type NewGoalInput = Omit<Goal, "id" | "createdAt" | "updatedAt" | "source"> &
@@ -12,17 +13,24 @@ export type NewGoalInput = Omit<Goal, "id" | "createdAt" | "updatedAt" | "source
 
 export function useGoals() {
   const [goals, setGoals] = useState<Goal[]>(() => loadGoals());
+  // Suppress saves until the initial pull from backend completes — otherwise
+  // a fresh device's empty cache would push [] and wipe the user's goals.
+  const synced = useRef(!isAuthEnabled());
 
   useEffect(() => {
+    if (!synced.current) return;
     saveGoals(goals);
   }, [goals]);
 
   // Cache-first sync: localStorage gives instant first paint; if Supabase
   // auth is on, the canonical copy from the backend replaces it.
   useEffect(() => {
+    if (!isAuthEnabled()) return;
     let cancelled = false;
     void syncGoalsFromRemote().then((remote) => {
-      if (!cancelled && remote) setGoals(remote);
+      if (cancelled) return;
+      if (remote) setGoals(remote);
+      synced.current = true;
     });
     return () => {
       cancelled = true;
