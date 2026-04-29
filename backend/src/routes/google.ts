@@ -563,8 +563,9 @@ googleRouter.post("/auto-sync", async (req, res) => {
     });
 
     // Filter for location enrichment: any event (incl. linked) whose
-    // location is short/ambiguous. We DO try to enrich linked events too
-    // because that's the whole point — write fuller addresses back.
+    // location is short/ambiguous OR (location empty AND description
+    // hints at a venue). We DO try to enrich linked events too because
+    // that's the whole point — write fuller addresses back.
     const POSTCODE = /\b[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2}\b/i;
     const US_ZIP = /\b\d{5}(?:-\d{4})?\b/;
     const ambiguous = (loc: string) => {
@@ -578,7 +579,15 @@ googleRouter.post("/auto-sync", async (req, res) => {
       }
       return true;
     };
-    const locationCandidates = allEvents.filter((e) => ambiguous(e.location));
+    const locationCandidates = allEvents.filter((e) => {
+      if (e.location && ambiguous(e.location)) return true;
+      // Description-fallback: location absent, but description has enough
+      // text to potentially mention a venue.
+      if (!e.location && e.description && e.description.trim().length > 20) {
+        return true;
+      }
+      return false;
+    });
 
     // Short-circuit: nothing to do.
     if (candidates.length === 0 && locationCandidates.length === 0) {
@@ -601,7 +610,10 @@ For each event, decide TWO things:
 1. isTask — true if the event represents a piece of WORK the user has to do (an action they perform: "Submit Q3 report", "Pay invoice", "Doctor appointment", "Call accountant", "Workout"). false for passive meetings the user just attends ("Team standup", "Weekly 1:1", "Lunch with Sara", "Birthday").
    - isRecurring=true events are MUCH less likely to be task-like — recurring meetings are passive, the rare exceptions are recurring chores like "Pay rent" or "Take medication". Be strict.
    - Strong signal: imperative verb in title (Submit, Send, Pay, Call, Finish, Draft, File, Book, Fix, Update, Review, Prepare, Sign) + a personal subject ("you"-shaped, not group-shaped).
-2. proposedAddress — for events with currentLocation set, propose a likely full postal address. high confidence when there's a single well-known venue with that name. medium when multi-branch (Costa, Starbucks etc.) — pick one sensibly. low when very generic. null only for non-places ("TBD", phone numbers, person names).
+2. proposedAddress — propose a likely full postal address.
+   - If currentLocation is set: interpret it as a place name + use title as context. high confidence when there's a single well-known venue with that name. medium when multi-branch (Costa, Starbucks etc.) — pick one sensibly. low when very generic.
+   - If currentLocation is null AND description hints at a venue ("meet at Grove on the Hill", "back booth at Le Cafe", "address in invite email"): extract the venue from the description and propose its address. medium confidence usually.
+   - null when nothing resolvable (TBD, phone numbers, person names with no venue, description with no venue clue).
 
 Theme suggestion (only matters when isTask=true): work / projects / personal / school / fitness / finance / diet / medication / development / household.
 
@@ -741,7 +753,16 @@ ${JSON.stringify(
         chosenAddress = d.proposedAddress;
         chosenConfidence = "high";
       } else {
-        const places = await lookupPlace(`${ev.summary} ${ev.location}`);
+        // Places seed: when location is set, "<title> <location>"; when
+        // empty, fall back to "<title> <claude-proposed-address>" so we
+        // search for the venue Claude extracted from the description.
+        // Skip Places entirely if neither is available.
+        const placesSeed = ev.location
+          ? `${ev.summary} ${ev.location}`
+          : d?.proposedAddress
+            ? `${ev.summary} ${d.proposedAddress}`
+            : null;
+        const places = placesSeed ? await lookupPlace(placesSeed) : null;
         if (places) {
           chosenAddress = places.address;
           chosenConfidence = places.confidence;
@@ -1008,6 +1029,10 @@ googleRouter.post("/enrich-locations/scan", async (req, res) => {
       summary: string;
       start: string | null;
       currentLocation: string;
+      // When location is empty but the description hints at a venue,
+      // we surface the description to Claude as the lookup seed.
+      // Empty otherwise.
+      descriptionForLookup: string;
     };
     const POSTCODE = /\b[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2}\b/i;
     const US_ZIP = /\b\d{5}(?:-\d{4})?\b/;
@@ -1029,15 +1054,23 @@ googleRouter.post("/enrich-locations/scan", async (req, res) => {
     for (const { calendarId, calendarName, items } of perCalendar) {
       totalScanned += items.length;
       for (const e of items) {
-        if (!e.id || !e.summary || !e.location) continue;
-        if (!looksAmbiguous(e.location)) continue;
+        if (!e.id || !e.summary) continue;
+        const loc = e.location ?? "";
+        const hasAmbiguousLocation = loc && looksAmbiguous(loc);
+        // Description-fallback: when no location is set, the description
+        // can still say "at Grove on the Hill" / "meet at the Italian
+        // place near Camden". Truncate to keep the Claude payload small.
+        const desc = (e.description ?? "").slice(0, 280).trim();
+        const useDescription = !loc && desc.length > 20;
+        if (!hasAmbiguousLocation && !useDescription) continue;
         candidates.push({
           id: e.id,
           calendarId,
           calendarName,
           summary: e.summary,
           start: e.start?.dateTime ?? e.start?.date ?? null,
-          currentLocation: e.location,
+          currentLocation: loc,
+          descriptionForLookup: useDescription ? desc : "",
         });
       }
     }
@@ -1051,19 +1084,27 @@ googleRouter.post("/enrich-locations/scan", async (req, res) => {
     // ambiguous location. Order is preserved by `id` (event ids are unique
     // across calendars in the same Google account).
     const anthropic = new Anthropic({ apiKey });
-    // Don't expose calendarId to Claude — it's irrelevant noise; the title
-    // and the location string are what matter for address lookup.
+    // Don't expose calendarId to Claude — it's irrelevant noise.
+    // Pass description ONLY when currentLocation is empty (the new
+    // description-fallback path).
     const claudeInput = candidates.map((c) => ({
       id: c.id,
       summary: c.summary,
-      currentLocation: c.currentLocation,
+      currentLocation: c.currentLocation || null,
+      // Trim and only include when populated — avoids letting a passive
+      // event's description leak into Claude when location is set.
+      descriptionHint: c.descriptionForLookup || null,
     }));
-    const prompt = `You're enriching short or ambiguous calendar event locations with fuller postal addresses. For each entry, propose the most-likely full address based on the place name in "currentLocation" plus the event title as context.
+    const prompt = `You're enriching calendar events with fuller postal addresses. For each entry, propose the most-likely full address.
+
+Two cases:
+1. currentLocation is set — interpret it as a place name + use the event title as context. Examples: "Grove on the Hill", "Costa", "St Pancras", "the Italian on Camden High Street".
+2. currentLocation is null but descriptionHint is present — read the description for venue clues ("meet at the Italian near the station", "back booth at Le Cafe", "address in confirmation email"). Extract the venue name + propose its full address. If the description has no venue clue, return null.
 
 Bias toward proposing SOMETHING:
-- A named business or venue (e.g. "Grove on the Hill", "Costa", "St Pancras") — return the most plausible UK / common address with confidence "medium" (or "high" if there's only one well-known venue with that name).
-- A landmark / district / neighbourhood without a number — return a representative postal address for that area at confidence "low".
-- ONLY return null when the location is genuinely a non-place (e.g. "TBD", "to be confirmed", a person's name with no business attached, a phone number).
+- A named business or venue → most plausible UK / common address. Confidence "medium" usually, "high" only when there's a single well-known venue with that name.
+- A landmark / district / neighbourhood without a street number → representative postal address for that area at confidence "low".
+- ONLY return null when there's genuinely no place to resolve (event marked "TBD", phone number, a person's name with no business attached, description that doesn't mention a venue).
 
 If multiple branches exist (e.g. "Costa" — many), pick the one most consistent with the event title's clues; if no clue, default to the most central UK location and mark confidence "low".
 
@@ -1094,10 +1135,11 @@ ${JSON.stringify(claudeInput, null, 2)}`;
     const proposalById = new Map(parsed.map((p) => [p.id, p]));
 
     // Layer 2: for every candidate Claude returned with low/medium
-    // confidence (or null), try Google Places Text Search using the title
-    // + currentLocation. A real Places hit always beats Claude's guess.
-    // Skipped entirely when GOOGLE_PLACES_API_KEY isn't set (no extra
-    // latency), and per-event errors are silent.
+    // confidence (or null), try Google Places Text Search. The query
+    // prefers currentLocation when set; when empty, we use Claude's
+    // proposed venue name as the seed (no point searching with just an
+    // event title — that returns wildly off matches). If neither is
+    // available, skip Places for this candidate.
     const enriched = await Promise.all(
       candidates.map(async (c) => {
         const claudeProposal = proposalById.get(c.id);
@@ -1110,7 +1152,12 @@ ${JSON.stringify(claudeInput, null, 2)}`;
             confidence: "high" as const,
           };
         }
-        const places = await lookupPlace(`${c.summary} ${c.currentLocation}`);
+        const placesSeed = c.currentLocation
+          ? `${c.summary} ${c.currentLocation}`
+          : claudeProposal?.address
+            ? `${c.summary} ${claudeProposal.address}`
+            : null;
+        const places = placesSeed ? await lookupPlace(placesSeed) : null;
         if (places) {
           return {
             ...c,
