@@ -569,38 +569,56 @@ googleRouter.post("/auto-sync", async (req, res) => {
     });
 
     // Filter for location enrichment: events with NO location set, where
-    // the title (or description) suggests a real-world venue would be
-    // useful — concerts, dinners, appointments, named places, etc.
+    // the title genuinely reads like it SHOULD have a venue.
     //
-    // Anything that ALREADY has a location field is left alone — the user
-    // explicitly said: focus on the events that need help, ignore the
-    // ones with text in the location field (even if it looks ambiguous).
+    // Anything that already has a location is skipped (user direction).
     //
-    // Heuristic gate: title contains a "needs-a-venue" word, OR the
-    // description has more than a trivial amount of text. Claude makes
-    // the final call about whether to propose an address.
-    const VENUE_HINT =
-      /\b(lunch|dinner|breakfast|brunch|coffee|drinks|tea|supper|meal|concert|gig|show|movie|cinema|theatre|theater|performance|recital|festival|party|wedding|ceremony|reception|gala|launch|doctor|dentist|gp|hospital|clinic|appointment|consultation|meeting|interview|match|game|training|gym|swim|class|lesson|workshop|conference|seminar|talk|tour|visit|viewing|date|drinks|hangout|catch[\s-]?up)\b/i;
+    // The heuristic is deliberately conservative to avoid over-suggesting
+    // — we'd rather miss a few than guess venues for "Workout" or
+    // "Coffee with Sam":
+    //   1. Title contains a strong venue-implying word (concert, match,
+    //      doctor, gym session, etc.) — events that essentially require
+    //      a real-world place.
+    //   2. OR title is Title-Cased multi-word (Royal Albert Hall, Grove
+    //      on the Hill) — looks like a proper noun for a place.
+    //   3. Description explicitly mentions a venue keyword (e.g. "at the
+    //      O2", "address: ...").
+    // Notably NOT triggers: bare social meal words ("lunch", "dinner",
+    // "coffee", "drinks") — those are too often "lunch with X" with
+    // no actionable venue clue. If they DO have a Title-Cased venue
+    // attached ("Dinner at Grove on the Hill") the title heuristic
+    // catches it.
+    const STRONG_VENUE_HINT =
+      /\b(concert|gig|show|movie|cinema|theatre|theater|performance|recital|festival|wedding|ceremony|reception|gala|matin[ée]e|opera|ballet|launch event|conference|seminar|exhibition|exhibit|tour|viewing|matin[ée]e|doctor|dentist|gp|hospital|clinic|appointment|consultation|surgery|specialist|interview|match|fixture|race|training|gym|swim|class|lesson|workshop|graduation)\b/i;
+    const DESC_VENUE_HINT =
+      /\b(address|venue|location|directions|at the|at\s+[A-Z]|map link|address:)\b/;
     const looksTitleCasedVenue = (s: string): boolean => {
-      // "Grove on the Hill", "Royal Albert Hall" — mostly capitalised
-      // multi-word names. Heuristic: ≥2 words AND first letters mostly
-      // uppercase, AND no obvious sentence punctuation.
       const words = s.trim().split(/\s+/);
       if (words.length < 2 || words.length > 6) return false;
       const upperHeadCount = words.filter((w) => /^[A-Z]/.test(w)).length;
+      // Tighter: need at least 2 capitalised words AND lower count of
+      // common-noun patterns to filter out "Pay invoice" or "Email Bob".
+      if (upperHeadCount < 2) return false;
+      // Skip if the title is a clearly-actionable verb pattern.
+      if (
+        /^(submit|send|pay|email|call|finish|draft|write|review|prepare|sign|update|fix|deliver|file|book|schedule|set up|organise)\b/i.test(
+          s,
+        )
+      ) {
+        return false;
+      }
       return upperHeadCount >= words.length - 1;
     };
     const locationCandidates = allEvents.filter((e) => {
-      if (e.location) return false;            // already has a location → skip
-      if (e.allDay) return false;              // all-day events rarely have venues
+      if (e.location) return false;
+      if (e.allDay) return false;
       const title = e.summary.trim();
       if (!title) return false;
       const desc = e.description.trim();
       if (
-        VENUE_HINT.test(title) ||
-        VENUE_HINT.test(desc) ||
+        STRONG_VENUE_HINT.test(title) ||
         looksTitleCasedVenue(title) ||
-        desc.length > 30
+        DESC_VENUE_HINT.test(desc)
       ) {
         return true;
       }
@@ -658,22 +676,23 @@ For each event, decide TWO things:
 1. isTask — true if the event represents a piece of WORK the user has to do (an action they perform: "Submit Q3 report", "Pay invoice", "Doctor appointment", "Call accountant", "Workout"). false for passive meetings the user just attends ("Team standup", "Weekly 1:1", "Lunch with Sara", "Birthday").
    - isRecurring=true events are MUCH less likely to be task-like — recurring meetings are passive, the rare exceptions are recurring chores like "Pay rent" or "Take medication". Be strict.
    - Strong signal: imperative verb in title (Submit, Send, Pay, Call, Finish, Draft, File, Book, Fix, Update, Review, Prepare, Sign) + a personal subject ("you"-shaped, not group-shaped).
-2. proposedAddress — propose a likely full postal address ONLY when the event clearly happens at a real-world venue. Events with a currentLocation already set are not in this batch — every entry here has currentLocation=null and we want to know whether it should have one.
-   - YES, propose an address when:
-     · The TITLE is a venue name ("Grove on the Hill", "Royal Albert Hall", "O2 Arena", "British Museum", "Pret a Manger Soho").
-     · The TITLE describes an event-at-a-venue ("Louis Tomlinson concert", "Arsenal vs Spurs", "Hamilton matinée") — search for the most likely venue for that performer/team/show in that timeframe.
-     · The TITLE or DESCRIPTION names a place + activity ("dinner at Grove on the Hill", "drinks at Sketch", "Beauty and the Beast at the Lyceum").
-     · The DESCRIPTION mentions an address, a venue name, or a place that can be resolved.
-   - NO, return null when:
-     · The event is a phone/video call ("Zoom call with Sarah", "1:1 with manager").
-     · The event is location-agnostic work ("Submit report", "Review PR", "Pay invoice", "Take medication").
-     · The title is a person's name only ("Lunch with Sarah") with no venue clue.
-     · The title is a generic activity with no anchor ("Workout", "Run", "Read") that could happen anywhere.
-     · It's clearly a placeholder ("TBD", "to be confirmed", a phone number).
+2. proposedAddress — only set this when the event TEXT (title or description) names or strongly implies a SPECIFIC venue. Default to null. The user has explicitly asked us NOT to populate locations on speculation.
+   - YES, propose an address when ALL of these are true:
+     · The title or description contains a clear venue name OR a named performer/event/team that can only happen at a specific venue ("Louis Tomlinson concert" → tour stop venue; "Arsenal vs Spurs" → Emirates / Tottenham Hotspur Stadium; "Hamilton matinée" → Victoria Palace Theatre).
+     · You can name the venue with reasonable confidence — no shrugging.
+     · A reasonable person reading the title alone would think "of course this has a venue".
+   - NO, return null when ANY of these apply:
+     · The title is a generic activity that could happen anywhere ("Workout", "Run", "Coffee with Sam", "Lunch", "Dinner with Mum") — even though they imply going SOMEWHERE, you cannot know WHERE.
+     · The title is a phone/video meeting ("Zoom with X", "Catch-up call", "1:1").
+     · The title is admin/work that doesn't need a venue ("Submit report", "Pay invoice", "Email Bob").
+     · The title is a person's name only ("Sarah", "Mum's birthday") with no venue.
+     · You'd be GUESSING based on vibe rather than evidence in the text.
    - Confidence:
-     · high — single famous venue, no ambiguity ("Royal Albert Hall", "Stamford Bridge").
-     · medium — well-known but multiple branches, you've picked one ("Costa Soho"), or you've inferred a likely venue from a performer/event name.
-     · low — best guess, multiple plausible answers ("a Pret in central London"), should be flagged for review.
+     · high — single named venue, unambiguous ("Royal Albert Hall", "Stamford Bridge", "Grove on the Hill" — there's only one famous one).
+     · medium — well-known venue but multiple branches you've picked sensibly ("Costa Soho", "the O2 for that tour date"). Goes to manual review, not auto-applied.
+     · low — really speculative. Almost always better to return null.
+
+Reading the brief again so it sticks: ERR ON THE SIDE OF NULL. If you're unsure, return null. We're trying to enrich events that obviously need a venue, not to fill in addresses for everything.
 
 Theme suggestion (only matters when isTask=true): work / projects / personal / school / fitness / finance / diet / medication / development / household.
 
