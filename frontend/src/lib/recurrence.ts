@@ -89,23 +89,24 @@ export function nextDueAt(task: Task, now: Date = new Date()): Date | null {
  *
  * The rules, in order of precedence:
  *  1. Manual override (`treatAsFoundation: true`).
- *  2. Any task that recurs daily — universal habit shape.
- *  3. Any RECURRING task tagged as medication / fitness / diet — these are
- *     habit-shaped by definition. "Take Vitamin D" weekly, "VO2 interval"
- *     twice a week, "log calories" daily — all foundations.
+ *  2. ANY task with daily / weekly / monthly recurrence — these are
+ *     habit-shaped by their cadence. Weekly review, monthly bill, daily
+ *     vitamin, twice-weekly gym session, weekly meeting reminder — all
+ *     belong in the rail, not competing for Top Three slots.
+ *  3. Quarterly / yearly recurrence STAYS in the priority list — those
+ *     are formal deadlines (VAT return, annual accounts, MOT, insurance
+ *     renewal) where missing a single occurrence has real consequence.
  *
- * Note: a one-off ("recurrence: none") in those themes is NOT a foundation.
- * "Join gym", "book doctor's appointment", "buy treadmill" are discrete
- * actions and rightly compete for Top Three slots — they only happen once.
+ * Note: one-offs ("recurrence: none") never qualify regardless of theme.
+ * "Join gym", "book dentist", "buy treadmill" are discrete actions that
+ * rightly compete for priority because they only happen once.
  */
 export function isFoundation(task: Task): boolean {
   if (task.treatAsFoundation) return true;
-  if (task.recurrence === "daily") return true;
   if (
-    task.recurrence !== "none" &&
-    (task.theme === "medication" ||
-      task.theme === "fitness" ||
-      task.theme === "diet")
+    task.recurrence === "daily" ||
+    task.recurrence === "weekly" ||
+    task.recurrence === "monthly"
   ) {
     return true;
   }

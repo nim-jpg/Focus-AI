@@ -585,14 +585,20 @@ googleRouter.post("/auto-sync", async (req, res) => {
       }),
     );
 
-    // Pre-filter: skip events already linked, OOO markers, all-day, or
-    // long blocks (>4h almost never task-like).
+    // Pre-filter: skip events already linked, OOO markers, all-day, long
+    // blocks (>4h almost never task-like), AND any RECURRING event. The
+    // user's direction: "events which repeat weekly… they shouldn't exist
+    // in the priority list, just like working out and taking tablets".
+    // Recurring meetings / weekly reviews / monthly check-ins are
+    // routine, not actionable Focus3 tasks. They live on the schedule,
+    // not the task list.
     const looksOOO = /\b(ooo|out of office|holiday|annual leave|vacation|pto|sick)\b/i;
     const candidates = allEvents.filter((e) => {
       if (linkedEventIds.has(e.id)) return false;
       if (e.allDay) return false;
       if (looksOOO.test(e.summary)) return false;
       if (e.durationMinutes > 4 * 60) return false;
+      if (e.isRecurring) return false;
       return true;
     });
 
