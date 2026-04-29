@@ -29,6 +29,9 @@ interface Props {
   onLinkTaskToGoal?: (taskId: string, goalId: string) => void;
   /** Remove the goal id from a task's goalIds. */
   onUnlinkTaskFromGoal?: (taskId: string, goalId: string) => void;
+  /** Hide the internal h2 ("Goals") — used when a parent (e.g. IosShell)
+   *  is already rendering its own page title for the same view. */
+  compact?: boolean;
 }
 
 const HORIZON_LABELS: Record<GoalHorizon, string> = {
@@ -73,6 +76,7 @@ export function Goals({
   onAddTaskForGoal,
   onLinkTaskToGoal,
   onUnlinkTaskFromGoal,
+  compact = false,
 }: Props) {
   const [draft, setDraft] = useState<NewGoalInput>(blank);
   const [open, setOpen] = useState(false);
@@ -153,7 +157,7 @@ export function Goals({
     <section>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-lg font-semibold">Goals</h2>
+          {!compact && <h2 className="text-lg font-semibold">Goals</h2>}
           <p className="text-xs text-slate-500">
             What you're working toward. Tasks can ladder up to these.
           </p>

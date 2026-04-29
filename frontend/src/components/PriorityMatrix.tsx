@@ -6,6 +6,9 @@ interface Props {
   tasks: Task[];
   prefs?: UserPrefs;
   onEdit?: (id: string) => void;
+  /** Hide the internal h2 + intro paragraph — used when a parent
+   *  (e.g. IosShell) is rendering its own page title. */
+  compact?: boolean;
 }
 
 const HOUR = 60 * 60 * 1000;
@@ -142,7 +145,7 @@ interface Quadrant {
   classes: string;
 }
 
-export function PriorityMatrix({ tasks, prefs, onEdit }: Props) {
+export function PriorityMatrix({ tasks, prefs, onEdit, compact = false }: Props) {
   const now = new Date();
   // Same 6-month cutoff as the prioritize engine — tasks dated past that
   // drop off the matrix entirely. Quarterly / annual filings due in 2027
@@ -213,7 +216,9 @@ export function PriorityMatrix({ tasks, prefs, onEdit }: Props) {
   if (candidates.length === 0) {
     return (
       <section>
-        <h2 className="mb-2 text-lg font-semibold">Priority matrix</h2>
+        {!compact && (
+          <h2 className="mb-2 text-lg font-semibold">Priority matrix</h2>
+        )}
         <div className="card text-center text-sm text-slate-500">
           Add a few tasks to see them sorted by urgency and importance.
         </div>
@@ -224,11 +229,15 @@ export function PriorityMatrix({ tasks, prefs, onEdit }: Props) {
   return (
     <section>
       <div className="mb-3">
-        <h2 className="text-lg font-semibold">What matters now</h2>
-        <p className="text-xs text-slate-500">
-          Today on the left, planning on the right. Plan ahead is where the
-          best work lives — the stuff that's important but not on fire yet.
-        </p>
+        {!compact && (
+          <>
+            <h2 className="text-lg font-semibold">What matters now</h2>
+            <p className="text-xs text-slate-500">
+              Today on the left, planning on the right. Plan ahead is where the
+              best work lives — the stuff that's important but not on fire yet.
+            </p>
+          </>
+        )}
         {priorityFocus.length > 0 && (
           <p className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-slate-600">
             <span className="text-slate-500">Focus:</span>
