@@ -99,11 +99,11 @@ export function SchedulePicker({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-900/40 px-2 py-4 sm:px-4"
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl"
+        className="w-full max-w-md rounded-lg bg-white p-4 shadow-xl sm:p-5"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4">
@@ -132,7 +132,7 @@ export function SchedulePicker({
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label className="text-xs font-medium text-slate-700">Date</label>
             <input
