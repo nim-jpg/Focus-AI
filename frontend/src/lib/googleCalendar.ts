@@ -69,6 +69,28 @@ export async function deleteEvent(eventId: string): Promise<void> {
   }
 }
 
+/** Patch the start/end of an existing Google event without recreating it.
+ *  Used when an imported task's dueDate is edited — keeps the event id
+ *  stable, just moves the time.  */
+export async function patchEventTime(
+  eventId: string,
+  startIso: string,
+  endIso: string,
+): Promise<void> {
+  const res = await apiFetch(
+    `/api/google/events/${encodeURIComponent(eventId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ start: startIso, end: endIso }),
+    },
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new CalendarError(body.message ?? `HTTP ${res.status}`, res.status);
+  }
+}
+
 export interface CalendarMeta {
   id: string;
   name: string;

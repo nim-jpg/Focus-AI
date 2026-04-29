@@ -402,14 +402,28 @@ export function TaskList({
                       Wake
                     </button>
                   )}
-                <button
-                  type="button"
-                  onClick={() => onRemove(task.id)}
-                  className="text-slate-400 hover:text-red-600"
-                  aria-label={`Delete ${task.title}`}
-                >
-                  Delete
-                </button>
+                {task.calendarEventId ? (
+                  // Imported tasks can't be deleted from Focus3 — the
+                  // source of truth is Google. Direct the user there.
+                  <a
+                    href="https://calendar.google.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-slate-400 hover:text-slate-700"
+                    title="This task is linked to a Google Calendar event. Delete it in Google Calendar — Focus3 will drop the task on the next sync."
+                  >
+                    Open in Google
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onRemove(task.id)}
+                    className="text-slate-400 hover:text-red-600"
+                    aria-label={`Delete ${task.title}`}
+                  >
+                    Delete
+                  </button>
+                )}
               </div>
             </li>
           ))}

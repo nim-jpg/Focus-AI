@@ -408,6 +408,44 @@ googleRouter.delete("/events/:id", async (req, res) => {
   }
 });
 
+// PATCH the event's time (used when the user edits the due date of an
+// imported task — Focus3 syncs the change back to Google so the event
+// moves with the task).
+googleRouter.patch("/events/:id", async (req, res) => {
+  const client = await getAuthorizedClient(req.userId);
+  if (!client) {
+    res.status(401).json({ error: "not_connected" });
+    return;
+  }
+  const id = req.params.id;
+  if (!id) {
+    res.status(400).json({ error: "missing_id" });
+    return;
+  }
+  const { start, end } = req.body as { start?: string; end?: string };
+  if (!start || !end) {
+    res.status(400).json({ error: "missing_fields", message: "start + end required" });
+    return;
+  }
+  try {
+    const calendar = google.calendar({ version: "v3", auth: client });
+    const result = await calendar.events.patch({
+      calendarId: "primary",
+      eventId: id,
+      requestBody: {
+        start: { dateTime: start },
+        end: { dateTime: end },
+      },
+    });
+    res.json({ ok: true, htmlLink: result.data.htmlLink });
+  } catch (err) {
+    res.status(500).json({
+      error: "patch_event_failed",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
 googleRouter.delete("/disconnect", async (req, res) => {
   await deleteTokens(req.userId);
   res.json({ ok: true });
