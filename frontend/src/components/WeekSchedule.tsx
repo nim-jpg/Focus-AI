@@ -1457,15 +1457,22 @@ export function WeekSchedule({
                             minHeight: `${minHeight}px`,
                             left: `${leftPx}px`,
                             right: `1px`,
-                            // Later-starting blocks render above earlier
-                            // ones so their cascaded body isn't hidden.
-                            // Hover bumps to top.
-                            zIndex: 10 + stackIdx,
+                            // Z priority: Focus3 work (tasks + sessions) always
+                            // renders above Google calendar events when they
+                            // overlap the same time slot — otherwise the user's
+                            // own scheduled work hides BEHIND a meeting they
+                            // already factored in. Within each tier later-
+                            // starting blocks sit above earlier ones so their
+                            // cascaded body isn't hidden. Hover bumps to top.
+                            zIndex:
+                              (b.kind === "task" || b.kind === "session"
+                                ? 20
+                                : 10) + stackIdx,
                           }),
                       ...(inlineBg ?? {}),
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.zIndex = "60";
+                      e.currentTarget.style.zIndex = "100";
                       // Focus = the block's full time range, so it stays
                       // prominent for the whole duration regardless of
                       // where the cursor lands inside the visual block.
@@ -1475,7 +1482,10 @@ export function WeekSchedule({
                       });
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.zIndex = String(10 + stackIdx);
+                      e.currentTarget.style.zIndex = String(
+                        (b.kind === "task" || b.kind === "session" ? 20 : 10) +
+                          stackIdx,
+                      );
                       setHoverFocus(null);
                     }}
                     title={
