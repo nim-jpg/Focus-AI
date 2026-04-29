@@ -210,10 +210,14 @@ export interface UserPrefs {
    *  shading is suppressed and the day is treated as non-working. ISO
    *  date strings ("YYYY-MM-DD"). */
   holidayDates?: string[];
-  /** Specific dates the employee is working from home — visual tag only,
-   *  no scheduling effect (still a working day, working hours still apply).
-   *  Surfaced for userType=employee on tagged work days. ISO date strings. */
+  /** Specific dates the user is working from home — overrides the
+   *  officeDays default, suppresses commute. Working hours still apply.
+   *  ISO date strings. */
   wfhDates?: string[];
+  /** Specific dates the user is going into the office — overrides the
+   *  default for a day that ISN'T in officeDays (e.g. an unusual office
+   *  day). Commute applies on these dates. ISO date strings. */
+  officeDates?: string[];
   /** Google event ids the user has explicitly SKIPPED in the location-
    *  enrichment review flow. Auto-sync will not propose addresses for
    *  these events on subsequent runs, even if they still match the
@@ -282,5 +286,6 @@ export const DEFAULT_PREFS: UserPrefs = {
   homeViewDays: 7,
   priorityFocus: [],
   wfhDates: [],
+  officeDates: [],
   enrichmentSkippedEventIds: [],
 };
