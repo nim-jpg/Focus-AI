@@ -240,13 +240,13 @@ export const PRIORITY_FOCUS_OPTIONS: Array<{
   label: string;
   blurb: string;
 }> = [
-  { key: "financial", label: "Financial", blurb: "money in, money out, tax deadlines" },
-  { key: "health", label: "Health", blurb: "medication, fitness, checkups" },
-  { key: "stress", label: "Stress relief", blurb: "long-avoided + overdue work" },
-  { key: "family", label: "Family", blurb: "kids, partner, household relationships" },
-  { key: "career", label: "Career", blurb: "your day-job and what grows it" },
-  { key: "learning", label: "Learning", blurb: "study, courses, skill-building" },
-  { key: "creativity", label: "Creativity", blurb: "side projects, building things" },
+  { key: "financial", label: "Money", blurb: "bills, tax, savings, payments" },
+  { key: "health", label: "Health", blurb: "fitness, doctor visits, medication" },
+  { key: "stress", label: "Stress", blurb: "things you've been avoiding" },
+  { key: "family", label: "Family", blurb: "kids, partner, home life" },
+  { key: "career", label: "Work", blurb: "your day job" },
+  { key: "learning", label: "Learning", blurb: "study, books, courses" },
+  { key: "creativity", label: "Creative", blurb: "side projects, making things" },
 ];
 
 export const DEFAULT_PREFS: UserPrefs = {

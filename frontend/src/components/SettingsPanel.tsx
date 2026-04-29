@@ -165,10 +165,10 @@ export function SettingsPanel({
               What matters most right now?
             </h4>
             <p className="mt-1 text-xs text-slate-500">
-              Pick up to 3. Top Three and the prioritisation matrix bias
-              towards tasks that touch these areas — so you see the
-              maximum-impact / biggest-risk items, not just whatever has the
-              soonest deadline. Leave empty for neutral (default) scoring.
+              Pick up to 3. Today's Top Three and the matrix bias towards
+              tasks that touch these areas — so what surfaces is what you
+              said matters, not just whatever has the soonest deadline.
+              Leave empty for neutral.
             </p>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {PRIORITY_FOCUS_OPTIONS.map((opt) => {
