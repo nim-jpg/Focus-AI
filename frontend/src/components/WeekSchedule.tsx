@@ -1129,9 +1129,9 @@ export function WeekSchedule({
                       "border-amber-400 bg-amber-100 text-amber-800 hover:bg-amber-200",
                   };
                   const labels: Record<DayMode, string> = {
-                    office: "🏢 office",
-                    home: "🏠 home",
-                    holiday: "🏖 holiday",
+                    office: "office",
+                    home: "home",
+                    holiday: "holiday",
                   };
                   const titles: Record<DayMode, string> = {
                     office:
