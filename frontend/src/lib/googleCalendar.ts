@@ -131,6 +131,51 @@ export async function fetchDuplicates(
   return (await res.json()) as { groups: DuplicateGroup[]; scanned: number };
 }
 
+// ─── Location enrichment ──────────────────────────────────────────────────
+export interface LocationCandidate {
+  id: string;
+  summary: string;
+  start: string | null;
+  currentLocation: string;
+  proposedAddress: string | null;
+  confidence: "high" | "medium" | "low";
+}
+
+export async function scanAmbiguousLocations(
+  daysForward = 30,
+): Promise<{ candidates: LocationCandidate[]; scanned: number }> {
+  const res = await apiFetch("/api/google/enrich-locations/scan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ daysForward }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new CalendarError(body.message ?? `HTTP ${res.status}`, res.status);
+  }
+  return (await res.json()) as {
+    candidates: LocationCandidate[];
+    scanned: number;
+  };
+}
+
+export async function applyLocationUpdates(
+  updates: Array<{ id: string; location: string }>,
+): Promise<{ updated: number; failures: Array<{ id: string; reason: string }> }> {
+  const res = await apiFetch("/api/google/enrich-locations/apply", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ updates }),
+  });
+  if (!res.ok) {
+    throw new CalendarError(`HTTP ${res.status}`, res.status);
+  }
+  return (await res.json()) as {
+    updated: number;
+    failures: Array<{ id: string; reason: string }>;
+  };
+}
+
 export async function bulkDeleteEvents(
   eventIds: string[],
 ): Promise<{ deleted: number; failures: Array<{ id: string; reason: string }> }> {
