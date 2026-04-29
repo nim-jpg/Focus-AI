@@ -239,8 +239,9 @@ export function TaskForm({
           <label className="text-xs font-medium text-slate-700">Due date</label>
           <input
             type="date"
-            className="input mt-1"
+            className="input mt-1 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
             value={form.dueDate?.slice(0, 10) ?? ""}
+            disabled={Boolean(form.calendarEventId)}
             onChange={(e) =>
               update(
                 "dueDate",
@@ -252,6 +253,15 @@ export function TaskForm({
               )
             }
           />
+          {/* For tasks linked to a Google event, the dueDate IS the event's
+              start time — editing it here would silently desync from Google.
+              Lock the input and tell the user to use Re-schedule instead,
+              which deletes the old event and creates a new one cleanly. */}
+          {form.calendarEventId && (
+            <p className="mt-1 text-[11px] text-slate-500">
+              Time managed by Google Calendar. Use Re-schedule to change it.
+            </p>
+          )}
         </div>
         <div>
           <label className="text-xs font-medium text-slate-700">Est. minutes</label>
