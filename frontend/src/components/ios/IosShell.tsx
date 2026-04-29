@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Goal, Task, UserPrefs } from "@/types/task";
 import type { PrioritizedTask } from "@/types/task";
 import { TopThree } from "@/components/TopThree";
@@ -10,14 +10,14 @@ import { Foundations } from "@/components/Foundations";
 type Tab = "today" | "tasks" | "insights" | "goals";
 
 interface IosShellProps {
-  // ── Data ───────────────────────────────────────────────────────────
+  // Data
   tasks: Task[];
   goals: Goal[];
   prefs: UserPrefs;
   prioritized: PrioritizedTask[];
   foundations: Task[];
   aiTierMap?: Map<string, 1 | 2 | 3 | 4>;
-  // ── Task lifecycle ─────────────────────────────────────────────────
+  // Task lifecycle
   onComplete: (id: string) => void;
   onToggleTask: (id: string) => void;
   onRemoveTask: (id: string) => void;
@@ -27,14 +27,14 @@ interface IosShellProps {
   onSnooze: (id: string, untilIso: string) => void;
   onIncrementCounter: (id: string, delta: number) => void;
   onDeferFoundation: (id: string) => void;
-  // ── Goal lifecycle ─────────────────────────────────────────────────
+  // Goal lifecycle
   onAddGoal: (input: Omit<Goal, "id" | "createdAt" | "updatedAt" | "source">) => void;
   onUpdateGoal: (id: string, patch: Partial<Goal>) => void;
   onRemoveGoal: (id: string) => void;
-  // ── Quick-add affordances triggered by the FAB ─────────────────────
+  // FAB actions
   onAddTask: () => void;
   onBrainDump: () => void;
-  // ── Misc ───────────────────────────────────────────────────────────
+  // Misc
   taskCountByGoal: Map<string, number>;
   goalProgress: Map<string, { doneLast30: number; lastActivityIso?: string }>;
   calendarConnected: boolean;
@@ -46,32 +46,102 @@ interface IosShellProps {
 }
 
 /**
- * iPhone-suitable layout — bottom tab bar, scrollable content area,
- * central + FAB. The data hooks + backend are unchanged; this component
- * just composes existing primitives (TopThree, TaskList, Goals, etc.) in
- * a layout designed for one-thumb use on a small screen.
+ * iOS-style shell. Inspired by neobank apps (Starling / Revolut) — bold
+ * large titles, generous whitespace, vibrant accent gradient, frosted-glass
+ * surfaces, big tactile FAB, smooth tab transitions.
  *
- * Opt-in via prefs.iosLayout. Auto-applied when running inside the
- * Capacitor native shell.
+ * The colour palette is deliberately scoped here (not in app-wide CSS) so
+ * the desktop layout stays untouched. Accent: violet → fuchsia gradient.
+ * Surface: warm off-white. Text: near-black. Cards: white with soft
+ * shadow.
  */
 export function IosShell(props: IosShellProps) {
   const [tab, setTab] = useState<Tab>("today");
   const [fabOpen, setFabOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Track scroll past 24px to flip the header into compact mode (smaller
+  // title, frosted background, subtle shadow). Same trick iOS uses to
+  // collapse navigation titles into the top bar.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const handler = () => setScrolled(el.scrollTop > 24);
+    el.addEventListener("scroll", handler, { passive: true });
+    return () => el.removeEventListener("scroll", handler);
+  }, []);
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50">
-      {/* Header — simple iOS-style title bar with safe-area top padding
-          inherited from body padding-top: env(safe-area-inset-top). */}
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur">
-        <div className="flex items-center justify-between">
-          <h1 className="text-lg font-semibold tracking-tight">
-            {TAB_TITLES[tab]}
-          </h1>
+    <div
+      className="ios-root flex h-screen flex-col"
+      // Scoped CSS variables so this palette doesn't leak to the desktop
+      // layout. All `accent` references below resolve through these.
+      style={{
+        // @ts-expect-error - CSS custom props
+        "--ios-bg": "#F4F4F7",
+        "--ios-surface": "#FFFFFF",
+        "--ios-surface-elev": "#FFFFFF",
+        "--ios-text": "#0B0E11",
+        "--ios-text-secondary": "#6B7280",
+        "--ios-border": "rgba(0, 0, 0, 0.08)",
+        "--ios-accent": "#7B3FE4",
+        "--ios-accent-soft": "#F3EAFF",
+        "--ios-accent-grad-from": "#9333EA",
+        "--ios-accent-grad-to": "#EC4899",
+        background: "var(--ios-bg)",
+        color: "var(--ios-text)",
+      }}
+    >
+      {/* Header — large iOS-style title that compresses on scroll. */}
+      <header
+        className="sticky top-0 z-20 transition-all duration-200"
+        style={{
+          paddingTop: "max(env(safe-area-inset-top, 0), 8px)",
+          background: scrolled
+            ? "rgba(244, 244, 247, 0.85)"
+            : "var(--ios-bg)",
+          backdropFilter: scrolled ? "saturate(180%) blur(20px)" : "none",
+          WebkitBackdropFilter: scrolled ? "saturate(180%) blur(20px)" : "none",
+          boxShadow: scrolled
+            ? "0 1px 0 rgba(0,0,0,0.04)"
+            : "none",
+        }}
+      >
+        <div
+          className="flex items-end justify-between gap-3 px-5 pb-3 pt-2 transition-all"
+          style={{
+            paddingTop: scrolled ? "8px" : "12px",
+          }}
+        >
+          <div className="min-w-0 flex-1">
+            <h1
+              className="font-bold tracking-tight transition-all"
+              style={{
+                fontSize: scrolled ? "17px" : "32px",
+                lineHeight: scrolled ? "22px" : "38px",
+                fontWeight: scrolled ? 600 : 700,
+              }}
+            >
+              {TAB_TITLES[tab]}
+            </h1>
+            {!scrolled && (
+              <p
+                className="mt-0.5 text-sm"
+                style={{ color: "var(--ios-text-secondary)" }}
+              >
+                {TAB_SUBTITLES[tab]}
+              </p>
+            )}
+          </div>
           <button
             type="button"
             onClick={props.onExitIosLayout}
-            className="text-xs text-slate-500 hover:text-slate-900"
-            title="Switch back to the desktop layout"
+            className="-mr-1 inline-flex h-8 items-center rounded-full px-3 text-[12px] font-medium transition-colors"
+            style={{
+              color: "var(--ios-accent)",
+              background: "var(--ios-accent-soft)",
+            }}
           >
             Desktop ›
           </button>
@@ -80,81 +150,113 @@ export function IosShell(props: IosShellProps) {
 
       {/* Content — scrollable, padding-bottom reserves space for the
           tab bar so nothing slides under it. */}
-      <main className="flex-1 overflow-y-auto px-4 pb-24 pt-3">
-        {tab === "today" && (
-          <div className="space-y-4">
-            <Foundations
-              tasks={props.foundations}
-              onComplete={props.onComplete}
-              onIncrement={props.onIncrementCounter}
-              onEdit={props.onEditTask}
-              onDefer={props.onDeferFoundation}
-            />
-            {props.prioritized.length > 0 ? (
-              <TopThree
-                prioritized={props.prioritized}
-                goals={props.goals}
-                calendarConnected={props.calendarConnected}
-                onComplete={props.onComplete}
+      <main
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto px-5 pt-2"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0) + 96px)" }}
+      >
+        <div
+          key={tab}
+          className="ios-fade-in space-y-4"
+        >
+          {tab === "today" && (
+            <>
+              {props.foundations.length > 0 && (
+                <IosCard padding="tight">
+                  <Foundations
+                    tasks={props.foundations}
+                    onComplete={props.onComplete}
+                    onIncrement={props.onIncrementCounter}
+                    onEdit={props.onEditTask}
+                    onDefer={props.onDeferFoundation}
+                  />
+                </IosCard>
+              )}
+              {props.prioritized.length > 0 ? (
+                <TopThree
+                  prioritized={props.prioritized}
+                  goals={props.goals}
+                  calendarConnected={props.calendarConnected}
+                  onComplete={props.onComplete}
+                  onSchedule={props.onSchedule}
+                  onSnooze={props.onSnooze}
+                  onOpenGoal={() => setTab("goals")}
+                />
+              ) : (
+                <IosCard>
+                  <p className="text-base font-semibold text-slate-900">
+                    Nothing surfaced yet
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Tap the + button below — Focus3 will rank what you add.
+                  </p>
+                </IosCard>
+              )}
+            </>
+          )}
+
+          {tab === "tasks" && (
+            <IosCard padding="tight">
+              <TaskList
+                tasks={props.tasks}
+                onToggle={props.onToggleTask}
+                onRemove={props.onRemoveTask}
+                onEdit={props.onEditTask}
+                onUnsnooze={props.onUnsnooze}
                 onSchedule={props.onSchedule}
-                onSnooze={props.onSnooze}
-                onOpenGoal={() => setTab("goals")}
+                aiTierById={props.aiTierMap}
+                mode={props.prefs.mode}
+                userType={props.prefs.userType}
+                ignoredEventIds={props.prefs.ignoredEventIds}
+                onRefreshAi={props.onRefreshAi}
+                aiBusy={props.aiBusy}
+                aiRefreshTick={props.aiRefreshTick}
               />
-            ) : (
-              <EmptyState
-                title="Nothing surfaced yet"
-                body="Add a task with the + button below — Focus3 will rank it for you."
+            </IosCard>
+          )}
+
+          {tab === "insights" && (
+            <IosCard>
+              <PriorityMatrix
+                tasks={props.tasks}
+                prefs={props.prefs}
+                onEdit={props.onEditTask}
+                compact
               />
-            )}
-          </div>
-        )}
+            </IosCard>
+          )}
 
-        {tab === "tasks" && (
-          <TaskList
-            tasks={props.tasks}
-            onToggle={props.onToggleTask}
-            onRemove={props.onRemoveTask}
-            onEdit={props.onEditTask}
-            onUnsnooze={props.onUnsnooze}
-            onSchedule={props.onSchedule}
-            aiTierById={props.aiTierMap}
-            mode={props.prefs.mode}
-            userType={props.prefs.userType}
-            ignoredEventIds={props.prefs.ignoredEventIds}
-            onRefreshAi={props.onRefreshAi}
-            aiBusy={props.aiBusy}
-            aiRefreshTick={props.aiRefreshTick}
-          />
-        )}
-
-        {tab === "insights" && (
-          <PriorityMatrix
-            tasks={props.tasks}
-            prefs={props.prefs}
-            onEdit={props.onEditTask}
-          />
-        )}
-
-        {tab === "goals" && (
-          <Goals
-            goals={props.goals}
-            tasks={props.tasks}
-            taskCountByGoal={props.taskCountByGoal}
-            progressByGoal={props.goalProgress}
-            onAdd={props.onAddGoal}
-            onUpdate={props.onUpdateGoal}
-            onRemove={props.onRemoveGoal}
-            onAddTaskForGoal={() => props.onAddTask()}
-          />
-        )}
+          {tab === "goals" && (
+            <IosCard>
+              <Goals
+                goals={props.goals}
+                tasks={props.tasks}
+                taskCountByGoal={props.taskCountByGoal}
+                progressByGoal={props.goalProgress}
+                onAdd={props.onAddGoal}
+                onUpdate={props.onUpdateGoal}
+                onRemove={props.onRemoveGoal}
+                onAddTaskForGoal={() => props.onAddTask()}
+                compact
+              />
+            </IosCard>
+          )}
+        </div>
       </main>
 
-      {/* Tab bar — fixed at the bottom, safe-area aware. Centre slot is
-          empty; the FAB sits over it. */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur"
-        style={{ paddingBottom: "env(safe-area-inset-bottom, 0)" }}
+      {/* Tab bar — frosted glass, sits above content. Centre cell holds
+          the FAB which floats above the bar. */}
+      <nav
+        className="fixed inset-x-0 bottom-0 z-30 border-t"
+        style={{
+          paddingBottom: "env(safe-area-inset-bottom, 0)",
+          background: "rgba(255, 255, 255, 0.85)",
+          backdropFilter: "saturate(180%) blur(20px)",
+          WebkitBackdropFilter: "saturate(180%) blur(20px)",
+          borderColor: "var(--ios-border)",
+        }}
       >
-        <div className="mx-auto grid max-w-md grid-cols-5 items-end">
+        <div className="mx-auto grid max-w-md grid-cols-5 items-end px-2">
           <TabButton
             label="Today"
             icon={IconToday}
@@ -167,17 +269,35 @@ export function IosShell(props: IosShellProps) {
             active={tab === "tasks"}
             onClick={() => setTab("tasks")}
           />
-          {/* Centre: FAB. Pushes up out of the tab bar. */}
-          <div className="relative -translate-y-3 flex justify-center">
+
+          {/* FAB — vivid gradient, sits up out of the bar */}
+          <div className="relative -mt-6 flex justify-center">
             <button
               type="button"
               onClick={() => setFabOpen((v) => !v)}
-              className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-slate-800 to-slate-950 text-white shadow-lg shadow-slate-900/30 transition-transform active:scale-95"
+              className="ios-fab flex h-14 w-14 items-center justify-center rounded-full text-white transition-transform active:scale-90"
+              style={{
+                background:
+                  "linear-gradient(135deg, var(--ios-accent-grad-from), var(--ios-accent-grad-to))",
+                boxShadow:
+                  "0 10px 24px -6px rgba(147, 51, 234, 0.55), 0 4px 8px -2px rgba(236, 72, 153, 0.4)",
+              }}
               aria-label="Add"
             >
-              <span className="text-2xl leading-none">＋</span>
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+              >
+                <path d="M12 5v14M5 12h14" />
+              </svg>
             </button>
           </div>
+
           <TabButton
             label="Insights"
             icon={IconInsights}
@@ -193,59 +313,135 @@ export function IosShell(props: IosShellProps) {
         </div>
       </nav>
 
-      {/* Action sheet that slides up when the FAB is tapped. Two
-          options for now (Add task, Brain dump). Tap-outside dismisses. */}
+      {/* Action sheet (slides up from the bottom) */}
       {fabOpen && (
         <div
-          className="fixed inset-0 z-40 flex items-end bg-slate-900/40"
+          className="ios-sheet-backdrop fixed inset-0 z-40 flex items-end"
           onClick={() => setFabOpen(false)}
+          style={{ background: "rgba(15, 23, 42, 0.45)" }}
         >
           <div
-            className="w-full rounded-t-2xl bg-white p-4 shadow-2xl"
-            style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0) + 16px)" }}
+            className="ios-sheet w-full"
             onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "var(--ios-surface)",
+              borderTopLeftRadius: "20px",
+              borderTopRightRadius: "20px",
+              padding: "12px 16px calc(env(safe-area-inset-bottom, 0) + 16px)",
+              boxShadow: "0 -8px 32px rgba(0,0,0,0.18)",
+            }}
           >
-            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-300" />
-            <button
-              type="button"
+            <div
+              className="mx-auto mb-3 h-1 w-10 rounded-full"
+              style={{ background: "var(--ios-border)" }}
+            />
+            <SheetButton
+              variant="primary"
               onClick={() => {
                 setFabOpen(false);
                 props.onAddTask();
               }}
-              className="block w-full rounded-xl bg-slate-900 px-4 py-3 text-center text-sm font-medium text-white"
             >
-              + Add a task
-            </button>
-            <button
-              type="button"
+              <span className="text-base font-semibold">Add a task</span>
+              <span
+                className="text-xs"
+                style={{ color: "rgba(255,255,255,0.7)" }}
+              >
+                Title, theme, due date
+              </span>
+            </SheetButton>
+            <SheetButton
+              variant="secondary"
               onClick={() => {
                 setFabOpen(false);
                 props.onBrainDump();
               }}
-              className="mt-2 block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-medium text-slate-800"
             >
-              ✨ Brain dump (paste a list)
-            </button>
-            <button
-              type="button"
+              <span className="text-base font-semibold">✨ Brain dump</span>
+              <span
+                className="text-xs"
+                style={{ color: "var(--ios-text-secondary)" }}
+              >
+                Paste a list — Claude infers the rest
+              </span>
+            </SheetButton>
+            <SheetButton
+              variant="cancel"
               onClick={() => setFabOpen(false)}
-              className="mt-2 block w-full rounded-xl bg-slate-100 px-4 py-3 text-center text-sm font-medium text-slate-600"
             >
               Cancel
-            </button>
+            </SheetButton>
           </div>
         </div>
       )}
+
+      {/* Component-scoped CSS — keeps animations + iOS specifics out of
+          the global stylesheet. */}
+      <style>{`
+        .ios-root .ios-fade-in {
+          animation: ios-fade-in 200ms cubic-bezier(0.32, 0.72, 0, 1);
+        }
+        @keyframes ios-fade-in {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .ios-root .ios-sheet {
+          animation: ios-sheet-up 280ms cubic-bezier(0.32, 0.72, 0, 1);
+        }
+        @keyframes ios-sheet-up {
+          from { transform: translateY(100%); }
+          to   { transform: translateY(0); }
+        }
+        .ios-root .ios-sheet-backdrop {
+          animation: ios-fade 200ms cubic-bezier(0.32, 0.72, 0, 1);
+        }
+        @keyframes ios-fade {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        .ios-root .ios-fab {
+          transition: transform 120ms cubic-bezier(0.32, 0.72, 0, 1);
+        }
+      `}</style>
     </div>
   );
 }
 
 const TAB_TITLES: Record<Tab, string> = {
   today: "Today",
-  tasks: "Tasks",
+  tasks: "All tasks",
   insights: "Insights",
   goals: "Goals",
 };
+
+const TAB_SUBTITLES: Record<Tab, string> = {
+  today: "Your three things, plus the foundations.",
+  tasks: "Everything in your queue.",
+  insights: "Where your time is going.",
+  goals: "What it all ladders up to.",
+};
+
+function IosCard({
+  children,
+  padding = "default",
+}: {
+  children: React.ReactNode;
+  padding?: "default" | "tight";
+}) {
+  return (
+    <div
+      style={{
+        background: "var(--ios-surface)",
+        borderRadius: "20px",
+        padding: padding === "tight" ? "12px" : "20px",
+        boxShadow:
+          "0 1px 2px rgba(0,0,0,0.04), 0 8px 24px -12px rgba(0,0,0,0.08)",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 function TabButton({
   label,
@@ -262,32 +458,66 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex flex-col items-center gap-0.5 px-2 pb-2 pt-2 ${
-        active ? "text-slate-900" : "text-slate-500"
-      }`}
+      className="flex flex-col items-center gap-1 px-1 pb-2 pt-2 transition-all active:scale-95"
+      style={{
+        color: active ? "var(--ios-accent)" : "var(--ios-text-secondary)",
+      }}
     >
       <Icon />
-      <span className="text-[10px] font-medium">{label}</span>
+      <span
+        className="text-[10px] tracking-tight"
+        style={{ fontWeight: active ? 600 : 500 }}
+      >
+        {label}
+      </span>
     </button>
   );
 }
 
-function EmptyState({ title, body }: { title: string; body: string }) {
+function SheetButton({
+  children,
+  onClick,
+  variant,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  variant: "primary" | "secondary" | "cancel";
+}) {
+  const styles =
+    variant === "primary"
+      ? {
+          background:
+            "linear-gradient(135deg, var(--ios-accent-grad-from), var(--ios-accent-grad-to))",
+          color: "white",
+          boxShadow:
+            "0 6px 16px -4px rgba(147, 51, 234, 0.4)",
+        }
+      : variant === "secondary"
+        ? {
+            background: "var(--ios-bg)",
+            color: "var(--ios-text)",
+          }
+        : {
+            background: "var(--ios-bg)",
+            color: "var(--ios-text-secondary)",
+          };
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
-      <p className="text-sm font-semibold text-slate-700">{title}</p>
-      <p className="mt-1 text-xs text-slate-500">{body}</p>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className="mt-2 flex w-full flex-col items-center gap-0.5 rounded-2xl px-4 py-3 text-center transition-transform active:scale-[0.98]"
+      style={styles}
+    >
+      {children}
+    </button>
   );
 }
 
-// Tiny inline SVG icons — keeps bundle clean (no icon library) and gives
-// the bar an iOS-feeling stroke vocabulary.
 function IconToday() {
   return (
     <svg
-      width="20"
-      height="20"
+      width="22"
+      height="22"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -295,16 +525,17 @@ function IconToday() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
+      <rect x="3" y="5" width="18" height="16" rx="3" />
+      <path d="M3 10h18M8 3v4M16 3v4" />
+      <circle cx="12" cy="15" r="1.5" fill="currentColor" />
     </svg>
   );
 }
 function IconTasks() {
   return (
     <svg
-      width="20"
-      height="20"
+      width="22"
+      height="22"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -312,15 +543,18 @@ function IconTasks() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M4 6h16M4 12h16M4 18h10" />
+      <path d="M9 6h11M9 12h11M9 18h11" />
+      <circle cx="4.5" cy="6" r="1.2" fill="currentColor" />
+      <circle cx="4.5" cy="12" r="1.2" fill="currentColor" />
+      <circle cx="4.5" cy="18" r="1.2" fill="currentColor" />
     </svg>
   );
 }
 function IconInsights() {
   return (
     <svg
-      width="20"
-      height="20"
+      width="22"
+      height="22"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -336,8 +570,8 @@ function IconInsights() {
 function IconGoals() {
   return (
     <svg
-      width="20"
-      height="20"
+      width="22"
+      height="22"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
