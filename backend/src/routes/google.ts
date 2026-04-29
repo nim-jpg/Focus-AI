@@ -597,9 +597,49 @@ googleRouter.post("/auto-sync", async (req, res) => {
     console.log(
       `[auto-sync] scanned=${totalScanned} writableCalendars=${writable.length} importCandidates=${candidates.length} locationCandidates=${locationCandidates.length}`,
     );
-    for (const ev of locationCandidates.slice(0, 10)) {
+    // List every calendar that was checked so the user can spot any that
+    // were missed (e.g. a personal calendar where the event lives but
+    // wasn't selected / writable).
+    for (const cal of writable) {
       console.log(
-        `[auto-sync] location-candidate id=${ev.id} title="${ev.summary.slice(0, 40)}" location="${(ev.location || "(empty)").slice(0, 40)}" descLen=${ev.description.length}`,
+        `[auto-sync] writable-calendar "${cal.summary}" accessRole=${cal.accessRole}`,
+      );
+    }
+    // Dump every event that has ANY location text — even ones that were
+    // filtered out as "already-an-address" — so we can see Grove on the
+    // Hill / Louis Tomlinson if they're in the window at all.
+    const eventsWithLocation = allEvents.filter((e) => e.location);
+    console.log(
+      `[auto-sync] eventsWithLocation=${eventsWithLocation.length} (showing all)`,
+    );
+    for (const ev of eventsWithLocation) {
+      const isLocCand = locationCandidates.includes(ev);
+      console.log(
+        `[auto-sync] event title="${ev.summary.slice(0, 50)}" cal="${ev.calendarName}" loc="${ev.location.slice(0, 60)}" qualifies=${isLocCand} reason=${
+          isLocCand
+            ? "ambiguous"
+            : ev.location.includes(",")
+              ? "has-comma"
+              : /\b[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2}\b/i.test(ev.location)
+                ? "has-postcode"
+                : ev.location.length > 80
+                  ? "too-long"
+                  : /^(home|office|my (house|place|office)|the office)$/i.test(
+                        ev.location,
+                      )
+                    ? "personal-ref"
+                    : "unknown"
+        }`,
+      );
+    }
+    // Also dump events with no location but a description — they qualify
+    // for the description-fallback path.
+    const eventsDescOnly = allEvents.filter(
+      (e) => !e.location && e.description && e.description.trim().length > 20,
+    );
+    for (const ev of eventsDescOnly.slice(0, 10)) {
+      console.log(
+        `[auto-sync] desc-only-candidate title="${ev.summary.slice(0, 50)}" cal="${ev.calendarName}" descLen=${ev.description.length}`,
       );
     }
 
@@ -650,14 +690,24 @@ ${JSON.stringify(
   2,
 )}`;
 
+    // 54 import candidates + 1 location candidate at ~80 output tokens
+    // each = ~4400 tokens. Old cap was 4000 → response truncated, JSON
+    // parse silently failed, no decisions made, no Places lookup ran.
+    // 16k gives headroom for ~200 events; we cap candidates above at 250.
+    console.log(
+      `[auto-sync] calling Claude — claudeInputs=${candidates.length + locationCandidates.filter((e) => !candidates.includes(e)).length}`,
+    );
     const completion = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 4000,
+      max_tokens: 16000,
       messages: [{ role: "user", content: claudePrompt }],
     });
     logAiUsage(req.userId, "auto_sync", completion, true);
     const block = completion.content.find((b) => b.type === "text");
     const raw = block && "text" in block ? block.text : "";
+    console.log(
+      `[auto-sync] Claude response stopReason=${completion.stop_reason} rawLen=${raw.length} usage=in:${completion.usage.input_tokens} out:${completion.usage.output_tokens}`,
+    );
     const m = raw.match(/\[[\s\S]*\]/);
     type Decision = {
       id: string;
@@ -669,9 +719,29 @@ ${JSON.stringify(
     let decisions: Decision[] = [];
     try {
       decisions = m ? (JSON.parse(m[0]) as Decision[]) : [];
-    } catch {
-      decisions = [];
+    } catch (err) {
+      console.warn(
+        `[auto-sync] Claude JSON parse failed:`,
+        err instanceof Error ? err.message : err,
+      );
+      // Best-effort recovery: walk back to the last complete object.
+      if (m) {
+        const lastClose = m[0].lastIndexOf("}");
+        if (lastClose > 0) {
+          try {
+            decisions = JSON.parse(m[0].slice(0, lastClose + 1) + "]") as Decision[];
+            console.log(
+              `[auto-sync] recovered ${decisions.length} decisions after truncation`,
+            );
+          } catch {
+            decisions = [];
+          }
+        }
+      }
     }
+    console.log(
+      `[auto-sync] decisions=${decisions.length} (expected ~${candidates.length + locationCandidates.length})`,
+    );
     const decisionById = new Map(decisions.map((d) => [d.id, d]));
 
     // ── Apply: import task-like events as Focus3 tasks ───
@@ -812,6 +882,9 @@ ${JSON.stringify(
       }
     }
 
+    console.log(
+      `[auto-sync] DONE imported=${imported} enrichedAuto=${enrichedAuto} needsReview=${enrichmentNeedsReview.length}`,
+    );
     res.json({
       scanned: totalScanned,
       calendars: writable.length,
@@ -820,6 +893,10 @@ ${JSON.stringify(
       enrichmentNeedsReview,
     });
   } catch (err) {
+    console.error(
+      "[auto-sync] FAILED:",
+      err instanceof Error ? err.message : err,
+    );
     logAiUsage(req.userId, "auto_sync", null, false);
     res.status(500).json({
       error: "auto_sync_failed",
