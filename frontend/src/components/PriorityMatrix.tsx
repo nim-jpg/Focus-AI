@@ -152,7 +152,10 @@ export function PriorityMatrix({ tasks, prefs, onEdit }: Props) {
   const candidates = tasks.filter((t) => {
     if (t.status === "completed") return false;
     if (isFoundation(t)) return false;
-    if (t.recurrence === "none" && t.dueDate) {
+    // 6-month cutoff applies regardless of recurrence — yearly / quarterly
+    // tasks (e.g. "file annual accounts") whose next dueDate is well over
+    // 6 months out shouldn't appear on a "what matters now" view.
+    if (t.dueDate) {
       const due = new Date(t.dueDate).getTime();
       if (!Number.isNaN(due) && due - t0 > SIX_MONTHS_MS) return false;
     }

@@ -400,8 +400,15 @@ export function prioritize(
     if (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > now.getTime()) {
       return false;
     }
-    // Hard 6-month cutoff for non-recurring tasks with deadlines.
-    if (t.recurrence === "none" && t.dueDate) {
+    // Hard 6-month cutoff applies to ANY task whose dueDate is more than
+    // 6 months out — including recurring ones. "File annual accounts" with
+    // recurrence=yearly and a 2027 dueDate was previously slipping through
+    // because isDueNow() returns true for recurring tasks regardless of
+    // dueDate. Now the dueDate is authoritative for the cutoff: if the
+    // next occurrence is more than 6 months away, the task isn't due yet.
+    // Recurring tasks WITHOUT a dueDate (no anchor) still surface every
+    // cycle as before.
+    if (t.dueDate) {
       const hoursLeft = hoursUntil(t.dueDate, now);
       if (hoursLeft !== null && hoursLeft > SIX_MONTHS_HOURS) return false;
     }
