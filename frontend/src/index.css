@@ -10,6 +10,15 @@
       -apple-system,
       sans-serif;
   }
+  /* Honour iOS safe-area (home indicator + notch) when running as a standalone
+     PWA or wrapped in Capacitor. Falls back to 0 in browsers that don't expose
+     env(). */
+  body {
+    padding-top: env(safe-area-inset-top, 0);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    padding-left: env(safe-area-inset-left, 0);
+    padding-right: env(safe-area-inset-right, 0);
+  }
   /* Disable iOS Safari's auto-zoom on focused inputs (triggers when font-size
      is below 16px) — better mobile UX once the form fields are sized properly. */
   input,
