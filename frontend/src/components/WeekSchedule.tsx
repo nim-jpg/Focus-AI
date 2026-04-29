@@ -3,6 +3,7 @@ import type { Task, UserPrefs } from "@/types/task";
 import { deleteEvent, fetchEvents, type CalendarEvent } from "@/lib/googleCalendar";
 import { busyWindowsForWeek, suggestSessionTimesDetailed } from "@/lib/autoSchedule";
 import { isDueNow } from "@/lib/recurrence";
+import { useIsMobile } from "@/lib/useMediaQuery";
 
 interface Props {
   tasks: Task[];
@@ -162,8 +163,12 @@ export function WeekSchedule({
   const [weekStartDate, setWeekStartDate] = useState<Date>(() =>
     startOfDay(new Date()),
   );
+  const isMobile = useIsMobile();
+  // On phones we default to 1-day view because 3 or 7 days at 375px width
+  // makes columns ~50px wide and the schedule unreadable. The user can still
+  // manually flip to 3 / 7 (the grid will horizontally scroll).
   const [viewDays, setViewDays] = useState<1 | 3 | 7>(
-    prefs.homeViewDays ?? 7,
+    prefs.homeViewDays ?? (isMobile ? 1 : 7),
   );
   const [showIgnored, setShowIgnored] = useState(false);
   // Cursor focus: when the user hovers a time slot in a day column, blocks
@@ -1077,7 +1082,7 @@ export function WeekSchedule({
           // Same template in both modes so day columns line up identically
           // when toggling between All / Focus / Stacked.
           gridTemplateColumns: `48px repeat(${viewDays}, minmax(110px, 1fr))`,
-          minWidth: "820px",
+          minWidth: `${48 + viewDays * 110}px`,
         }}
       >
         {/* Empty placeholder for the hour gutter — kept in both modes so
@@ -1098,7 +1103,7 @@ export function WeekSchedule({
               <div className="flex items-center justify-between gap-1">
                 <div>
                   <div className="font-semibold text-slate-700">{label}</div>
-                  <div className="text-[10px] text-slate-500">
+                  <div className="text-[11px] sm:text-[10px] text-slate-500">
                     {dayDate.toLocaleDateString(undefined, {
                       day: "numeric",
                       month: "short",
@@ -1109,7 +1114,7 @@ export function WeekSchedule({
                   <button
                     type="button"
                     onClick={() => toggleHoliday(idx)}
-                    className={`rounded-full border px-1.5 py-0.5 text-[9px] ${
+                    className={`rounded-full border px-1.5 py-0.5 text-[11px] sm:text-[10px] ${
                       isHoliday
                         ? "border-amber-400 bg-amber-100 text-amber-800"
                         : "border-slate-200 text-slate-400 hover:border-amber-300 hover:text-amber-700"
@@ -1132,12 +1137,12 @@ export function WeekSchedule({
       {/* All-day strip (only renders when there are all-day events) */}
       {allDayBlocks.length > 0 && (
         <div
-          className="grid border-b border-slate-200 text-[10px]"
+          className="grid border-b border-slate-200 text-[11px] sm:text-[10px]"
           style={{
             // Same template in both modes so day columns line up identically
           // when toggling between All / Focus / Stacked.
           gridTemplateColumns: `48px repeat(${viewDays}, minmax(110px, 1fr))`,
-            minWidth: "820px",
+            minWidth: `${48 + viewDays * 110}px`,
           }}
         >
           <div className="px-1 py-1 text-right text-slate-400">all-day</div>
@@ -1172,7 +1177,7 @@ export function WeekSchedule({
           // Same template in both modes so day columns line up identically
           // when toggling between All / Focus / Stacked.
           gridTemplateColumns: `48px repeat(${viewDays}, minmax(110px, 1fr))`,
-          minWidth: "820px",
+          minWidth: `${48 + viewDays * 110}px`,
           ...(viewMode === "stacked"
             ? { minHeight: "120px" }
             : { height: `${gridHeight}px` }),
@@ -1189,7 +1194,7 @@ export function WeekSchedule({
               return (
                 <div
                   key={hour}
-                  className="absolute right-1 -translate-y-1.5 text-[10px] text-slate-400"
+                  className="absolute right-1 -translate-y-1.5 text-[11px] sm:text-[10px] text-slate-400"
                   style={{ top: `${i * HOUR_HEIGHT}px` }}
                 >
                   {String(hour).padStart(2, "0")}:00
@@ -1286,7 +1291,7 @@ export function WeekSchedule({
                 )}
               {isHolidayIdx(dayIdx) && (
                 <div
-                  className="pointer-events-none absolute left-1 top-1 z-30 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-800"
+                  className="pointer-events-none absolute left-1 top-1 z-30 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] sm:text-[10px] font-medium text-amber-800"
                   title="Holiday — working-hours shading is off for this day"
                 >
                   holiday
@@ -1419,7 +1424,7 @@ export function WeekSchedule({
                 return (
                   <div
                     key={i}
-                    className={`group ${viewMode === "stacked" ? "relative" : "absolute hover:!left-0 hover:!right-0 hover:!w-auto hover:overflow-visible hover:!min-h-fit"} overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight transition-all hover:shadow-lg ${colour} ${
+                    className={`group ${viewMode === "stacked" ? "relative" : "absolute hover:!left-0 hover:!right-0 hover:!w-auto hover:overflow-visible hover:!min-h-fit"} overflow-hidden rounded border px-1 py-0.5 text-[11px] sm:text-[10px] leading-tight transition-all hover:shadow-lg ${colour} ${
                       draggable ? "cursor-move" : ""
                     } ${b.ignored ? "opacity-40 border-dashed" : ""} ${(() => {
                       // Cursor focus: only used in grid mode (stacked
@@ -1482,14 +1487,14 @@ export function WeekSchedule({
                     }
                     {...dragHandlers}
                   >
-                    <div className="font-mono text-[9px] opacity-70">
+                    <div className="font-mono text-[11px] sm:text-[10px] opacity-70">
                       {timeRange}
                     </div>
                     <div className="whitespace-normal break-words">
                       {title}
                     </div>
                     {b.task && (
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[9px]">
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] sm:text-[10px]">
                         {b.kind === "task" && b.task.scheduledFor && (
                           <button
                             type="button"
@@ -1535,12 +1540,12 @@ export function WeekSchedule({
                       </div>
                     )}
                     {b.event && b.event.calendarName && (
-                      <div className="mt-0.5 truncate text-[9px] opacity-80">
+                      <div className="mt-0.5 truncate text-[11px] sm:text-[10px] opacity-80">
                         {b.event.calendarName}
                       </div>
                     )}
                     {b.event && (
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[9px]">
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] sm:text-[10px]">
                         {b.event.htmlLink && (
                           <a
                             href={b.event.htmlLink}
