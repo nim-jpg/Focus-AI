@@ -430,18 +430,24 @@ googleRouter.delete("/disconnect", async (req, res) => {
 // apply medium/low confidence addresses, never overwrite a non-empty
 // location that already has a comma or postcode.
 googleRouter.post("/auto-sync", async (req, res) => {
+  console.log(
+    `[auto-sync] START user=${req.userId} placesKey=${process.env.GOOGLE_PLACES_API_KEY ? "SET" : "MISSING"}`,
+  );
   const client = await getAuthorizedClient(req.userId);
   if (!client) {
+    console.warn("[auto-sync] no authorized client — user not connected");
     res.status(401).json({ error: "not_connected" });
     return;
   }
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
+    console.error("[auto-sync] ANTHROPIC_API_KEY missing");
     res.status(500).json({ error: "anthropic_not_configured" });
     return;
   }
   const supabase = getSupabase();
   if (!isMultiUser() || !supabase) {
+    console.error("[auto-sync] supabase unavailable");
     res
       .status(503)
       .json({ error: "store_unavailable", message: "Multi-user mode required" });
@@ -588,9 +594,18 @@ googleRouter.post("/auto-sync", async (req, res) => {
       }
       return false;
     });
+    console.log(
+      `[auto-sync] scanned=${totalScanned} writableCalendars=${writable.length} importCandidates=${candidates.length} locationCandidates=${locationCandidates.length}`,
+    );
+    for (const ev of locationCandidates.slice(0, 10)) {
+      console.log(
+        `[auto-sync] location-candidate id=${ev.id} title="${ev.summary.slice(0, 40)}" location="${(ev.location || "(empty)").slice(0, 40)}" descLen=${ev.description.length}`,
+      );
+    }
 
     // Short-circuit: nothing to do.
     if (candidates.length === 0 && locationCandidates.length === 0) {
+      console.log("[auto-sync] nothing to do — no import or location candidates");
       res.json({
         scanned: totalScanned,
         calendars: writable.length,
@@ -983,7 +998,12 @@ async function lookupPlace(
   locationOrSeed: string,
 ): Promise<{ address: string; confidence: "high" } | null> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) {
+    console.warn(
+      `[places] SKIPPED — GOOGLE_PLACES_API_KEY not set. Title="${title.slice(0, 40)}" location="${locationOrSeed.slice(0, 40)}"`,
+    );
+    return null;
+  }
   // Build a deduped fallback chain — short enough to bail fast, broad
   // enough to catch venue-only and title-only cases.
   const queries: string[] = [];
@@ -992,7 +1012,6 @@ async function lookupPlace(
   if (t && l) queries.push(`${t} ${l}`);
   if (l) queries.push(l);
   if (t) queries.push(t);
-  // If queries are identical (rare), Set keeps it to one.
   for (const q of new Set(queries)) {
     const hit = await lookupPlaceOnce(q, apiKey);
     if (hit) return { address: hit, confidence: "high" };
