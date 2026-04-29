@@ -32,13 +32,34 @@ For each distinct task in the input, emit a JSON object with these fields:
 - recurrence: one of: none, daily, weekly, monthly, quarterly, yearly (default none)
 - isWork: boolean (true if theme=work, else false)
 - estimatedMinutes: integer 5-480 (default 30)
-- dueDate: ISO 8601 date "YYYY-MM-DD" if a date is mentioned in the text; otherwise omit
+- dueDate: ISO 8601 date "YYYY-MM-DD". Inferred liberally — see below.
 - isBlocker: boolean, true only if the input clearly says it unblocks other work
+
+Inferring dueDate (DO this — don't be conservative):
+- Explicit ("Friday", "by 15th", "EOM", "by end of month", "in March", "Q2",
+  "next Tuesday", "tomorrow", "this week", "by next week") — set it.
+- Numeric day-of-month without month ("the 15th") — pick the SOONEST upcoming
+  occurrence (this month if still in the future, otherwise next month).
+- Day-of-week without modifier ("dentist Thursday") — the next Thursday on or
+  after today.
+- Vague but actionable ("soon", "this week", "asap", "URGENT") — set the date
+  to a sensible target: "this week" → end-of-current-week (Friday); "soon"
+  → +7 days; "asap" / "URGENT" → +2 days.
+- Annual / quarterly anchors ("VAT return", "self-assessment", "annual
+  accounts", "company confirmation statement") — pick the next standard UK
+  cutoff (VAT: 1 month + 7 days after period end; SA: 31 Jan; CS: anniversary
+  of incorporation). When unsure of the period, pick the next obvious one.
+- Recurring ("daily", "every Monday", "weekly", "monthly") — set recurrence
+  AND set dueDate to the FIRST occurrence so the urgency engine has a
+  starting point (e.g. "every Monday" + today is Tue → next Monday's date).
+- ONLY omit dueDate when the input gives genuinely no time signal at all
+  ("clean my desk", "buy a plant", "look into accounting software" — these
+  rightfully have no date).
 
 Rules:
 - Skip headers, commentary, motivational lines, and items already marked done.
-- Don't invent themes or due dates you can't justify from the input.
-- Interpret relative dates ("today", "tomorrow", "Friday", "next week", "EOM") relative to the "today" value provided in the user message.
+- Don't invent themes you can't justify from the input.
+- Interpret relative dates relative to the "today" value provided in the user message.
 - Lowercase theme names.
 - Return tasks in input order.
 - The user message may include a "user-type:" line indicating the user's
