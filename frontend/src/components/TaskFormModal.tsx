@@ -30,7 +30,7 @@ export function TaskFormModal({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-stretch justify-center overflow-y-auto bg-slate-900/40 sm:items-start sm:px-4 sm:py-8"
+      className="fixed inset-0 z-40 flex items-stretch justify-center overflow-y-auto bg-slate-900/60 backdrop-blur-sm sm:items-start sm:px-4 sm:py-8"
       onClick={onClose}
     >
       <div

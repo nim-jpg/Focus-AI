@@ -410,3 +410,136 @@ googleRouter.delete("/disconnect", async (req, res) => {
   await deleteTokens(req.userId);
   res.json({ ok: true });
 });
+
+// ─── Duplicate-event audit ────────────────────────────────────────────────
+// Scans the user's primary calendar within a window and groups events that
+// share a normalized summary. Returns groups with 2+ instances so the
+// frontend can offer to clean them up. Deliberately scoped to PRIMARY only
+// — duplicates inside shared / family calendars are usually intentional.
+googleRouter.get("/duplicates", async (req, res) => {
+  const client = await getAuthorizedClient(req.userId);
+  if (!client) {
+    res.status(401).json({ error: "not_connected" });
+    return;
+  }
+  const daysBack = Math.min(
+    Math.max(Number(req.query.daysBack ?? 30), 0),
+    365,
+  );
+  const daysForward = Math.min(
+    Math.max(Number(req.query.daysForward ?? 30), 0),
+    365,
+  );
+  const now = Date.now();
+  const from = new Date(now - daysBack * 24 * 60 * 60 * 1000).toISOString();
+  const to = new Date(now + daysForward * 24 * 60 * 60 * 1000).toISOString();
+  try {
+    const calendar = google.calendar({ version: "v3", auth: client });
+    const r = await calendar.events.list({
+      calendarId: "primary",
+      timeMin: from,
+      timeMax: to,
+      singleEvents: true,
+      orderBy: "startTime",
+      maxResults: 500,
+    });
+    type Ev = {
+      id: string;
+      summary: string;
+      start: string | null;
+      end: string | null;
+      htmlLink: string | null;
+    };
+    const events: Ev[] = (r.data.items ?? [])
+      .filter((e) => e.id && e.summary)
+      .map((e) => ({
+        id: e.id!,
+        summary: e.summary ?? "",
+        start: e.start?.dateTime ?? e.start?.date ?? null,
+        end: e.end?.dateTime ?? e.end?.date ?? null,
+        htmlLink: e.htmlLink ?? null,
+      }));
+    // Normalise: lowercase, trim, collapse whitespace. Identical normalised
+    // titles inside a 14-day rolling window count as duplicates of each
+    // other. (Same title 6 months apart is more likely a recurrence the
+    // user actually wants.)
+    const norm = (s: string) =>
+      s.toLowerCase().replace(/\s+/g, " ").trim();
+    const groups: Record<string, Ev[]> = {};
+    for (const ev of events) {
+      const key = norm(ev.summary);
+      if (!key) continue;
+      (groups[key] ??= []).push(ev);
+    }
+    const WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+    const dupGroups: Array<{ summary: string; events: Ev[] }> = [];
+    for (const list of Object.values(groups)) {
+      if (list.length < 2) continue;
+      list.sort((a, b) => {
+        const ta = a.start ? new Date(a.start).getTime() : 0;
+        const tb = b.start ? new Date(b.start).getTime() : 0;
+        return ta - tb;
+      });
+      // Walk in order; whenever the next event is within WINDOW_MS of the
+      // current cluster's first, add it to the cluster.
+      let cluster: Ev[] = [list[0]];
+      for (let i = 1; i < list.length; i++) {
+        const ev = list[i];
+        const first = cluster[0];
+        const dt =
+          ev.start && first.start
+            ? Math.abs(
+                new Date(ev.start).getTime() - new Date(first.start).getTime(),
+              )
+            : 0;
+        if (dt <= WINDOW_MS) {
+          cluster.push(ev);
+        } else {
+          if (cluster.length >= 2) {
+            dupGroups.push({ summary: cluster[0].summary, events: cluster });
+          }
+          cluster = [ev];
+        }
+      }
+      if (cluster.length >= 2) {
+        dupGroups.push({ summary: cluster[0].summary, events: cluster });
+      }
+    }
+    res.json({ groups: dupGroups, scanned: events.length });
+  } catch (err) {
+    res.status(500).json({
+      error: "duplicates_scan_failed",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+// Bulk delete a set of event ids from the primary calendar. Used by the
+// duplicate-audit UI to clear up the events the user has marked.
+googleRouter.post("/events/bulk-delete", async (req, res) => {
+  const client = await getAuthorizedClient(req.userId);
+  if (!client) {
+    res.status(401).json({ error: "not_connected" });
+    return;
+  }
+  const ids = req.body?.eventIds;
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) {
+    res.status(400).json({ error: "bad_payload" });
+    return;
+  }
+  const calendar = google.calendar({ version: "v3", auth: client });
+  let deleted = 0;
+  const failures: Array<{ id: string; reason: string }> = [];
+  for (const id of ids as string[]) {
+    try {
+      await calendar.events.delete({ calendarId: "primary", eventId: id });
+      deleted += 1;
+    } catch (err) {
+      failures.push({
+        id,
+        reason: err instanceof Error ? err.message : "unknown",
+      });
+    }
+  }
+  res.json({ deleted, failures });
+});

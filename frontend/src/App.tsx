@@ -274,6 +274,18 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       return;
     }
     try {
+      // If the task is already linked to a Google event, delete it first so
+      // re-scheduling produces ONE event at the new time, not a leftover at
+      // the old time plus a fresh one. The user has been hitting this — every
+      // re-schedule was generating a duplicate.
+      if (task.calendarEventId) {
+        try {
+          const { deleteEvent } = await import("@/lib/googleCalendar");
+          await deleteEvent(task.calendarEventId);
+        } catch {
+          // If the old event is already gone, fine — push the new one anyway.
+        }
+      }
       const { eventId } = await scheduleTask(task, choice.start, choice.end, {
         weeklyRecurring: choice.weeklyRecurring,
       });
@@ -850,13 +862,29 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
   ).length;
 
   return (
-    <div className="mx-auto max-w-4xl space-y-8 px-4 py-8">
+    <div className="mx-auto max-w-4xl space-y-6 px-4 py-6 sm:space-y-8 sm:py-8">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Focus3</h1>
-          <p className="hidden text-sm text-slate-600 sm:block">
-            Three things, every day. Your non-negotiables, surfaced.
-          </p>
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          {/* Brand mark — same Focus3 dot trio from the favicon, sized for
+              the header. Adds visual identity without an image asset. */}
+          <div
+            aria-hidden
+            className="hidden h-9 w-9 flex-none items-center justify-center rounded-xl bg-slate-900 shadow-md shadow-slate-900/20 sm:flex"
+          >
+            <div className="flex gap-0.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
+            </div>
+          </div>
+          <div className="min-w-0">
+            <h1 className="bg-gradient-to-br from-slate-900 to-slate-700 bg-clip-text text-xl font-bold tracking-tight text-transparent sm:text-2xl">
+              Focus3
+            </h1>
+            <p className="hidden text-sm text-slate-500 sm:block">
+              Three things, every day. Your non-negotiables, surfaced.
+            </p>
+          </div>
         </div>
         <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
           {/* Compact calendar status: "Calendar 🔗" connected (click → open
@@ -921,7 +949,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         </div>
       </header>
 
-      <nav className="flex flex-wrap items-center gap-1 border-b border-slate-200">
+      <nav className="flex flex-wrap items-center gap-1 border-b border-slate-200/70">
         {TAB_DEFS.map((t) => {
           const active = view === t.key;
           return (
@@ -929,13 +957,19 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               key={t.key}
               type="button"
               onClick={() => setView(t.key)}
-              className={`px-3 py-2 text-sm font-medium transition ${
+              className={`relative px-3 py-2.5 text-sm font-medium transition-colors ${
                 active
-                  ? "border-b-2 border-slate-900 text-slate-900"
+                  ? "text-slate-900"
                   : "text-slate-500 hover:text-slate-800"
               }`}
             >
               {t.label}
+              {active && (
+                <span
+                  aria-hidden
+                  className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-slate-900 via-slate-700 to-slate-900"
+                />
+              )}
             </button>
           );
         })}
@@ -1300,7 +1334,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
 
       {showBrainDump && (
         <div
-          className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/40 px-2 py-4 sm:px-4 sm:py-8"
+          className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/60 backdrop-blur-sm px-2 py-4 sm:px-4 sm:py-8"
           onClick={() => setShowBrainDump(false)}
         >
           <div
@@ -1319,7 +1353,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
 
       {showPlannerScan && (
         <div
-          className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/40 px-2 py-4 sm:px-4 sm:py-8"
+          className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/60 backdrop-blur-sm px-2 py-4 sm:px-4 sm:py-8"
           onClick={() => setShowPlannerScan(false)}
         >
           <div

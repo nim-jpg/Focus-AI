@@ -37,11 +37,22 @@ const TIER_LABELS: Record<1 | 2 | 3 | 4, string> = {
   4: "Background",
 };
 
+// Tier visuals: each tier gets a subtle gradient + soft tinted shadow so the
+// card lifts off the canvas. The accent border on the left edge is rendered
+// via a box-shadow inset trick (set in `style`) — keeps the tint identifiable
+// at a glance without screaming.
 const TIER_CLASSES: Record<1 | 2 | 3 | 4, string> = {
-  1: "border-red-200 bg-red-50",
-  2: "border-blue-200 bg-blue-50",
-  3: "border-purple-200 bg-purple-50",
-  4: "border-slate-200 bg-slate-50",
+  1: "border-rose-200/70 bg-gradient-to-br from-rose-50 via-white to-rose-50/30 shadow-rose-100",
+  2: "border-sky-200/70 bg-gradient-to-br from-sky-50 via-white to-sky-50/30 shadow-sky-100",
+  3: "border-violet-200/70 bg-gradient-to-br from-violet-50 via-white to-violet-50/30 shadow-violet-100",
+  4: "border-slate-200/70 bg-gradient-to-br from-slate-50 via-white to-slate-50/30 shadow-slate-100",
+};
+
+const TIER_ACCENTS: Record<1 | 2 | 3 | 4, string> = {
+  1: "shadow-[inset_4px_0_0_0_rgb(244_63_94)]",
+  2: "shadow-[inset_4px_0_0_0_rgb(14_165_233)]",
+  3: "shadow-[inset_4px_0_0_0_rgb(139_92_246)]",
+  4: "shadow-[inset_4px_0_0_0_rgb(100_116_139)]",
 };
 
 export function TopThree({
@@ -68,7 +79,7 @@ export function TopThree({
       {prioritized.map(({ task, tier, reasoning }, idx) => (
         <li
           key={task.id}
-          className={`rounded-lg border p-4 shadow-sm ${TIER_CLASSES[tier]}`}
+          className={`rounded-xl border p-4 shadow-sm transition-all hover:shadow-md ${TIER_CLASSES[tier]} ${TIER_ACCENTS[tier]}`}
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-3">
             <div className="flex items-start gap-3 sm:flex-1 sm:min-w-0">

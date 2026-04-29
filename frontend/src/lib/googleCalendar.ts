@@ -102,6 +102,52 @@ export async function fetchEvents(from: Date, to: Date): Promise<CalendarEvent[]
   return data.events ?? [];
 }
 
+// ─── Duplicate audit ──────────────────────────────────────────────────────
+export interface DuplicateEvent {
+  id: string;
+  summary: string;
+  start: string | null;
+  end: string | null;
+  htmlLink: string | null;
+}
+
+export interface DuplicateGroup {
+  summary: string;
+  events: DuplicateEvent[];
+}
+
+export async function fetchDuplicates(
+  daysBack = 30,
+  daysForward = 30,
+): Promise<{ groups: DuplicateGroup[]; scanned: number }> {
+  const params = new URLSearchParams({
+    daysBack: String(daysBack),
+    daysForward: String(daysForward),
+  });
+  const res = await apiFetch(`/api/google/duplicates?${params.toString()}`);
+  if (!res.ok) {
+    throw new CalendarError(`HTTP ${res.status}`, res.status);
+  }
+  return (await res.json()) as { groups: DuplicateGroup[]; scanned: number };
+}
+
+export async function bulkDeleteEvents(
+  eventIds: string[],
+): Promise<{ deleted: number; failures: Array<{ id: string; reason: string }> }> {
+  const res = await apiFetch("/api/google/events/bulk-delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ eventIds }),
+  });
+  if (!res.ok) {
+    throw new CalendarError(`HTTP ${res.status}`, res.status);
+  }
+  return (await res.json()) as {
+    deleted: number;
+    failures: Array<{ id: string; reason: string }>;
+  };
+}
+
 /**
  * Push a task to Google Calendar at an explicit start/end time chosen by the user.
  */

@@ -8,6 +8,7 @@ import {
 } from "@/types/task";
 import { TimeField } from "./TimeField";
 import { fetchCalendars, type CalendarMeta } from "@/lib/googleCalendar";
+import { CalendarDuplicateAudit } from "./CalendarDuplicateAudit";
 import { clearErrorLog, getErrorLog, type ErrorEntry } from "@/lib/errorLog";
 
 interface Props {
@@ -93,7 +94,7 @@ export function SettingsPanel({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-stretch justify-center overflow-y-auto bg-slate-900/40 sm:items-start sm:px-4 sm:py-6"
+      className="fixed inset-0 z-50 flex items-stretch justify-center overflow-y-auto bg-slate-900/60 backdrop-blur-sm sm:items-start sm:px-4 sm:py-6"
       onClick={onClose}
     >
       <div
@@ -638,6 +639,23 @@ export function SettingsPanel({
               </div>
               {connectMsg && (
                 <p className="mt-2 text-xs text-amber-700">{connectMsg}</p>
+              )}
+              {calendar.connected && (
+                <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3">
+                  <h5 className="text-sm font-semibold text-amber-900">
+                    Find duplicate events
+                  </h5>
+                  <p className="mt-1 text-xs text-amber-800">
+                    Scan your primary calendar for events with identical titles
+                    that landed within 14 days of each other — usually the
+                    result of re-pushing the same Focus3 task. Re-scheduling
+                    now deletes the old event automatically (since this
+                    deploy), so duplicates should stop accumulating.
+                  </p>
+                  <div className="mt-2">
+                    <CalendarDuplicateAudit />
+                  </div>
+                </div>
               )}
             </section>
           )}

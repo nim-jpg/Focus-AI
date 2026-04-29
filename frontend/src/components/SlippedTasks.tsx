@@ -11,6 +11,7 @@ interface Props {
 /**
  * Decide whether a task counts as "slipped":
  *  - Not completed
+ *  - Not currently snoozed (snoozedUntil > now hides it)
  *  - Has a scheduledFor (or dueDate, if not scheduled) in the past
  *  - Recurrence is "none", "quarterly", or "yearly"
  *
@@ -23,6 +24,9 @@ export function findSlippedTasks(tasks: Task[], now: Date = new Date()): Task[] 
   const t = now.getTime();
   return tasks.filter((task) => {
     if (task.status === "completed") return false;
+    if (task.snoozedUntil && new Date(task.snoozedUntil).getTime() > t) {
+      return false;
+    }
     const recur = task.recurrence;
     if (recur !== "none" && recur !== "quarterly" && recur !== "yearly") {
       return false;
