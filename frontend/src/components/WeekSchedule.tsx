@@ -832,113 +832,70 @@ export function WeekSchedule({
   return (
     <section>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-700">Week schedule</h2>
-          <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
-            {!calendarConnected && (
-              <span>Connect Calendar (Settings) to overlay your real events.</span>
-            )}
-            {error && <span className="text-amber-700">error: {error}</span>}
-            {/* Legend chips */}
-            <span className="inline-flex items-center gap-1">
-              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-blue-200" />
-              event
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-200" />
-              task
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-200" />
-              session
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span
-                className="inline-block h-2.5 w-2.5 rounded-sm"
-                style={{
-                  backgroundImage:
-                    "repeating-linear-gradient(45deg, transparent 0 2px, rgba(100,116,139,0.45) 2px 3px)",
-                }}
-              />
-              working hours
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span
-                className="inline-block h-2.5 w-2.5 rounded-sm"
-                style={{
-                  backgroundImage:
-                    "repeating-linear-gradient(45deg, transparent 0 2px, rgba(148,163,184,0.55) 2px 3px)",
-                }}
-              />
-              weekend / non-working
-            </span>
-            {commuteMin > 0 && (
-              <span className="inline-flex items-center gap-1">
-                <span
-                  className="inline-block h-2.5 w-2.5 rounded-sm"
-                  style={{
-                    backgroundImage:
-                      "repeating-linear-gradient(45deg, transparent 0 2px, rgba(217,119,6,0.55) 2px 3px)",
-                  }}
-                />
-                commute
-              </span>
-            )}
-            <span className="inline-flex items-center gap-1">
-              <span className="inline-block h-0.5 w-3 bg-rose-400" />
-              now
-            </span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 text-xs">
-          {/* View-mode selector: full grid / focus-only / stacked agenda. */}
-          <div className="inline-flex overflow-hidden rounded border border-slate-200">
-            {([
-              { v: "all", label: "All" },
-              { v: "focus", label: "Focus" },
-              { v: "stacked", label: "Stacked" },
-            ] as const).map(({ v, label }) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setViewMode(v)}
-                className={`px-2 py-1 ${
-                  viewMode === v
-                    ? "bg-slate-900 text-white"
-                    : "bg-white text-slate-600 hover:bg-slate-50"
-                }`}
-                title={
-                  v === "all"
-                    ? "Every visible event"
-                    : v === "focus"
+        <h2 className="text-sm font-semibold text-slate-700">Week schedule</h2>
+        {!calendarConnected && (
+          <span className="text-[11px] text-slate-500">
+            Connect Calendar (Settings) to overlay your real events.
+          </span>
+        )}
+        {error && (
+          <span className="text-[11px] text-amber-700">error: {error}</span>
+        )}
+      </div>
+
+      {/* Three-column header: view-mode left, day-count middle,
+          prev/today/next right. Same min-width on the segmented buttons
+          so each set lines up cleanly. */}
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="inline-flex overflow-hidden rounded border border-slate-200">
+          {([
+            { v: "all", label: "All" },
+            { v: "focus", label: "Focus" },
+            { v: "stacked", label: "Stacked" },
+          ] as const).map(({ v, label }) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setViewMode(v)}
+              className={`min-w-[64px] px-3 py-1 ${
+                viewMode === v
+                  ? "bg-slate-900 text-white"
+                  : "bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+              title={
+                v === "all"
+                  ? "Every visible event"
+                  : v === "focus"
                     ? "Primary calendar + Focus3 tasks/sessions/broken-links only"
                     : "Chronological list of all blocks"
-                }
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {/* 1 / 3 / 7 day view selector. Persists choice via prefs. */}
-          <div className="inline-flex overflow-hidden rounded border border-slate-200">
-            {([1, 3, 7] as const).map((d) => (
-              <button
-                key={d}
-                type="button"
-                onClick={() => {
-                  setViewDays(d);
-                  onUpdatePrefs?.({ homeViewDays: d });
-                }}
-                className={`px-2 py-1 ${
-                  viewDays === d
-                    ? "bg-slate-900 text-white"
-                    : "bg-white text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                {d}d
-              </button>
-            ))}
-          </div>
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="inline-flex overflow-hidden rounded border border-slate-200">
+          {([1, 3, 7] as const).map((d) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => {
+                setViewDays(d);
+                onUpdatePrefs?.({ homeViewDays: d });
+              }}
+              className={`min-w-[44px] px-3 py-1 ${
+                viewDays === d
+                  ? "bg-slate-900 text-white"
+                  : "bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {d}d
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-1">
           <button
             type="button"
             className="rounded border border-slate-200 px-2 py-1 hover:border-slate-400"
@@ -963,7 +920,7 @@ export function WeekSchedule({
           {calendarConnected && (
             <button
               type="button"
-              className="text-slate-500 hover:text-slate-900"
+              className="ml-1 text-slate-500 hover:text-slate-900"
               onClick={() => void refresh()}
               disabled={loading}
             >
@@ -975,7 +932,7 @@ export function WeekSchedule({
             <button
               type="button"
               onClick={() => setShowIgnored((v) => !v)}
-              className={`rounded border px-2 py-1 ${
+              className={`ml-1 rounded border px-2 py-1 ${
                 showIgnored
                   ? "border-amber-400 bg-amber-50 text-amber-800"
                   : "border-slate-200 text-slate-500 hover:border-slate-400"
@@ -1747,6 +1704,60 @@ export function WeekSchedule({
           );
         })}
       </div>
+      </div>
+
+      {/* Legend — moved to the bottom so the busiest controls aren't
+          competing with it for header real estate. Wraps freely so a
+          long row collapses gracefully on narrow screens. */}
+      <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-blue-200" />
+          event
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-200" />
+          task
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-200" />
+          session
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span
+            className="inline-block h-2.5 w-2.5 rounded-sm"
+            style={{
+              backgroundImage:
+                "repeating-linear-gradient(45deg, transparent 0 2px, rgba(100,116,139,0.45) 2px 3px)",
+            }}
+          />
+          working hours
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span
+            className="inline-block h-2.5 w-2.5 rounded-sm"
+            style={{
+              backgroundImage:
+                "repeating-linear-gradient(45deg, transparent 0 2px, rgba(148,163,184,0.55) 2px 3px)",
+            }}
+          />
+          weekend / non-working
+        </span>
+        {commuteMin > 0 && (
+          <span className="inline-flex items-center gap-1">
+            <span
+              className="inline-block h-2.5 w-2.5 rounded-sm"
+              style={{
+                backgroundImage:
+                  "repeating-linear-gradient(45deg, transparent 0 2px, rgba(217,119,6,0.55) 2px 3px)",
+              }}
+            />
+            commute
+          </span>
+        )}
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-0.5 w-3 bg-rose-400" />
+          now
+        </span>
       </div>
     </section>
   );

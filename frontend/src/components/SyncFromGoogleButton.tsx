@@ -52,32 +52,31 @@ export function SyncFromGoogleButton({ onAutoSync }: Props) {
     : null;
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-gradient-to-r from-emerald-50 to-emerald-50/40 px-3 py-2 text-xs">
+    <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
       <button
         type="button"
-        className="btn-primary text-xs"
+        className="inline-flex h-7 items-center rounded-md border border-emerald-300 bg-emerald-50 px-2.5 text-[11px] font-medium text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-60"
         onClick={run}
         disabled={busy}
       >
         {busy ? "Syncing…" : "Sync from Google"}
       </button>
-      <span className="text-slate-600">
-        Pulls actionable events as tasks and writes back fuller addresses.
-        AI rank is a separate button — this one is uncapped.
-      </span>
       {summary && (
-        <span className="ml-auto rounded-full border border-emerald-300 bg-white px-2 py-0.5 text-[11px] font-medium text-emerald-800">
-          {summary || "Nothing new"}
+        <span className="rounded-full border border-emerald-300 bg-white px-2 py-0.5 font-medium text-emerald-800">
+          {summary}
         </span>
       )}
       {result && !summary && (
-        <span className="ml-auto text-[11px] text-slate-500">
-          Up to date — nothing new in the next 14 days.
-        </span>
+        <span>Up to date.</span>
       )}
       {error && (
-        <span className="ml-auto rounded border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] text-rose-800">
+        <span className="rounded border border-rose-200 bg-rose-50 px-2 py-0.5 text-rose-800">
           {error}
+        </span>
+      )}
+      {!result && !error && !busy && (
+        <span className="text-slate-400">
+          Pulls events as tasks and writes back addresses.
         </span>
       )}
     </div>
