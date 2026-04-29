@@ -10,7 +10,6 @@ import {
 import { TimeField } from "./TimeField";
 import { fetchCalendars, type CalendarMeta } from "@/lib/googleCalendar";
 import { CalendarDuplicateAudit } from "./CalendarDuplicateAudit";
-import { AdminMetrics } from "./AdminMetrics";
 import { clearErrorLog, getErrorLog, type ErrorEntry } from "@/lib/errorLog";
 
 interface Props {
@@ -846,23 +845,6 @@ export function SettingsPanel({
               </div>
             </section>
           )}
-
-          {/* Usage & cost — every signed-in user sees their own counts +
-              estimated Claude cost. Admins (whose email is in the backend's
-              ADMIN_EMAILS env var) automatically get the cross-user view. */}
-          <section>
-            <h4 className="text-sm font-semibold text-slate-700">
-              Usage & cost
-            </h4>
-            <p className="text-xs text-slate-500">
-              Anonymous activity counts (no task content stored) plus an
-              estimated Claude API cost based on token usage. Useful for
-              transparency and — for admins — pricing decisions.
-            </p>
-            <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-3">
-              <AdminMetrics />
-            </div>
-          </section>
 
           {/* Recent errors — built-in logger so testers can paste a
               reproducible trace without opening devtools. */}

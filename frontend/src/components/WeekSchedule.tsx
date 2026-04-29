@@ -784,7 +784,9 @@ export function WeekSchedule({
   const dateIsoFor = (idx: number) =>
     new Date(weekStart.getTime() + idx * DAY_MS).toISOString().slice(0, 10);
   const holidaySet = new Set(prefs.holidayDates ?? []);
+  const wfhSet = new Set(prefs.wfhDates ?? []);
   const isHolidayIdx = (idx: number) => holidaySet.has(dateIsoFor(idx));
+  const isWfhIdx = (idx: number) => wfhSet.has(dateIsoFor(idx));
   const isWorkingDayIdx = (idx: number) => {
     const dayDate = new Date(weekStart.getTime() + idx * DAY_MS);
     if (isHolidayIdx(idx)) return false;
@@ -794,6 +796,16 @@ export function WeekSchedule({
     const dayDate = new Date(weekStart.getTime() + idx * DAY_MS);
     if (isHolidayIdx(idx)) return false;
     return (prefs.officeDays ?? []).includes(dayDate.getDay());
+  };
+  const toggleWfh = (idx: number) => {
+    if (!onUpdatePrefs) return;
+    const iso = dateIsoFor(idx);
+    const cur = prefs.wfhDates ?? [];
+    onUpdatePrefs({
+      wfhDates: cur.includes(iso)
+        ? cur.filter((d) => d !== iso)
+        : [...cur, iso],
+    });
   };
   const toggleHoliday = (idx: number) => {
     if (!onUpdatePrefs) return;
@@ -843,10 +855,30 @@ export function WeekSchedule({
         )}
       </div>
 
-      {/* Three-column header: view-mode left, day-count middle,
-          prev/today/next right. Same min-width on the segmented buttons
-          so each set lines up cleanly. */}
+      {/* Three-column header: day-count left, view-mode middle,
+          prev/today/next right. Same min-width on each segmented set
+          so the cluster lines up cleanly. */}
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="inline-flex overflow-hidden rounded border border-slate-200">
+          {([1, 3, 7] as const).map((d) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => {
+                setViewDays(d);
+                onUpdatePrefs?.({ homeViewDays: d });
+              }}
+              className={`min-w-[44px] px-3 py-1 ${
+                viewDays === d
+                  ? "bg-slate-900 text-white"
+                  : "bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {d}d
+            </button>
+          ))}
+        </div>
+
         <div className="inline-flex overflow-hidden rounded border border-slate-200">
           {([
             { v: "all", label: "All" },
@@ -871,26 +903,6 @@ export function WeekSchedule({
               }
             >
               {label}
-            </button>
-          ))}
-        </div>
-
-        <div className="inline-flex overflow-hidden rounded border border-slate-200">
-          {([1, 3, 7] as const).map((d) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => {
-                setViewDays(d);
-                onUpdatePrefs?.({ homeViewDays: d });
-              }}
-              className={`min-w-[44px] px-3 py-1 ${
-                viewDays === d
-                  ? "bg-slate-900 text-white"
-                  : "bg-white text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              {d}d
             </button>
           ))}
         </div>
@@ -1068,22 +1080,47 @@ export function WeekSchedule({
                   </div>
                 </div>
                 {onUpdatePrefs && (
-                  <button
-                    type="button"
-                    onClick={() => toggleHoliday(idx)}
-                    className={`rounded-full border px-1.5 py-0.5 text-[11px] sm:text-[10px] ${
-                      isHoliday
-                        ? "border-amber-400 bg-amber-100 text-amber-800"
-                        : "border-slate-200 text-slate-400 hover:border-amber-300 hover:text-amber-700"
-                    }`}
-                    title={
-                      isHoliday
-                        ? "Marked as a holiday — click to unmark"
-                        : "Mark as a holiday (skip working-hours shading)"
-                    }
-                  >
-                    {isHoliday ? "✕ holiday" : "+ holiday"}
-                  </button>
+                  <div className="flex items-center gap-1">
+                    {/* WFH tag — visual only, doesn't change scheduling.
+                        Only meaningful for employees on a working day
+                        that isn't already a holiday. */}
+                    {prefs.userType === "employee" &&
+                      !isHoliday &&
+                      isWorkingDayIdx(idx) && (
+                        <button
+                          type="button"
+                          onClick={() => toggleWfh(idx)}
+                          className={`rounded-full border px-1.5 py-0.5 text-[11px] sm:text-[10px] ${
+                            isWfhIdx(idx)
+                              ? "border-sky-400 bg-sky-100 text-sky-800"
+                              : "border-slate-200 text-slate-400 hover:border-sky-300 hover:text-sky-700"
+                          }`}
+                          title={
+                            isWfhIdx(idx)
+                              ? "WFH — click to unmark"
+                              : "Mark as work-from-home (visual tag only)"
+                          }
+                        >
+                          {isWfhIdx(idx) ? "✕ wfh" : "+ wfh"}
+                        </button>
+                      )}
+                    <button
+                      type="button"
+                      onClick={() => toggleHoliday(idx)}
+                      className={`rounded-full border px-1.5 py-0.5 text-[11px] sm:text-[10px] ${
+                        isHoliday
+                          ? "border-amber-400 bg-amber-100 text-amber-800"
+                          : "border-slate-200 text-slate-400 hover:border-amber-300 hover:text-amber-700"
+                      }`}
+                      title={
+                        isHoliday
+                          ? "Marked as a holiday — click to unmark"
+                          : "Mark as a holiday (skip working-hours shading)"
+                      }
+                    >
+                      {isHoliday ? "✕ holiday" : "+ holiday"}
+                    </button>
+                  </div>
                 )}
               </div>
             </div>

@@ -852,8 +852,14 @@ googleRouter.get("/duplicates", async (req, res) => {
       end: string | null;
       htmlLink: string | null;
     };
+    // Drop instances of recurring series — those are intentional repeats
+    // (e.g. an "NL Office" event the user puts on every Mon/Wed to tag
+    // office days). Their identical titles aren't duplicates to clean up,
+    // they're a deliberate pattern. recurringEventId is non-null for any
+    // expanded single-event instance whose parent is a series.
     const events: Ev[] = (r.data.items ?? [])
       .filter((e) => e.id && e.summary)
+      .filter((e) => !e.recurringEventId)
       .map((e) => ({
         id: e.id!,
         summary: e.summary ?? "",
