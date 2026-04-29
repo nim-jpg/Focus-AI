@@ -169,7 +169,7 @@ export function BrainDump({
       {!suggestions && (
         <>
           <textarea
-            className="input min-h-[260px] font-mono text-xs sm:min-h-[320px]"
+            className="input min-h-[180px] font-mono text-xs"
             placeholder={PLACEHOLDER}
             value={text}
             onChange={(e) => setText(e.target.value)}
