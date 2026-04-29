@@ -598,7 +598,18 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
   );
 
   const foundations = useMemo(
-    () => tasks.filter((t) => isFoundation(t) && t.status !== "completed"),
+    () =>
+      tasks.filter((t) => {
+        if (!isFoundation(t)) return false;
+        if (t.status === "completed") return false;
+        // A non-daily foundation deferred via snoozedUntil hides until
+        // that time passes — the user wanted "skip just for today" on
+        // weekly/monthly foundations without breaking their streak.
+        if (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now()) {
+          return false;
+        }
+        return true;
+      }),
     [tasks],
   );
 
@@ -1070,6 +1081,15 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             onComplete={toggleComplete}
             onIncrement={incrementCounter}
             onEdit={startEdit}
+            onDefer={(id) => {
+              // Defer = hide from the rail until tomorrow same time.
+              // Reuses snoozedUntil since the foundation filter already
+              // honours it (and the task list / priority list ignore
+              // foundations entirely, so no other view is affected).
+              const until = new Date();
+              until.setDate(until.getDate() + 1);
+              updateTask(id, { snoozedUntil: until.toISOString() });
+            }}
           />
 
           <section>
