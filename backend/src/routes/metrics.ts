@@ -120,6 +120,12 @@ metricsRouter.get("/admin", async (req, res) => {
   const globalCounts: Record<string, number> = {};
   let globalInput = 0;
   let globalOutput = 0;
+  // Daily buckets — keyed by ISO date (YYYY-MM-DD). The frontend can roll
+  // these into 7-day weeks itself.
+  const dailyTotals: Record<
+    string,
+    { events: number; inputTokens: number; outputTokens: number }
+  > = {};
 
   for (const e of events ?? []) {
     const u =
@@ -142,6 +148,16 @@ metricsRouter.get("/admin", async (req, res) => {
     }
     globalCounts[e.event_type] = (globalCounts[e.event_type] ?? 0) + 1;
     byUser.set(e.user_id, u);
+
+    const dayKey = e.created_at?.slice(0, 10) ?? "unknown";
+    const bucket = (dailyTotals[dayKey] ??= {
+      events: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+    bucket.events += 1;
+    if (typeof e.input_tokens === "number") bucket.inputTokens += e.input_tokens;
+    if (typeof e.output_tokens === "number") bucket.outputTokens += e.output_tokens;
   }
   // Cost estimate: blended Claude pricing. Sonnet 4.6 ≈ $3/M input, $15/M
   // output; Opus is a bit higher. We use Sonnet pricing as the default since
@@ -156,6 +172,18 @@ metricsRouter.get("/admin", async (req, res) => {
   const globalCostUsd =
     globalInput * pricePerInputUsd + globalOutput * pricePerOutputUsd;
 
+  // Sorted daily array (ascending) for the frontend chart.
+  const daily = Object.entries(dailyTotals)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([day, v]) => ({
+      day,
+      events: v.events,
+      inputTokens: v.inputTokens,
+      outputTokens: v.outputTokens,
+      estimatedCostUsd:
+        v.inputTokens * pricePerInputUsd + v.outputTokens * pricePerOutputUsd,
+    }));
+
   res.json({
     windowDays: daysBack,
     totalEvents: events?.length ?? 0,
@@ -166,6 +194,7 @@ metricsRouter.get("/admin", async (req, res) => {
       outputTokens: globalOutput,
       estimatedCostUsd: globalCostUsd,
     },
+    daily,
     perUser: Array.from(byUser.values()).sort(
       (a, b) => b.estimatedCostUsd - a.estimatedCostUsd,
     ),
@@ -208,13 +237,39 @@ metricsRouter.get("/me", async (req, res) => {
   const counts: Record<string, number> = {};
   let inputTokens = 0;
   let outputTokens = 0;
+  const dailyTotals: Record<
+    string,
+    { events: number; inputTokens: number; outputTokens: number }
+  > = {};
   for (const e of events ?? []) {
     counts[e.event_type] = (counts[e.event_type] ?? 0) + 1;
     if (typeof e.input_tokens === "number") inputTokens += e.input_tokens;
     if (typeof e.output_tokens === "number") outputTokens += e.output_tokens;
+    const dayKey = e.created_at?.slice(0, 10) ?? "unknown";
+    const bucket = (dailyTotals[dayKey] ??= {
+      events: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+    bucket.events += 1;
+    if (typeof e.input_tokens === "number") bucket.inputTokens += e.input_tokens;
+    if (typeof e.output_tokens === "number")
+      bucket.outputTokens += e.output_tokens;
   }
+  const pricePerInputUsd = 3 / 1_000_000;
+  const pricePerOutputUsd = 15 / 1_000_000;
   const estimatedCostUsd =
-    (inputTokens * 3) / 1_000_000 + (outputTokens * 15) / 1_000_000;
+    inputTokens * pricePerInputUsd + outputTokens * pricePerOutputUsd;
+  const daily = Object.entries(dailyTotals)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([day, v]) => ({
+      day,
+      events: v.events,
+      inputTokens: v.inputTokens,
+      outputTokens: v.outputTokens,
+      estimatedCostUsd:
+        v.inputTokens * pricePerInputUsd + v.outputTokens * pricePerOutputUsd,
+    }));
   res.json({
     windowDays: daysBack,
     totalEvents: events?.length ?? 0,
@@ -222,5 +277,6 @@ metricsRouter.get("/me", async (req, res) => {
     inputTokens,
     outputTokens,
     estimatedCostUsd,
+    daily,
   });
 });
