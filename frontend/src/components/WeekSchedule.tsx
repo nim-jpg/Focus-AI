@@ -785,36 +785,68 @@ export function WeekSchedule({
     new Date(weekStart.getTime() + idx * DAY_MS).toISOString().slice(0, 10);
   const holidaySet = new Set(prefs.holidayDates ?? []);
   const wfhSet = new Set(prefs.wfhDates ?? []);
+  const officeSet = new Set(prefs.officeDates ?? []);
   const isHolidayIdx = (idx: number) => holidaySet.has(dateIsoFor(idx));
-  const isWfhIdx = (idx: number) => wfhSet.has(dateIsoFor(idx));
+  /**
+   * Effective day mode for any visible day:
+   *  - "holiday" — holidayDates override OR weekend-and-not-explicit-office
+   *  - "home" — wfhDates override OR a working day not in officeDays default
+   *  - "office" — officeDates override OR officeDays-default day
+   *  Order of precedence: holiday > home > office. Holiday wins because
+   *  it's the strongest "this day is off" signal regardless of dow.
+   */
+  type DayMode = "office" | "home" | "holiday";
+  const dayMode = (idx: number): DayMode => {
+    const iso = dateIsoFor(idx);
+    if (holidaySet.has(iso)) return "holiday";
+    const dow = new Date(weekStart.getTime() + idx * DAY_MS).getDay();
+    if (wfhSet.has(iso)) return "home";
+    if (officeSet.has(iso)) return "office";
+    if ((prefs.officeDays ?? []).includes(dow)) return "office";
+    return "home";
+  };
   const isWorkingDayIdx = (idx: number) => {
     const dayDate = new Date(weekStart.getTime() + idx * DAY_MS);
     if (isHolidayIdx(idx)) return false;
     return prefs.workingDays.includes(dayDate.getDay());
   };
-  const isOfficeDayIdx = (idx: number) => {
-    const dayDate = new Date(weekStart.getTime() + idx * DAY_MS);
-    if (isHolidayIdx(idx)) return false;
-    return (prefs.officeDays ?? []).includes(dayDate.getDay());
-  };
-  const toggleWfh = (idx: number) => {
+  const isOfficeDayIdx = (idx: number) => dayMode(idx) === "office";
+  /**
+   * Cycle a day's mode in the order office → home → holiday → office.
+   * Storage rules:
+   *  - To set holiday: add to holidayDates, remove other override lists.
+   *  - To set home: ensure not in holidayDates / officeDates; add to
+   *    wfhDates only if the day's dow default is "office" (otherwise
+   *    home is already the default — no override needed).
+   *  - To set office: ensure not in holidayDates / wfhDates; add to
+   *    officeDates only if the day's dow default isn't "office".
+   */
+  const cycleDayMode = (idx: number) => {
     if (!onUpdatePrefs) return;
     const iso = dateIsoFor(idx);
-    const cur = prefs.wfhDates ?? [];
+    const cur = dayMode(idx);
+    const next: DayMode =
+      cur === "office" ? "home" : cur === "home" ? "holiday" : "office";
+    const dow = new Date(weekStart.getTime() + idx * DAY_MS).getDay();
+    const dowDefaultsOffice = (prefs.officeDays ?? []).includes(dow);
+    const removeFrom = (list: string[] | undefined) =>
+      (list ?? []).filter((d) => d !== iso);
+    const addTo = (list: string[] | undefined) =>
+      [...(list ?? []), iso];
+    let holidays = removeFrom(prefs.holidayDates);
+    let wfhs = removeFrom(prefs.wfhDates);
+    let offices = removeFrom(prefs.officeDates);
+    if (next === "holiday") {
+      holidays = addTo(holidays);
+    } else if (next === "home" && dowDefaultsOffice) {
+      wfhs = addTo(wfhs);
+    } else if (next === "office" && !dowDefaultsOffice) {
+      offices = addTo(offices);
+    }
     onUpdatePrefs({
-      wfhDates: cur.includes(iso)
-        ? cur.filter((d) => d !== iso)
-        : [...cur, iso],
-    });
-  };
-  const toggleHoliday = (idx: number) => {
-    if (!onUpdatePrefs) return;
-    const iso = dateIsoFor(idx);
-    const cur = prefs.holidayDates ?? [];
-    onUpdatePrefs({
-      holidayDates: cur.includes(iso)
-        ? cur.filter((d) => d !== iso)
-        : [...cur, iso],
+      holidayDates: holidays,
+      wfhDates: wfhs,
+      officeDates: offices,
     });
   };
   const commuteMin = prefs.commuteMinutes ?? 0;
@@ -1079,49 +1111,47 @@ export function WeekSchedule({
                     })}
                   </div>
                 </div>
-                {onUpdatePrefs && (
-                  <div className="flex items-center gap-1">
-                    {/* WFH tag — visual only, doesn't change scheduling.
-                        Only meaningful for employees on a working day
-                        that isn't already a holiday. */}
-                    {prefs.userType === "employee" &&
-                      !isHoliday &&
-                      isWorkingDayIdx(idx) && (
-                        <button
-                          type="button"
-                          onClick={() => toggleWfh(idx)}
-                          className={`rounded-full border px-1.5 py-0.5 text-[11px] sm:text-[10px] ${
-                            isWfhIdx(idx)
-                              ? "border-sky-400 bg-sky-100 text-sky-800"
-                              : "border-slate-200 text-slate-400 hover:border-sky-300 hover:text-sky-700"
-                          }`}
-                          title={
-                            isWfhIdx(idx)
-                              ? "WFH — click to unmark"
-                              : "Mark as work-from-home (visual tag only)"
-                          }
-                        >
-                          {isWfhIdx(idx) ? "✕ wfh" : "+ wfh"}
-                        </button>
-                      )}
+                {onUpdatePrefs && (() => {
+                  // Single 3-state toggle, only on workdays (Mon-Fri by
+                  // default — driven by prefs.workingDays). The button
+                  // shows the current state and cycles office → home →
+                  // holiday → office on click. Weekends get nothing.
+                  const dow = dayDate.getDay();
+                  const isWorkingDow = prefs.workingDays.includes(dow);
+                  if (!isWorkingDow && !isHoliday) return null;
+                  const mode = dayMode(idx);
+                  const styles: Record<DayMode, string> = {
+                    office:
+                      "border-slate-300 bg-white text-slate-700 hover:border-slate-400",
+                    home:
+                      "border-sky-400 bg-sky-100 text-sky-800 hover:bg-sky-200",
+                    holiday:
+                      "border-amber-400 bg-amber-100 text-amber-800 hover:bg-amber-200",
+                  };
+                  const labels: Record<DayMode, string> = {
+                    office: "🏢 office",
+                    home: "🏠 home",
+                    holiday: "🏖 holiday",
+                  };
+                  const titles: Record<DayMode, string> = {
+                    office:
+                      "Office day — commute applies. Click to switch to home.",
+                    home:
+                      "Working from home — no commute. Click to mark as holiday.",
+                    holiday:
+                      "Holiday — no working-hours shading, free to schedule. Click to switch back to office.",
+                  };
+                  return (
                     <button
                       type="button"
-                      onClick={() => toggleHoliday(idx)}
-                      className={`rounded-full border px-1.5 py-0.5 text-[11px] sm:text-[10px] ${
-                        isHoliday
-                          ? "border-amber-400 bg-amber-100 text-amber-800"
-                          : "border-slate-200 text-slate-400 hover:border-amber-300 hover:text-amber-700"
-                      }`}
-                      title={
-                        isHoliday
-                          ? "Marked as a holiday — click to unmark"
-                          : "Mark as a holiday (skip working-hours shading)"
-                      }
+                      onClick={() => cycleDayMode(idx)}
+                      className={`rounded-full border px-2 py-0.5 text-[11px] sm:text-[10px] transition-colors ${styles[mode]}`}
+                      title={titles[mode]}
                     >
-                      {isHoliday ? "✕ holiday" : "+ holiday"}
+                      {labels[mode]}
                     </button>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             </div>
           );
