@@ -947,20 +947,23 @@ async function lookupPlaceOnce(
       body: JSON.stringify({ textQuery: query }),
     });
     if (!r.ok) {
+      const body = await r.text().catch(() => "(no body)");
       console.warn(
-        `[places] HTTP ${r.status} for query "${query}" — ${await r
-          .text()
-          .catch(() => "(no body)")}`.slice(0, 200),
+        `[places] HTTP ${r.status} query="${query}" body=${body}`.slice(0, 300),
       );
       return null;
     }
     const data = (await r.json()) as {
       places?: Array<{ formattedAddress?: string; displayName?: { text?: string } }>;
     };
-    return data.places?.[0]?.formattedAddress ?? null;
+    const hit = data.places?.[0]?.formattedAddress ?? null;
+    console.log(
+      `[places] query="${query}" → ${hit ? `"${hit}"` : "(no result)"}`,
+    );
+    return hit;
   } catch (err) {
     console.warn(
-      `[places] error for query "${query}":`,
+      `[places] error query="${query}":`,
       err instanceof Error ? err.message : err,
     );
     return null;

@@ -43,25 +43,23 @@ export function TaskFormModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-2 border-b border-slate-200 px-4 py-3 sm:border-0 sm:px-5 sm:pt-5 sm:pb-3">
-          <div>
+          <div className="min-w-0 flex-1">
             <h3 className="text-base font-semibold">
               {initialTask ? `Edit "${initialTask.title}"` : "Add task"}
             </h3>
             {!initialTask && onSwitchToBrainDump && (
-              <p className="mt-0.5 text-xs text-slate-500">
-                Got a whole list?{" "}
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    onSwitchToBrainDump();
-                  }}
-                  className="font-medium text-slate-700 underline-offset-2 hover:text-slate-900 hover:underline"
-                >
-                  Use brain dump
-                </button>{" "}
-                — paste everything at once, Claude infers the rest.
-              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onSwitchToBrainDump();
+                }}
+                className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-violet-300 bg-gradient-to-r from-violet-100 to-violet-50 px-3 py-1 text-xs font-medium text-violet-900 shadow-sm transition-all hover:border-violet-400 hover:from-violet-200 hover:to-violet-100 hover:shadow"
+              >
+                <span aria-hidden>✨</span>
+                <span>Got a whole list? Brain dump it instead</span>
+                <span aria-hidden>→</span>
+              </button>
             )}
           </div>
           <button
