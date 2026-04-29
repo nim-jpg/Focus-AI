@@ -1,5 +1,6 @@
 import { Router } from "express";
 import Anthropic from "@anthropic-ai/sdk";
+import { logAiUsage } from "../lib/metrics.js";
 
 export const suggestGoalTasksRouter = Router();
 
@@ -97,6 +98,8 @@ suggestGoalTasksRouter.post("/", async (req, res) => {
       .map((b) => b.text)
       .join("\n");
 
+    logAiUsage(req.userId, "suggest_goal_tasks", response, true);
+
     const parsed = extractJson(raw) as { matches?: unknown };
     if (!parsed || !Array.isArray(parsed.matches)) {
       return res
@@ -106,6 +109,7 @@ suggestGoalTasksRouter.post("/", async (req, res) => {
 
     res.json({ matches: parsed.matches });
   } catch (err) {
+    logAiUsage(req.userId, "suggest_goal_tasks", null, false);
     const message = err instanceof Error ? err.message : "unknown_error";
     res.status(500).json({ error: "anthropic_error", message });
   }

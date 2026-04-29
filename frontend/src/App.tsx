@@ -25,6 +25,7 @@ import {
   syncAiCacheFromRemote,
 } from "@/lib/storage";
 import { isAuthEnabled } from "@/lib/supabaseClient";
+import { logEvent as logMetricEvent } from "@/lib/metrics";
 import { useAuth } from "@/lib/useAuth";
 import { Login } from "@/components/Login";
 import { useGoals } from "@/lib/useGoals";
@@ -294,6 +295,10 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       updateTask(task.id, {
         calendarEventId: eventId,
         scheduledFor: undefined,
+      });
+      logMetricEvent("calendar_event_pushed", {
+        theme: task.theme,
+        weeklyRecurring: choice.weeklyRecurring ?? false,
       });
       setCalendarMsg(
         `"${task.title}" added to your personal calendar.`,
@@ -1381,13 +1386,31 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           onChange={setPrefs}
           onClose={() => setShowSettings(false)}
           tasks={tasks}
-          onImportEvent={(input) => addTask(input)}
-          onExport={() => downloadBackup(tasks, goals, prefs)}
+          onImportEvent={(input) => {
+            const t = addTask(input);
+            // Distinguish calendar-import from manual create by emitting a
+            // dedicated event AFTER the task has been added (addTask already
+            // fires task_created with fromCalendarImport: true).
+            logMetricEvent("calendar_event_imported", { theme: input.theme });
+            return t;
+          }}
+          onExport={() => {
+            downloadBackup(tasks, goals, prefs);
+            logMetricEvent("backup_exported", {
+              taskCount: tasks.length,
+              goalCount: goals.length,
+            });
+          }}
           onImport={async (file) => {
             const bundle = await readBackupFile(file);
             replaceAllTasks(bundle.tasks);
             replaceAllGoals(bundle.goals);
             replacePrefs(bundle.prefs);
+            logMetricEvent("backup_imported", {
+              taskCount: bundle.tasks.length,
+              goalCount: bundle.goals.length,
+              version: bundle.version,
+            });
             // v2 backups carry the AI rank cache. Restoring it preserves the
             // user's last AI-ranked Top Three across the cutover.
             if (bundle.aiCache) {
