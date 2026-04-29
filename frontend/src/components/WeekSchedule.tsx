@@ -1283,14 +1283,10 @@ export function WeekSchedule({
                     }
                   />
                 )}
-              {isHolidayIdx(dayIdx) && (
-                <div
-                  className="pointer-events-none absolute left-1 top-1 z-30 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] sm:text-[10px] font-medium text-amber-800"
-                  title="Holiday — working-hours shading is off for this day"
-                >
-                  holiday
-                </div>
-              )}
+              {/* Body-of-day "holiday" label removed — the header chip
+                  ("✕ holiday" / "+ holiday") already conveys this state.
+                  The diagonal-stripe background still indicates the day
+                  is off-shape, so visual cue is preserved. */}
               {/* Commute zones on office days — striped amber so it's distinct.
                   Skipped in stacked view. */}
               {viewMode !== "stacked" && isOfficeDayIdx(dayIdx) && commuteMin > 0 && (
