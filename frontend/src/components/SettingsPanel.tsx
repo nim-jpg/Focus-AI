@@ -9,12 +9,8 @@ import {
 } from "@/types/task";
 import { TimeField } from "./TimeField";
 import { fetchCalendars, type CalendarMeta } from "@/lib/googleCalendar";
-import { CalendarAutoSync } from "./CalendarAutoSync";
 import { CalendarDuplicateAudit } from "./CalendarDuplicateAudit";
-import { CalendarEventImporter } from "./CalendarEventImporter";
-import { CalendarLocationEnrich } from "./CalendarLocationEnrich";
 import { AdminMetrics } from "./AdminMetrics";
-import type { Task } from "@/types/task";
 import { clearErrorLog, getErrorLog, type ErrorEntry } from "@/lib/errorLog";
 
 interface Props {
@@ -34,27 +30,6 @@ interface Props {
     onConnect: () => void | Promise<void>;
     onDisconnect: () => Promise<void> | void;
   };
-  /** When provided, the Calendar section gets an "Import upcoming events"
-   *  panel that creates Focus3 tasks linked to the Google events. */
-  onImportEvent?: (input: {
-    title: string;
-    description?: string;
-    theme: Task["theme"];
-    urgency: Task["urgency"];
-    recurrence: Task["recurrence"];
-    privacy: Task["privacy"];
-    isWork: boolean;
-    isBlocker: boolean;
-    calendarEventId?: string;
-    estimatedMinutes?: number;
-    dueDate?: string;
-  }) => void;
-  /** Existing tasks — needed by the importer to skip events that are already
-   *  linked to a Focus3 task (matched by calendarEventId). */
-  tasks?: Task[];
-  /** Re-pull tasks from the backend after server-side mutations (auto-sync
-   *  writes new tasks directly to Supabase, so the UI needs to refresh). */
-  onRefreshTasks?: () => Promise<void>;
 }
 
 const DAY_LABELS: Array<{ idx: number; label: string }> = [
@@ -75,9 +50,6 @@ export function SettingsPanel({
   onImport,
   lastScanUndo,
   calendar,
-  onImportEvent,
-  tasks,
-  onRefreshTasks,
 }: Props) {
   const [permState, setPermState] = useState<NotificationPermission | null>(
     typeof Notification !== "undefined" ? Notification.permission : null,
@@ -720,61 +692,13 @@ export function SettingsPanel({
                 <p className="mt-2 text-xs text-amber-700">{connectMsg}</p>
               )}
               {calendar.connected && (
-                <div className="mt-4 rounded-md border border-emerald-200 bg-gradient-to-br from-emerald-50 to-emerald-50/60 p-3">
-                  <h5 className="text-sm font-semibold text-emerald-900">
-                    Auto-sync from Google
-                  </h5>
-                  <p className="mt-1 text-xs text-emerald-800">
-                    One click — Claude scans the next 14 days, decides which
-                    events are actionable tasks (not just meetings) and pulls
-                    them in, then writes high-confidence full addresses back
-                    onto your Google events. Recurring meetings + long blocks
-                    are skipped automatically. Items Claude isn't confident
-                    about land in the manual review panels below.
-                  </p>
-                  <div className="mt-2">
-                    <CalendarAutoSync onSyncComplete={onRefreshTasks} />
-                  </div>
-                </div>
-              )}
-              {calendar.connected && onImportEvent && tasks && (
-                <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 p-3">
-                  <h5 className="text-sm font-semibold text-sky-900">
-                    Import calendar events as tasks (manual)
-                  </h5>
-                  <p className="mt-1 text-xs text-sky-800">
-                    Scan your upcoming Google Calendar events and create
-                    Focus3 tasks for the ones you want to actively manage.
-                    Each imported task links back to its Google event (so you
-                    don't see double on the schedule) and inherits a sensible
-                    default theme. Time-of-day stays in Google.
-                  </p>
-                  <div className="mt-2">
-                    <CalendarEventImporter
-                      existingTasks={tasks}
-                      onImport={onImportEvent}
-                    />
-                  </div>
-                </div>
-              )}
-              {calendar.connected && (
-                <div className="mt-4 rounded-md border border-violet-200 bg-violet-50 p-3">
-                  <h5 className="text-sm font-semibold text-violet-900">
-                    Enrich event locations (writes to Google)
-                  </h5>
-                  <p className="mt-1 text-xs text-violet-800">
-                    Scans the next 14 days across every Google calendar you
-                    have writer or owner access to. For events whose location
-                    is short or ambiguous ("Costa", "office", a landmark),
-                    Claude proposes a fuller address; you review per-event,
-                    edit if needed, and approved updates are written back to
-                    the Google event. Focus3 itself doesn't track the
-                    location.
-                  </p>
-                  <div className="mt-2">
-                    <CalendarLocationEnrich />
-                  </div>
-                </div>
+                <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  <span className="font-medium text-slate-700">Sync:</span>{" "}
+                  the one-click "Sync from Google" button on the schedule
+                  view (Today tab) does it all — pulls actionable events as
+                  tasks, writes back fuller addresses, and re-runs AI rank.
+                  Capped at 2 AI runs per user per day.
+                </p>
               )}
               {calendar.connected && (
                 <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3">
