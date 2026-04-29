@@ -9,6 +9,7 @@ import {
   syncTasksFromRemote,
 } from "./storage";
 import { isAuthEnabled } from "./supabaseClient";
+import { logEvent } from "./metrics";
 import { wasCompletedToday } from "./recurrence";
 import type { Task, UserPrefs } from "@/types/task";
 
@@ -123,6 +124,12 @@ export function useTasks() {
       updatedAt: now,
     };
     setTasks((prev) => [task, ...prev]);
+    logEvent("task_created", {
+      theme: task.theme,
+      hasDueDate: Boolean(task.dueDate),
+      hasGoalLink: (task.goalIds ?? []).length > 0,
+      fromCalendarImport: Boolean(task.calendarEventId),
+    });
     return task;
   }, []);
 
@@ -138,7 +145,13 @@ export function useTasks() {
   );
 
   const removeTask = useCallback((id: string) => {
-    setTasks((prev) => prev.filter((t) => t.id !== id));
+    setTasks((prev) => {
+      const target = prev.find((t) => t.id === id);
+      if (target) {
+        logEvent("task_deleted", { theme: target.theme });
+      }
+      return prev.filter((t) => t.id !== id);
+    });
   }, []);
 
   /**
@@ -195,6 +208,10 @@ export function useTasks() {
           const log = new Set(t.completionLog ?? []);
           if (doneToday) log.delete(todayKey);
           else log.add(todayKey);
+          logEvent(doneToday ? "task_uncompleted" : "task_completed", {
+            theme: t.theme,
+            recurring: true,
+          });
           return {
             ...t,
             lastCompletedAt: doneToday ? undefined : now,
@@ -205,6 +222,11 @@ export function useTasks() {
         }
 
         const completing = t.status !== "completed";
+        logEvent(completing ? "task_completed" : "task_uncompleted", {
+          theme: t.theme,
+          recurring: false,
+          hadDueDate: Boolean(t.dueDate),
+        });
         return {
           ...t,
           status: completing ? "completed" : "pending",

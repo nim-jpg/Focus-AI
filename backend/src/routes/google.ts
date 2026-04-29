@@ -5,6 +5,7 @@ import { google, type Auth } from "googleapis";
 import Anthropic from "@anthropic-ai/sdk";
 import { getSupabase, isMultiUser } from "../db.js";
 import { authMiddleware } from "../middleware/auth.js";
+import { logAiUsage, logMetricsEvent } from "../lib/metrics.js";
 
 const TOKENS_FILE = path.resolve(process.cwd(), ".google-tokens.json");
 
@@ -652,6 +653,7 @@ ${JSON.stringify(claudeInput, null, 2)}`;
       max_tokens: 2000,
       messages: [{ role: "user", content: prompt }],
     });
+    logAiUsage(req.userId, "enrich_locations", completion, true);
     const block = completion.content.find((b) => b.type === "text");
     const raw = block && "text" in block ? block.text : "";
     const m = raw.match(/\[[\s\S]*\]/);

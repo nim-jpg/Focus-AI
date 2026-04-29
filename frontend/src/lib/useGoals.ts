@@ -6,6 +6,7 @@ import {
   syncGoalsFromRemote,
 } from "./storage";
 import { isAuthEnabled } from "./supabaseClient";
+import { logEvent } from "./metrics";
 import type { Goal } from "@/types/task";
 
 export type NewGoalInput = Omit<Goal, "id" | "createdAt" | "updatedAt" | "source"> &
@@ -47,6 +48,10 @@ export function useGoals() {
       updatedAt: now,
     };
     setGoals((prev) => [goal, ...prev]);
+    logEvent("goal_created", {
+      horizon: goal.horizon,
+      source: goal.source,
+    });
     return goal;
   }, []);
 
@@ -59,7 +64,11 @@ export function useGoals() {
   }, []);
 
   const removeGoal = useCallback((id: string) => {
-    setGoals((prev) => prev.filter((g) => g.id !== id));
+    setGoals((prev) => {
+      const target = prev.find((g) => g.id === id);
+      if (target) logEvent("goal_deleted", { horizon: target.horizon });
+      return prev.filter((g) => g.id !== id);
+    });
   }, []);
 
   const replaceAllGoals = useCallback((next: Goal[]) => setGoals(next), []);

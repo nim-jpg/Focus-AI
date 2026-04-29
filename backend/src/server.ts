@@ -9,6 +9,7 @@ import { suggestGoalTasksRouter } from "./routes/suggestGoalTasks.js";
 import { companiesHouseRouter } from "./routes/companiesHouse.js";
 import { scanPlannerRouter } from "./routes/scanPlanner.js";
 import { storeRouter } from "./routes/store.js";
+import { metricsRouter } from "./routes/metrics.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { aiRateLimit } from "./middleware/aiRateLimit.js";
 import { isMultiUser } from "./db.js";
@@ -57,6 +58,7 @@ app.use("/api/suggest-goal-tasks", authMiddleware, aiRateLimit, suggestGoalTasks
 app.use("/api/scan-planner", authMiddleware, aiRateLimit, scanPlannerRouter);
 app.use("/api/companies-house", authMiddleware, companiesHouseRouter);
 app.use("/api/store", authMiddleware, storeRouter);
+app.use("/api/metrics", authMiddleware, metricsRouter);
 
 app.listen(PORT, () => {
   console.log(

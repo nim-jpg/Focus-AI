@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { getSupabase, isAuthEnabled } from "./supabaseClient";
+import { logEvent } from "./metrics";
 
 export interface AuthState {
   /** True when Supabase is configured (env vars present). */
@@ -26,8 +27,14 @@ export function useAuth(): AuthState {
       setUser(data.session?.user ?? null);
       setLoading(false);
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
+      // Log fresh sign-ins (magic-link redemption, password sign-in). Skip
+      // TOKEN_REFRESHED / INITIAL_SESSION so we don't double-count returning
+      // tabs as "new sessions".
+      if (event === "SIGNED_IN" && session?.user) {
+        logEvent("session_signed_in");
+      }
     });
     return () => {
       cancelled = true;

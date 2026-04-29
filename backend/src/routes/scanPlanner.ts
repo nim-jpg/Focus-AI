@@ -1,5 +1,6 @@
 import { Router } from "express";
 import Anthropic from "@anthropic-ai/sdk";
+import { logAiUsage } from "../lib/metrics.js";
 
 export const scanPlannerRouter = Router();
 
@@ -163,6 +164,8 @@ scanPlannerRouter.post("/", async (req, res) => {
       .map((b) => b.text)
       .join("\n");
 
+    logAiUsage(req.userId, "scan_planner", response, true);
+
     const parsed = extractJson(raw) as { updates?: unknown };
     if (!parsed || !Array.isArray(parsed.updates)) {
       return res
@@ -171,6 +174,7 @@ scanPlannerRouter.post("/", async (req, res) => {
     }
     res.json({ updates: parsed.updates });
   } catch (err) {
+    logAiUsage(req.userId, "scan_planner", null, false);
     res.status(500).json({
       error: "anthropic_error",
       message: err instanceof Error ? err.message : "unknown",

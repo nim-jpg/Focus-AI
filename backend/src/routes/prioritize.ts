@@ -1,5 +1,6 @@
 import { Router } from "express";
 import Anthropic from "@anthropic-ai/sdk";
+import { logAiUsage } from "../lib/metrics.js";
 
 export const prioritizeRouter = Router();
 
@@ -153,6 +154,8 @@ prioritizeRouter.post("/", async (req, res) => {
       .map((b) => b.text)
       .join("\n");
 
+    logAiUsage(req.userId, "prioritize", response, true);
+
     const parsed = extractJson(text) as ClaudeResponse;
 
     if (!parsed || !Array.isArray(parsed.ranked)) {
@@ -169,6 +172,7 @@ prioritizeRouter.post("/", async (req, res) => {
 
     res.json({ ranked, source: "claude" as const });
   } catch (err) {
+    logAiUsage(req.userId, "prioritize", null, false);
     const message = err instanceof Error ? err.message : "unknown_error";
     res.status(500).json({ error: "anthropic_error", message });
   }

@@ -98,3 +98,30 @@ create table if not exists public.ai_cache (
 
 alter table public.ai_cache enable row level security;
 -- Service-role only — backend reads/writes on behalf of the signed-in user.
+
+-- ─── Metrics events (anonymous-by-content, per-user aligned) ──────────────
+-- One row per logical action: task created/completed/deleted, AI route call,
+-- backup exported, etc. NEVER stores task titles or descriptions — only the
+-- event type, optional model + token counts (for cost), and a small metadata
+-- blob for non-PII context. The user_id is kept so per-user reporting is
+-- possible without joining task content.
+create table if not exists public.metrics_events (
+  id             uuid primary key default uuid_generate_v4(),
+  user_id        uuid not null references auth.users(id) on delete cascade,
+  event_type     text not null,
+  -- Populated for AI calls so cost can be derived later from token counts.
+  model          text,
+  input_tokens   integer,
+  output_tokens  integer,
+  -- Tiny extras (origin, success/failure) — strictly metadata, no content.
+  metadata       jsonb,
+  created_at     timestamptz not null default now()
+);
+
+create index if not exists metrics_events_user_idx on public.metrics_events(user_id);
+create index if not exists metrics_events_type_idx on public.metrics_events(event_type);
+create index if not exists metrics_events_created_idx on public.metrics_events(created_at);
+
+alter table public.metrics_events enable row level security;
+-- Service-role only — frontend logs via the backend, never directly.
+-- Admin reporting uses the service-role client to aggregate across users.

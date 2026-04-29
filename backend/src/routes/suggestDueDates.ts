@@ -1,5 +1,6 @@
 import { Router } from "express";
 import Anthropic from "@anthropic-ai/sdk";
+import { logAiUsage } from "../lib/metrics.js";
 
 export const suggestDueDatesRouter = Router();
 
@@ -94,6 +95,8 @@ suggestDueDatesRouter.post("/", async (req, res) => {
       .map((b) => b.text)
       .join("\n");
 
+    logAiUsage(req.userId, "suggest_due_dates", response, true);
+
     const parsed = extractJson(raw) as { suggestions?: unknown };
     if (!parsed || !Array.isArray(parsed.suggestions)) {
       return res
@@ -103,6 +106,7 @@ suggestDueDatesRouter.post("/", async (req, res) => {
 
     res.json({ suggestions: parsed.suggestions });
   } catch (err) {
+    logAiUsage(req.userId, "suggest_due_dates", null, false);
     const message = err instanceof Error ? err.message : "unknown_error";
     res.status(500).json({ error: "anthropic_error", message });
   }
