@@ -1,9 +1,10 @@
-import type { Task } from "@/types/task";
+import type { Task, UserPrefs } from "@/types/task";
 import { isFoundation } from "@/lib/recurrence";
 import { ThemeBadge } from "./ThemeBadge";
 
 interface Props {
   tasks: Task[];
+  prefs?: UserPrefs;
   onEdit?: (id: string) => void;
 }
 
@@ -29,11 +30,44 @@ const IMPORTANT_THEMES = new Set([
   "school",
 ]);
 
-function isImportant(task: Task): boolean {
+function isImportant(
+  task: Task,
+  priorityFocus: NonNullable<UserPrefs["priorityFocus"]>,
+): boolean {
   if ((task.goalIds ?? []).length > 0) return true;
   if (task.isBlocker) return true;
   if ((task.avoidanceWeeks ?? 0) >= 2) return true;
   if (task.urgency === "high" || task.urgency === "critical") return true;
+  // Match against the user's stated priorityFocus — anything they care
+  // about counts as important, even if the theme isn't in the
+  // load-bearing list below.
+  if (priorityFocus.length > 0) {
+    if (
+      priorityFocus.includes("financial") &&
+      (task.theme === "finance" ||
+        /\b(invoice|tax|vat|salary|pay|bill|payment)\b/i.test(task.title))
+    ) {
+      return true;
+    }
+    if (
+      priorityFocus.includes("health") &&
+      (task.theme === "medication" ||
+        task.theme === "fitness" ||
+        /\b(doctor|dentist|gp|hospital|appointment)\b/i.test(task.title))
+    ) {
+      return true;
+    }
+    if (
+      priorityFocus.includes("learning") &&
+      (task.theme === "development" || task.theme === "school")
+    ) {
+      return true;
+    }
+    if (priorityFocus.includes("creativity") && task.theme === "projects") {
+      return true;
+    }
+    if (priorityFocus.includes("career") && task.theme === "work") return true;
+  }
   // Tasks tied to load-bearing life themes (finance, work, projects, school,
   // dev) get the benefit of the doubt — they shape long-term outcomes even
   // without an explicit goal link.
@@ -49,16 +83,17 @@ interface Quadrant {
   classes: string;
 }
 
-export function PriorityMatrix({ tasks, onEdit }: Props) {
+export function PriorityMatrix({ tasks, prefs, onEdit }: Props) {
   const now = new Date();
   const candidates = tasks.filter(
     (t) => t.status !== "completed" && !isFoundation(t),
   );
+  const priorityFocus = prefs?.priorityFocus ?? [];
 
   const buckets: Record<Quadrant["key"], Task[]> = { q1: [], q2: [], q3: [], q4: [] };
   for (const t of candidates) {
     const u = isUrgent(t, now);
-    const i = isImportant(t);
+    const i = isImportant(t, priorityFocus);
     if (u && i) buckets.q1.push(t);
     else if (!u && i) buckets.q2.push(t);
     else if (u && !i) buckets.q3.push(t);

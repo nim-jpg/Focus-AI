@@ -17,6 +17,117 @@ const GOAL_HORIZON_WEIGHT: Record<Goal["horizon"], number> = {
 
 const HOURS = 60 * 60 * 1000;
 
+/**
+ * Map a task to the "impact dimensions" it touches, derived from its theme,
+ * recurrence, urgency, and dueDate. The user's priorityFocus picks (in
+ * Settings) toggle on big bonuses for matching dimensions — that's how a
+ * personal user gets a different Top Three than a self-employed one despite
+ * sharing the same engine.
+ *
+ * A task can light up multiple dimensions ("medication monthly review" hits
+ * both health and stress). Each match contributes +250 if the dimension is
+ * in the user's priorityFocus, +0 otherwise (we don't penalise non-matches —
+ * the existing deadline/avoidance/blocker signals still move them up).
+ */
+type ImpactDim =
+  | "financial"
+  | "health"
+  | "stress"
+  | "family"
+  | "career"
+  | "learning"
+  | "creativity";
+
+function impactDimensionsFor(
+  task: Task,
+  userType: UserPrefs["userType"] | undefined,
+  avoidance: number,
+  hoursLeft: number | null,
+): ImpactDim[] {
+  const dims = new Set<ImpactDim>();
+
+  // Financial — finance theme, OR a non-finance task with a tight deadline
+  // and high urgency (often money-adjacent: "send invoice", "pay bill").
+  if (task.theme === "finance") dims.add("financial");
+  if (
+    task.theme !== "finance" &&
+    (task.urgency === "high" || task.urgency === "critical") &&
+    hoursLeft !== null &&
+    hoursLeft <= 14 * 24 &&
+    /\b(invoice|tax|vat|salary|pay|bill|payment|refund|claim)\b/i.test(
+      task.title,
+    )
+  ) {
+    dims.add("financial");
+  }
+
+  // Health — medication or fitness, plus any task whose title mentions
+  // doctor / dentist / hospital / surgery (one-off appointments slot in too).
+  if (task.theme === "medication" || task.theme === "fitness") {
+    dims.add("health");
+  }
+  if (
+    /\b(doctor|dentist|gp|hospital|surgery|consult|therapy|specialist|scan|test|appointment)\b/i.test(
+      task.title,
+    )
+  ) {
+    dims.add("health");
+  }
+
+  // Stress — anything long-avoided OR already overdue. The whole point of
+  // surfacing these in Top Three is to break the avoidance pattern, which
+  // is itself a stress driver.
+  if (avoidance >= 2) dims.add("stress");
+  if (hoursLeft !== null && hoursLeft < 0) dims.add("stress");
+  if (task.isBlocker || (task.blockedBy?.length ?? 0) > 0) dims.add("stress");
+
+  // Family — personal/household tasks whose title hints at people.
+  if (
+    (task.theme === "personal" || task.theme === "household") &&
+    /\b(kid|kids|child|children|partner|wife|husband|mum|mom|dad|family|school|nursery|birthday|anniversary)\b/i.test(
+      task.title,
+    )
+  ) {
+    dims.add("family");
+  }
+
+  // Career — depends on userType because what counts as "career-driving"
+  // shifts (employee = work theme; self-employed = work theme; retired =
+  // projects only).
+  if (task.theme === "work") dims.add("career");
+  if (
+    userType === "self-employed" &&
+    (task.theme === "work" || task.theme === "projects")
+  ) {
+    dims.add("career");
+  }
+  if (userType === "retired" && task.theme === "projects") {
+    dims.add("career");
+  }
+
+  // Learning — development + school always; "course / study / read /
+  // learn" titles too.
+  if (task.theme === "development" || task.theme === "school") {
+    dims.add("learning");
+  }
+  if (/\b(study|read|course|certif|learn|practice)\b/i.test(task.title)) {
+    dims.add("learning");
+  }
+
+  // Creativity — projects (one's own non-day-job builds), or anything with
+  // "build / design / write / create" in the title.
+  if (task.theme === "projects") dims.add("creativity");
+  if (
+    /\b(build|design|write|create|sketch|prototype|paint|compose|draft)\b/i.test(
+      task.title,
+    )
+  ) {
+    dims.add("creativity");
+  }
+
+  return Array.from(dims);
+}
+
 function hoursUntil(iso: string | undefined, now: Date): number | null {
   if (!iso) return null;
   const due = new Date(iso).getTime();
@@ -35,6 +146,16 @@ interface Scored {
   reasons: string[];
 }
 
+const FOCUS_LABEL: Record<ImpactDim, string> = {
+  financial: "financial impact",
+  health: "health priority",
+  stress: "stress relief",
+  family: "family priority",
+  career: "career-driving",
+  learning: "learning priority",
+  creativity: "creative project",
+};
+
 /**
  * Score a single task against the Tier 1-4 rules in the spec.
  * Higher score = more important. Tier is the lowest tier any rule placed it in.
@@ -44,6 +165,8 @@ function scoreTask(
   all: Task[],
   now: Date,
   goalsById: Map<string, Goal>,
+  priorityFocus: ImpactDim[],
+  userType: UserPrefs["userType"] | undefined,
 ): Scored {
   const reasons: string[] = [];
   let score = 0;
@@ -159,6 +282,72 @@ function scoreTask(
     );
   }
 
+  // Impact-dimension bonus — the rebalance that makes Top Three reflect
+  // max-impact / biggest-risk items rather than whatever has the soonest
+  // deadline. Each dimension this task touches contributes +260 if it's
+  // in the user's priorityFocus, +30 otherwise (small acknowledgment so a
+  // health task still beats a vague "do thing" task even when health isn't
+  // explicitly prioritised).
+  const dims = impactDimensionsFor(task, userType, avoidance, hoursLeft);
+  const focused = priorityFocus.length > 0;
+  let firstFocusReason: string | null = null;
+  for (const d of dims) {
+    const matches = priorityFocus.includes(d);
+    if (matches) {
+      score += 260;
+      promote(2);
+      if (!firstFocusReason) {
+        firstFocusReason = `matches your ${FOCUS_LABEL[d]} focus`;
+      }
+    } else if (!focused) {
+      // Neutral mode: small +30 per dimension so impact-touching tasks
+      // still rank above pure background work without distorting the
+      // existing engine for users who haven't picked focus areas.
+      score += 30;
+    }
+  }
+  // If the user picked a focus and this task hits 2+ of their picks at once,
+  // it's a "max impact" item — bonus + tier-1 promotion. This is the
+  // mechanism that lets Top Three put e.g. a financial-AND-stress item
+  // above a generic deadline.
+  if (focused) {
+    const overlap = dims.filter((d) => priorityFocus.includes(d)).length;
+    if (overlap >= 2) {
+      score += 200;
+      promote(1);
+      reasons.unshift(
+        `max impact — hits ${overlap} of your priority areas`,
+      );
+    } else if (firstFocusReason) {
+      reasons.unshift(firstFocusReason);
+    }
+  }
+
+  // Risk weighting — biggest-risk items get an extra push so Top Three is
+  // honest about consequences. "Risk" = impact × likelihood-of-missing.
+  // Likelihood proxies: overdue, near deadline, and high avoidance.
+  const isOverdue = hoursLeft !== null && hoursLeft < 0;
+  const nearDeadline = hoursLeft !== null && hoursLeft >= 0 && hoursLeft <= 48;
+  if (
+    (isOverdue || nearDeadline || avoidance >= 3) &&
+    (dims.includes("financial") ||
+      dims.includes("health") ||
+      task.urgency === "high" ||
+      task.urgency === "critical")
+  ) {
+    score += 200;
+    promote(1);
+    if (!reasons.some((r) => r.startsWith("biggest risk"))) {
+      reasons.unshift(
+        isOverdue
+          ? "biggest risk — overdue with high consequence"
+          : nearDeadline
+            ? "biggest risk — near deadline with high consequence"
+            : "biggest risk — long-avoided with high consequence",
+      );
+    }
+  }
+
   // Tier 4 baseline (household etc.) — if nothing else fired, leave as tier 4.
   if (reasons.length === 0) {
     reasons.push("background task");
@@ -186,6 +375,7 @@ export function prioritize(
 ): PrioritizedTask[] {
   const { limit = 3, now = new Date(), goals = [] } = options;
   const mode = options.prefs?.mode ?? "both";
+  const priorityFocus = (options.prefs?.priorityFocus ?? []) as ImpactDim[];
   const goalsById = new Map(goals.map((g) => [g.id, g]));
 
   const FAR_FUTURE_HOURS = 90 * 24; // 3 months
@@ -221,7 +411,9 @@ export function prioritize(
   });
 
   const scored = candidates
-    .map((t) => scoreTask(t, candidates, now, goalsById))
+    .map((t) =>
+      scoreTask(t, candidates, now, goalsById, priorityFocus, userType),
+    )
     .sort((a, b) => a.tier - b.tier || b.score - a.score);
 
   const selected: Scored[] = [];

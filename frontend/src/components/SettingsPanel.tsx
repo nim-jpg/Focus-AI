@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  PRIORITY_FOCUS_OPTIONS,
   THEMES,
   USER_TYPES,
   type Theme,
@@ -155,6 +156,55 @@ export function SettingsPanel({
               When set, the PDF planner header reads "Focus3 — &lt;name&gt;
               — Weekly Planner". Leave blank for the default header.
             </p>
+          </section>
+
+          {/* Priority focus — drives the prioritisation matrix + Top Three */}
+          <section>
+            <h4 className="text-sm font-semibold text-slate-700">
+              What matters most right now?
+            </h4>
+            <p className="mt-1 text-xs text-slate-500">
+              Pick up to 3. Top Three and the prioritisation matrix bias
+              towards tasks that touch these areas — so you see the
+              maximum-impact / biggest-risk items, not just whatever has the
+              soonest deadline. Leave empty for neutral (default) scoring.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {PRIORITY_FOCUS_OPTIONS.map((opt) => {
+                const current = prefs.priorityFocus ?? [];
+                const active = current.includes(opt.key);
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => {
+                      const next = active
+                        ? current.filter((k) => k !== opt.key)
+                        : current.length >= 3
+                          ? current
+                          : [...current, opt.key];
+                      onChange({ priorityFocus: next });
+                    }}
+                    title={opt.blurb}
+                    className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                      active
+                        ? "border-slate-900 bg-gradient-to-b from-slate-800 to-slate-900 text-white shadow-sm shadow-slate-900/20"
+                        : current.length >= 3
+                          ? "border-slate-200 bg-slate-50 text-slate-400"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+                    }`}
+                    disabled={!active && current.length >= 3}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            {(prefs.priorityFocus ?? []).length >= 3 && (
+              <p className="mt-1 text-[11px] text-slate-500">
+                Cap reached — un-tick one to swap.
+              </p>
+            )}
           </section>
 
           {/* User type — shapes how Focus3 reads your day */}

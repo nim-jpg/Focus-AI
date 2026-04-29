@@ -210,7 +210,44 @@ export interface UserPrefs {
    *  shading is suppressed and the day is treated as non-working. ISO
    *  date strings ("YYYY-MM-DD"). */
   holidayDates?: string[];
+  /** What the user wants the prioritisation engine to bias toward — pick
+   *  1-3. Empty (default) keeps the engine neutral and leans on the existing
+   *  signals (deadlines, avoidance, blockers, goals). When set, tasks
+   *  matching the chosen focus areas get a substantial "matches your
+   *  priorities" bonus so Top Three reflects max-impact / biggest-risk
+   *  items rather than whatever has the soonest deadline.
+   *  Theme mapping (handled inside prioritize.ts):
+   *    financial   → finance, theme-tagged finance work
+   *    health      → medication, fitness
+   *    stress      → tasks with high avoidance, long-overdue, blocker tasks
+   *    family      → personal items linked to a "family" / kids context
+   *    career      → work tasks (or projects when self-employed)
+   *    learning    → development, school
+   *    creativity  → projects, anything ladder-linked to a creative goal */
+  priorityFocus?: Array<
+    | "financial"
+    | "health"
+    | "stress"
+    | "family"
+    | "career"
+    | "learning"
+    | "creativity"
+  >;
 }
+
+export const PRIORITY_FOCUS_OPTIONS: Array<{
+  key: NonNullable<UserPrefs["priorityFocus"]>[number];
+  label: string;
+  blurb: string;
+}> = [
+  { key: "financial", label: "Financial", blurb: "money in, money out, tax deadlines" },
+  { key: "health", label: "Health", blurb: "medication, fitness, checkups" },
+  { key: "stress", label: "Stress relief", blurb: "long-avoided + overdue work" },
+  { key: "family", label: "Family", blurb: "kids, partner, household relationships" },
+  { key: "career", label: "Career", blurb: "your day-job and what grows it" },
+  { key: "learning", label: "Learning", blurb: "study, courses, skill-building" },
+  { key: "creativity", label: "Creativity", blurb: "side projects, building things" },
+];
 
 export const DEFAULT_PREFS: UserPrefs = {
   userType: "employee",
@@ -234,4 +271,5 @@ export const DEFAULT_PREFS: UserPrefs = {
   shadowedEventIds: [],
   shadowedSeriesIds: [],
   homeViewDays: 7,
+  priorityFocus: [],
 };

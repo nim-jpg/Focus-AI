@@ -1239,7 +1239,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       {view === "insights" && (
         <div className="space-y-8">
           <Achievements tasks={tasks} goals={goals} />
-          <PriorityMatrix tasks={tasks} onEdit={startEdit} />
+          <PriorityMatrix tasks={tasks} prefs={prefs} onEdit={startEdit} />
           <SuggestDates
             tasks={tasks}
             onApply={(id, dueDate) => updateTask(id, { dueDate })}
