@@ -24,6 +24,7 @@ export function CalendarLocationEnrich() {
     null,
   );
   const [scanned, setScanned] = useState(0);
+  const [calendarsScanned, setCalendarsScanned] = useState(0);
   const [loading, setLoading] = useState(false);
   const [busyApply, setBusyApply] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,9 +40,10 @@ export function CalendarLocationEnrich() {
     setResultMsg(null);
     setLoading(true);
     try {
-      const r = await scanAmbiguousLocations(30);
+      const r = await scanAmbiguousLocations(14);
       setCandidates(r.candidates);
       setScanned(r.scanned);
+      setCalendarsScanned(r.calendars);
       // Pre-select rows where Claude returned a confident proposal.
       // Low-confidence + null rows stay unchecked so the user has to opt in.
       const sel = new Set<string>();
@@ -75,7 +77,11 @@ export function CalendarLocationEnrich() {
     try {
       const updates = candidates
         .filter((c) => selected.has(c.id))
-        .map((c) => ({ id: c.id, location: drafts[c.id] ?? "" }))
+        .map((c) => ({
+          id: c.id,
+          calendarId: c.calendarId,
+          location: drafts[c.id] ?? "",
+        }))
         .filter((u) => u.location.trim().length > 0);
       if (updates.length === 0) {
         setError("Nothing to apply — all selected rows have empty addresses.");
@@ -156,18 +162,23 @@ export function CalendarLocationEnrich() {
 
       {candidates !== null && candidates.length === 0 && !loading && (
         <p className="text-xs text-slate-500">
-          No ambiguous locations found in the next 30 days
-          {scanned > 0 ? ` (scanned ${scanned} events).` : "."}
+          No ambiguous locations found in the next 14 days
+          {scanned > 0
+            ? ` (scanned ${scanned} event${scanned === 1 ? "" : "s"} across ${calendarsScanned} writable calendar${calendarsScanned === 1 ? "" : "s"}).`
+            : "."}
         </p>
       )}
 
       {candidates !== null && candidates.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs text-slate-500">
-            {candidates.length} event{candidates.length === 1 ? "" : "s"} have
-            a short or ambiguous location. High/medium-confidence proposals
-            from Claude are pre-selected. Edit the address inline before
-            applying — nothing's written to Google until you click Apply.
+            {candidates.length} event{candidates.length === 1 ? "" : "s"} across
+            {" "}
+            {calendarsScanned} writable calendar
+            {calendarsScanned === 1 ? "" : "s"} have a short or ambiguous
+            location. High/medium-confidence proposals from Claude are
+            pre-selected. Edit the address inline before applying — nothing's
+            written to Google until you click Apply.
           </p>
           <ul className="space-y-2">
             {candidates.map((c) => {
@@ -187,8 +198,12 @@ export function CalendarLocationEnrich() {
                       />
                       <div className="min-w-0">
                         <div className="font-medium">{c.summary}</div>
-                        <div className="text-xs text-slate-500">
-                          {fmtTime(c.start)}
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+                          <span>{fmtTime(c.start)}</span>
+                          <span aria-hidden>·</span>
+                          <span className="rounded-full border border-slate-200 bg-white px-1.5 py-0 text-[10px] text-slate-600">
+                            {c.calendarName}
+                          </span>
                         </div>
                         <div className="mt-0.5 text-xs">
                           <span className="text-slate-500">currently:</span>{" "}

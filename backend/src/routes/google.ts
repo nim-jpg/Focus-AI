@@ -520,6 +520,10 @@ googleRouter.get("/duplicates", async (req, res) => {
 // ask Claude to propose a fuller address. The user reviews + approves before
 // any writeback. Focus3 deliberately does NOT track location locally —
 // enrichment is a one-way write into Google.
+//
+// Scope: every calendar where the user has writer or owner access (so PATCH
+// can land). Read-only / freeBusy calendars are skipped because we couldn't
+// apply an update even if the user wanted one.
 googleRouter.post("/enrich-locations/scan", async (req, res) => {
   const client = await getAuthorizedClient(req.userId);
   if (!client) {
@@ -532,7 +536,7 @@ googleRouter.post("/enrich-locations/scan", async (req, res) => {
     return;
   }
   const daysForward = Math.min(
-    Math.max(Number(req.body?.daysForward ?? 30), 1),
+    Math.max(Number(req.body?.daysForward ?? 14), 1),
     180,
   );
   const from = new Date().toISOString();
@@ -541,25 +545,52 @@ googleRouter.post("/enrich-locations/scan", async (req, res) => {
   ).toISOString();
   try {
     const calendar = google.calendar({ version: "v3", auth: client });
-    const r = await calendar.events.list({
-      calendarId: "primary",
-      timeMin: from,
-      timeMax: to,
-      singleEvents: true,
-      orderBy: "startTime",
+
+    // Fetch the user's calendar list and keep only those we can write to.
+    // Google's accessRole values: "owner" | "writer" | "reader" | "freeBusyReader".
+    const calList = await calendar.calendarList.list({
       maxResults: 250,
+      showHidden: false,
     });
+    const writable = (calList.data.items ?? []).filter(
+      (c) =>
+        c.id &&
+        (c.accessRole === "owner" || c.accessRole === "writer") &&
+        c.selected !== false,
+    );
+
+    // Fetch events from each writable calendar in parallel. Skip per-calendar
+    // failures so one broken calendar doesn't block the rest.
+    const perCalendar = await Promise.all(
+      writable.map(async (cal) => {
+        try {
+          const r = await calendar.events.list({
+            calendarId: cal.id!,
+            timeMin: from,
+            timeMax: to,
+            singleEvents: true,
+            orderBy: "startTime",
+            maxResults: 250,
+          });
+          return {
+            calendarId: cal.id!,
+            calendarName: cal.summary ?? "(untitled)",
+            items: r.data.items ?? [],
+          };
+        } catch {
+          return { calendarId: cal.id!, calendarName: cal.summary ?? "(untitled)", items: [] };
+        }
+      }),
+    );
 
     type Candidate = {
       id: string;
+      calendarId: string;
+      calendarName: string;
       summary: string;
       start: string | null;
       currentLocation: string;
     };
-    // Heuristic: a location is "ambiguous" when it lacks postcode-shaped
-    // tokens AND has no comma (which usually signals a multi-line address)
-    // AND is reasonably short. UK postcode regex is permissive — Claude is
-    // the safety net for false negatives.
     const POSTCODE = /\b[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2}\b/i;
     const US_ZIP = /\b\d{5}(?:-\d{4})?\b/;
     const looksAmbiguous = (loc: string): boolean => {
@@ -574,30 +605,47 @@ googleRouter.post("/enrich-locations/scan", async (req, res) => {
       }
       return true;
     };
-    const candidates: Candidate[] = (r.data.items ?? [])
-      .filter((e) => e.id && e.summary && e.location)
-      .filter((e) => looksAmbiguous(e.location!))
-      .map((e) => ({
-        id: e.id!,
-        summary: e.summary!,
-        start: e.start?.dateTime ?? e.start?.date ?? null,
-        currentLocation: e.location!,
-      }));
+
+    let totalScanned = 0;
+    const candidates: Candidate[] = [];
+    for (const { calendarId, calendarName, items } of perCalendar) {
+      totalScanned += items.length;
+      for (const e of items) {
+        if (!e.id || !e.summary || !e.location) continue;
+        if (!looksAmbiguous(e.location)) continue;
+        candidates.push({
+          id: e.id,
+          calendarId,
+          calendarName,
+          summary: e.summary,
+          start: e.start?.dateTime ?? e.start?.date ?? null,
+          currentLocation: e.location,
+        });
+      }
+    }
 
     if (candidates.length === 0) {
-      res.json({ candidates: [], scanned: r.data.items?.length ?? 0 });
+      res.json({ candidates: [], scanned: totalScanned, calendars: writable.length });
       return;
     }
 
     // Single batched Claude call: ask for proposed full addresses for each
-    // ambiguous location. Order is preserved by `id`.
+    // ambiguous location. Order is preserved by `id` (event ids are unique
+    // across calendars in the same Google account).
     const anthropic = new Anthropic({ apiKey });
+    // Don't expose calendarId to Claude — it's irrelevant noise; the title
+    // and the location string are what matter for address lookup.
+    const claudeInput = candidates.map((c) => ({
+      id: c.id,
+      summary: c.summary,
+      currentLocation: c.currentLocation,
+    }));
     const prompt = `For each of these calendar entries, propose a likely full postal address for the place named in "currentLocation". Use the event title as context. If the place is too generic to resolve confidently (e.g. "the office", "lunch spot", a person's name), return null for that entry.
 
 Return ONLY a JSON array, same order, each item: { "id": "...", "address": "..." | null, "confidence": "high" | "medium" | "low" }.
 
 Entries:
-${JSON.stringify(candidates, null, 2)}`;
+${JSON.stringify(claudeInput, null, 2)}`;
 
     const completion = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
@@ -628,7 +676,8 @@ ${JSON.stringify(candidates, null, 2)}`;
           confidence: p?.confidence ?? "low",
         };
       }),
-      scanned: r.data.items?.length ?? 0,
+      scanned: totalScanned,
+      calendars: writable.length,
     });
   } catch (err) {
     res.status(500).json({
@@ -638,7 +687,9 @@ ${JSON.stringify(candidates, null, 2)}`;
   }
 });
 
-// Apply a batch of approved location updates back to Google.
+// Apply a batch of approved location updates back to Google. Each update
+// must include the calendarId because the same eventId only resolves
+// inside its source calendar — patching the wrong calendarId returns 404.
 googleRouter.post("/enrich-locations/apply", async (req, res) => {
   const client = await getAuthorizedClient(req.userId);
   if (!client) {
@@ -653,7 +704,8 @@ googleRouter.post("/enrich-locations/apply", async (req, res) => {
         !u ||
         typeof u !== "object" ||
         typeof u.id !== "string" ||
-        typeof u.location !== "string",
+        typeof u.location !== "string" ||
+        typeof u.calendarId !== "string",
     )
   ) {
     res.status(400).json({ error: "bad_payload" });
@@ -662,10 +714,14 @@ googleRouter.post("/enrich-locations/apply", async (req, res) => {
   const calendar = google.calendar({ version: "v3", auth: client });
   let updated = 0;
   const failures: Array<{ id: string; reason: string }> = [];
-  for (const u of updates as Array<{ id: string; location: string }>) {
+  for (const u of updates as Array<{
+    id: string;
+    calendarId: string;
+    location: string;
+  }>) {
     try {
       await calendar.events.patch({
-        calendarId: "primary",
+        calendarId: u.calendarId,
         eventId: u.id,
         requestBody: { location: u.location },
       });

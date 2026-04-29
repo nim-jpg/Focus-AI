@@ -739,11 +739,13 @@ export function SettingsPanel({
                     Enrich event locations (writes to Google)
                   </h5>
                   <p className="mt-1 text-xs text-violet-800">
-                    Scan upcoming events whose location is set to something
-                    short or ambiguous ("Costa", "office", a landmark) and ask
-                    Claude to propose a full address. Approved updates are
-                    written back to the Google event — Focus3 itself doesn't
-                    track the location.
+                    Scans the next 14 days across every Google calendar you
+                    have writer or owner access to. For events whose location
+                    is short or ambiguous ("Costa", "office", a landmark),
+                    Claude proposes a fuller address; you review per-event,
+                    edit if needed, and approved updates are written back to
+                    the Google event. Focus3 itself doesn't track the
+                    location.
                   </p>
                   <div className="mt-2">
                     <CalendarLocationEnrich />
