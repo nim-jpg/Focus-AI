@@ -62,8 +62,8 @@ export function SyncFromGoogleButton({ onAutoSync }: Props) {
         {busy ? "Syncing…" : "Sync from Google"}
       </button>
       <span className="text-slate-600">
-        Pulls actionable events as tasks, writes back fuller addresses, and
-        refreshes AI rank. Capped at 2 AI runs/day.
+        Pulls actionable events as tasks and writes back fuller addresses.
+        AI rank is a separate button — this one is uncapped.
       </span>
       {summary && (
         <span className="ml-auto rounded-full border border-emerald-300 bg-white px-2 py-0.5 text-[11px] font-medium text-emerald-800">

@@ -756,25 +756,24 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
   }, [surfacedFingerprint]);
 
   /**
-   * One-click sync: runAutoSync (Google → tasks + writeback) → refresh
-   * the local task cache → trigger AI re-rank so newly-imported events
-   * land in their right tier without a separate click.
-   *
-   * The 2x/day cap on /api/prioritize is enforced server-side; if it's
-   * already been hit, the AI re-rank silently no-ops and returns the
-   * sync result anyway. The user still sees imports + enrichment.
+   * Sync-only: runAutoSync (Google → tasks + writeback) → refresh the
+   * local task cache so newly-imported tasks appear immediately. AI
+   * re-rank is intentionally NOT chained — the user triggers that
+   * separately via "Refresh AI" on the Top Three card. Reasons:
+   *   1. Cost shape — auto-sync is cheap per-call (one Claude pass per
+   *      14-day window), AI rerank is the expensive feature, and they
+   *      have different cap policies.
+   *   2. The 2x/day cap on /api/prioritize would silently waste a slot
+   *      every time the user hit Sync, even when they didn't want a
+   *      re-rank.
+   *   3. Newly-imported tasks land in the heuristic engine immediately
+   *      anyway; AI ranking is the cherry on top, not a prerequisite.
    */
-  const handleAutoSyncAndRerank = async (): Promise<AutoSyncResult> => {
+  const handleAutoSync = async (): Promise<AutoSyncResult> => {
     const r = await runAutoSync(14);
-    // Refresh tasks from Supabase so newly-inserted ones from auto-sync
-    // are visible in the local cache before we ask the AI to rank them.
     if (r.imported > 0) {
       await refreshFromRemote();
     }
-    // Don't await the AI re-rank — let the user see the sync summary
-    // immediately. Errors (rate-limit, API errors) are swallowed so the
-    // sync UX isn't blocked by them.
-    void handleAiRefresh().catch(() => {});
     return r;
   };
 
@@ -1138,9 +1137,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               the new tasks land in their right tier immediately. Hidden
               when calendar isn't connected — user has nothing to sync. */}
           {googleStatus?.connected && (
-            <SyncFromGoogleButton
-              onAutoSync={handleAutoSyncAndRerank}
-            />
+            <SyncFromGoogleButton onAutoSync={handleAutoSync} />
           )}
 
           <WeekSchedule
