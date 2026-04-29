@@ -99,6 +99,11 @@ export interface Task {
   companyHouseNumber?: string;
   /** Optional Google Calendar event id once scheduled. */
   calendarEventId?: string;
+  /** Source calendar id for the linked event (so delete / patch hit the
+   *  right calendar, not always primary). Defaults to "primary" when
+   *  omitted — covers tasks created via the Schedule button which always
+   *  push to the user's primary calendar. */
+  calendarId?: string;
 }
 
 /** Output of the prioritization engine. */
