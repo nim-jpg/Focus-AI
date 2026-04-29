@@ -13,6 +13,11 @@ interface Props {
   onComplete: (id: string) => void;
   onIncrement: (id: string, delta: number) => void;
   onEdit?: (id: string) => void;
+  /** Hide a non-daily foundation for 1 day (sets snoozedUntil = +24h).
+   *  Daily foundations don't get the option — the action would be
+   *  identical to "skip for today" which is what tapping nothing already
+   *  does. */
+  onDefer?: (id: string) => void;
 }
 
 function chipClasses(done: boolean, overdue: boolean): string {
@@ -29,7 +34,13 @@ const SLOT_ORDER: Record<string, number> = {
   anytime: 4,
 };
 
-export function Foundations({ tasks, onComplete, onIncrement, onEdit }: Props) {
+export function Foundations({
+  tasks,
+  onComplete,
+  onIncrement,
+  onEdit,
+  onDefer,
+}: Props) {
   if (tasks.length === 0) return null;
 
   const now = new Date();
@@ -106,6 +117,17 @@ export function Foundations({ tasks, onComplete, onIncrement, onEdit }: Props) {
                     >
                       +
                     </button>
+                    {onDefer && task.recurrence !== "daily" && !done && (
+                      <button
+                        type="button"
+                        onClick={() => onDefer(task.id)}
+                        className="text-xs text-slate-400 hover:text-slate-700"
+                        aria-label={`Defer ${task.title} 1 day`}
+                        title="Defer 1 day"
+                      >
+                        ⏭
+                      </button>
+                    )}
                     {onEdit && (
                       <button
                         type="button"
@@ -148,6 +170,17 @@ export function Foundations({ tasks, onComplete, onIncrement, onEdit }: Props) {
                     <ThemeBadge theme={task.theme} />
                   </button>
                   {streakBadge}
+                  {onDefer && task.recurrence !== "daily" && !done && (
+                    <button
+                      type="button"
+                      onClick={() => onDefer(task.id)}
+                      className="text-xs text-slate-400 hover:text-slate-700"
+                      aria-label={`Defer ${task.title} 1 day`}
+                      title="Defer 1 day"
+                    >
+                      ⏭
+                    </button>
+                  )}
                   {onEdit && (
                     <button
                       type="button"
