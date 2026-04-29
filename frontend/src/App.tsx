@@ -282,12 +282,14 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     try {
       // If the task is already linked to a Google event, delete it first so
       // re-scheduling produces ONE event at the new time, not a leftover at
-      // the old time plus a fresh one. The user has been hitting this — every
-      // re-schedule was generating a duplicate.
+      // the old time plus a fresh one. Pass the source calendarId so the
+      // delete hits the right calendar — events imported from a non-primary
+      // calendar (shared / family) need explicit targeting; otherwise the
+      // delete silently 404s and the original event survives.
       if (task.calendarEventId) {
         try {
           const { deleteEvent } = await import("@/lib/googleCalendar");
-          await deleteEvent(task.calendarEventId);
+          await deleteEvent(task.calendarEventId, task.calendarId);
         } catch {
           // If the old event is already gone, fine — push the new one anyway.
         }
@@ -1413,6 +1415,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
                   editingTask.calendarEventId,
                   startIso,
                   endIso,
+                  editingTask.calendarId,
                 ).catch((err) => {
                   setCalendarMsg(
                     `Synced locally but Google update failed — ${

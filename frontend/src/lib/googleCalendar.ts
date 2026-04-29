@@ -58,9 +58,15 @@ export interface CalendarEvent {
   calendarPrimary?: boolean;
 }
 
-export async function deleteEvent(eventId: string): Promise<void> {
+export async function deleteEvent(
+  eventId: string,
+  calendarId?: string,
+): Promise<void> {
+  const params = calendarId
+    ? `?calendarId=${encodeURIComponent(calendarId)}`
+    : "";
   const res = await apiFetch(
-    `/api/google/events/${encodeURIComponent(eventId)}`,
+    `/api/google/events/${encodeURIComponent(eventId)}${params}`,
     { method: "DELETE" },
   );
   if (!res.ok) {
@@ -76,13 +82,14 @@ export async function patchEventTime(
   eventId: string,
   startIso: string,
   endIso: string,
+  calendarId?: string,
 ): Promise<void> {
   const res = await apiFetch(
     `/api/google/events/${encodeURIComponent(eventId)}`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ start: startIso, end: endIso }),
+      body: JSON.stringify({ start: startIso, end: endIso, calendarId }),
     },
   );
   if (!res.ok) {

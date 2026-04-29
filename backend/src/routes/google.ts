@@ -396,9 +396,16 @@ googleRouter.delete("/events/:id", async (req, res) => {
     res.status(400).json({ error: "missing_id" });
     return;
   }
+  // Default to "primary" so existing callers (Schedule-button created
+  // events) keep working. Imported tasks pass ?calendarId=... so we
+  // hit the calendar the event actually lives on.
+  const calendarId =
+    typeof req.query.calendarId === "string" && req.query.calendarId
+      ? req.query.calendarId
+      : "primary";
   try {
     const calendar = google.calendar({ version: "v3", auth: client });
-    await calendar.events.delete({ calendarId: "primary", eventId: id });
+    await calendar.events.delete({ calendarId, eventId: id });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({
@@ -422,15 +429,20 @@ googleRouter.patch("/events/:id", async (req, res) => {
     res.status(400).json({ error: "missing_id" });
     return;
   }
-  const { start, end } = req.body as { start?: string; end?: string };
+  const { start, end, calendarId: bodyCalId } = req.body as {
+    start?: string;
+    end?: string;
+    calendarId?: string;
+  };
   if (!start || !end) {
     res.status(400).json({ error: "missing_fields", message: "start + end required" });
     return;
   }
+  const calendarId = bodyCalId || "primary";
   try {
     const calendar = google.calendar({ version: "v3", auth: client });
     const result = await calendar.events.patch({
-      calendarId: "primary",
+      calendarId,
       eventId: id,
       requestBody: {
         start: { dateTime: start },
@@ -910,6 +922,7 @@ ${JSON.stringify(
         status: "pending",
         estimatedMinutes: ev.durationMinutes,
         calendarEventId: ev.id,
+        calendarId: ev.calendarId,
         dueDate: ev.start ?? undefined,
         createdAt: now,
         updatedAt: now,
