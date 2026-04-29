@@ -53,6 +53,7 @@ import {
   type GoogleStatus,
 } from "@/lib/googleCalendar";
 import { SyncFromGoogleButton } from "@/components/SyncFromGoogleButton";
+import { IosShell } from "@/components/ios/IosShell";
 import type { PrioritizedTask, Task } from "@/types/task";
 
 type Source = "local" | "claude";
@@ -911,6 +912,50 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
   const todayActionable = tasks.filter(
     (t) => t.recurrence !== "none" || t.status !== "completed",
   ).length;
+
+  // iOS layout — opt-in via prefs.iosLayout OR ?ui=ios in the URL.
+  // Same data hooks, same backend; just a different shell.
+  const useIosLayout =
+    prefs.iosLayout === true ||
+    (typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("ui") === "ios");
+  if (useIosLayout) {
+    return (
+      <IosShell
+        tasks={tasks}
+        goals={goals}
+        prefs={prefs}
+        prioritized={prioritized}
+        foundations={foundations}
+        aiTierMap={aiTierMap}
+        onComplete={(id) => handleTopThreeComplete(id)}
+        onToggleTask={toggleComplete}
+        onRemoveTask={removeTask}
+        onEditTask={startEdit}
+        onSchedule={openSchedulePicker}
+        onUnsnooze={(id) => updateTask(id, { snoozedUntil: undefined })}
+        onSnooze={(id, until) => updateTask(id, { snoozedUntil: until })}
+        onIncrementCounter={incrementCounter}
+        onDeferFoundation={(id) => {
+          const until = new Date();
+          until.setDate(until.getDate() + 1);
+          updateTask(id, { snoozedUntil: until.toISOString() });
+        }}
+        onAddGoal={addGoal}
+        onUpdateGoal={updateGoal}
+        onRemoveGoal={removeGoal}
+        onAddTask={() => startNew()}
+        onBrainDump={() => setShowBrainDump(true)}
+        taskCountByGoal={taskCountByGoal}
+        goalProgress={goalProgress}
+        calendarConnected={googleStatus?.connected ?? false}
+        onRefreshAi={handleAiRefresh}
+        aiBusy={loading}
+        aiRefreshTick={aiRefreshTick}
+        onExitIosLayout={() => setPrefs({ iosLayout: false })}
+      />
+    );
+  }
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-4 py-6 sm:space-y-8 sm:py-8">

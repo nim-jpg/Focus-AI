@@ -228,6 +228,10 @@ export interface UserPrefs {
    *  these events on subsequent runs, even if they still match the
    *  heuristic gate. The user can reset by clearing this list. */
   enrichmentSkippedEventIds?: string[];
+  /** Opt-in iOS-style layout: bottom tab bar, central + FAB, simplified
+   *  views. Defaults off — the desktop layout still loads. Reuses the
+   *  same data hooks + backend. Toggle from Settings. */
+  iosLayout?: boolean;
   /** What the user wants the prioritisation engine to bias toward — pick
    *  1-3. Empty (default) keeps the engine neutral and leans on the existing
    *  signals (deadlines, avoidance, blockers, goals). When set, tasks

@@ -135,6 +135,27 @@ export function SettingsPanel({
             </p>
           </section>
 
+          {/* Layout — desktop vs iOS-style. */}
+          <section>
+            <h4 className="text-sm font-semibold text-slate-700">Layout</h4>
+            <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={Boolean(prefs.iosLayout)}
+                onChange={(e) =>
+                  onChange({ iosLayout: e.target.checked })
+                }
+                className="h-4 w-4 rounded border-slate-300"
+              />
+              <span>Use iPhone-style layout (bottom tabs + central +)</span>
+            </label>
+            <p className="mt-1 text-xs text-slate-500">
+              Same data and sync — just a more thumb-friendly shell.
+              Designed for phone-first use; the desktop view stays available
+              via the "Desktop ›" link inside the iOS layout.
+            </p>
+          </section>
+
           {/* Priority focus — drives the prioritisation matrix + Top Three */}
           <section>
             <h4 className="text-sm font-semibold text-slate-700">
