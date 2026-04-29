@@ -45,6 +45,7 @@ import {
   CalendarError,
   disconnectGoogle,
   fetchGoogleStatus,
+  patchEventTime,
   runAutoSync,
   scheduleTask,
   startGoogleConnect,
@@ -1397,6 +1398,29 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           onSubmit={(input) => {
             if (editingTask) {
               updateTask(editingTask.id, input);
+              // Imported task whose due date changed → also patch the
+              // Google event so the calendar moves with the task.
+              if (
+                editingTask.calendarEventId &&
+                input.dueDate &&
+                input.dueDate !== editingTask.dueDate
+              ) {
+                const startMs = new Date(input.dueDate).getTime();
+                const dur = (input.estimatedMinutes ?? 30) * 60 * 1000;
+                const startIso = new Date(startMs).toISOString();
+                const endIso = new Date(startMs + dur).toISOString();
+                void patchEventTime(
+                  editingTask.calendarEventId,
+                  startIso,
+                  endIso,
+                ).catch((err) => {
+                  setCalendarMsg(
+                    `Synced locally but Google update failed — ${
+                      err instanceof Error ? err.message : "unknown"
+                    }`,
+                  );
+                });
+              }
             } else {
               addTaskAndEnrich(input);
             }
