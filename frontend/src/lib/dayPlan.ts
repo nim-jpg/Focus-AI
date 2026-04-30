@@ -343,3 +343,49 @@ export function autoReschedule(args: {
 
   return { updates, unplaced };
 }
+
+/**
+ * Cascading shift — moving one item later (or earlier) bumps any movable
+ * items that would now overlap with it. Fixed appointments stop the cascade
+ * dead: anything booked to a calendar stays where it is. The overlapping
+ * movable item gets pushed by the same delta the target moved by.
+ *
+ * Pushing earlier (negative delta) does NOT pull subsequent items back —
+ * "earlier" creates a gap, but yanking later items into it would surprise
+ * the user. Auto-reschedule is the right tool for re-packing.
+ *
+ * Returns one update per affected item. The caller (App.tsx) applies them
+ * via updateTask({ scheduledFor }).
+ */
+export function cascadeShift(args: {
+  items: DayItem[];
+  targetItemId: string;
+  deltaMin: number;
+}): Array<{ taskId: string; newScheduledForIso: string }> {
+  const { items, targetItemId, deltaMin } = args;
+  const sorted = [...items].sort((a, b) => a.start.getTime() - b.start.getTime());
+  const targetIdx = sorted.findIndex((i) => i.id === targetItemId);
+  if (targetIdx === -1) return [];
+  const target = sorted[targetIdx];
+  if (!target.task || target.fixed) return [];
+
+  const updates: Array<{ taskId: string; newScheduledForIso: string }> = [];
+  const targetNewStart = new Date(target.start.getTime() + deltaMin * 60_000);
+  const targetNewEnd = new Date(target.end.getTime() + deltaMin * 60_000);
+  updates.push({ taskId: target.task.id, newScheduledForIso: targetNewStart.toISOString() });
+
+  if (deltaMin > 0) {
+    let cursor = targetNewEnd;
+    for (let i = targetIdx + 1; i < sorted.length; i++) {
+      const item = sorted[i];
+      if (item.fixed) break; // hard stop — calendar appointments anchor everything after them
+      if (!item.task) continue;
+      if (item.start.getTime() >= cursor.getTime()) break; // gap — cascade ends
+      const newStart = new Date(item.start.getTime() + deltaMin * 60_000);
+      updates.push({ taskId: item.task.id, newScheduledForIso: newStart.toISOString() });
+      cursor = new Date(item.end.getTime() + deltaMin * 60_000);
+    }
+  }
+
+  return updates;
+}
