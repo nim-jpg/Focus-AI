@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Goal, PrioritizedTask, Task, UserPrefs } from "@/types/task";
 import { prioritize } from "@/lib/prioritize";
 import { fetchEvents, type CalendarEvent } from "@/lib/googleCalendar";
+import { inferTaskKind, isActionable, kindGlyph, kindLabel } from "@/lib/taskKind";
 
 type Tab = "focus" | "goals";
 
@@ -13,6 +14,17 @@ interface IosShellProps {
   foundations: Task[];
   aiTierMap?: Map<string, 1 | 2 | 3 | 4>;
   onComplete: (id: string) => void;
+  /** Outcome-aware close. Called from the Completion sheet on iOS:
+   *   - "achieved"          → outcome matched intent
+   *   - "course-corrected"  → outcome diverged; spawn followUp.title as a follow-up task
+   *   - "accepted"          → outcome diverged but the user chose to move on
+   * Implemented in App.tsx — sets resolution fields on the closed task and
+   * (for course-correct) creates the follow-up linked back to the original. */
+  onResolve: (
+    id: string,
+    resolution: "achieved" | "course-corrected" | "accepted",
+    opts?: { note?: string; followUp?: { title: string } },
+  ) => void;
   onToggleTask: (id: string) => void;
   onRemoveTask: (id: string) => void;
   onEditTask: (id: string) => void;
@@ -55,8 +67,14 @@ export function IosShell(props: IosShellProps) {
   const [tab, setTab] = useState<Tab>("focus");
   const [fabOpen, setFabOpen] = useState(false);
   const [hyperOpen, setHyperOpen] = useState(false);
+  const [completingId, setCompletingId] = useState<string | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  const completingTask = useMemo(
+    () => (completingId ? props.tasks.find((t) => t.id === completingId) : null),
+    [completingId, props.tasks],
+  );
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -120,9 +138,15 @@ export function IosShell(props: IosShellProps) {
       >
         <div key={tab} className="ios-fade-in">
           {tab === "focus" && (
-            <FocusTab {...props} onOpenHyper={() => setHyperOpen(true)} />
+            <FocusTab
+              {...props}
+              onOpenHyper={() => setHyperOpen(true)}
+              onAskComplete={(id) => setCompletingId(id)}
+            />
           )}
-          {tab === "goals" && <GoalsTab {...props} />}
+          {tab === "goals" && (
+            <GoalsTab {...props} onAskComplete={(id) => setCompletingId(id)} />
+          )}
         </div>
       </main>
 
@@ -226,6 +250,17 @@ export function IosShell(props: IosShellProps) {
         </div>
       )}
 
+      {completingTask && (
+        <CompletionSheet
+          task={completingTask}
+          onClose={() => setCompletingId(null)}
+          onResolve={(resolution, opts) => {
+            props.onResolve(completingTask.id, resolution, opts);
+            setCompletingId(null);
+          }}
+        />
+      )}
+
       {hyperOpen && (
         <HyperFocus
           tasks={props.tasks}
@@ -312,11 +347,25 @@ const TIER_COLORS: Record<1 | 2 | 3 | 4, string> = {
 };
 
 // ─── FOCUS ───────────────────────────────────────────────────────────
-function FocusTab(p: IosShellProps & { onOpenHyper: () => void }) {
+function FocusTab(p: IosShellProps & { onOpenHyper: () => void; onAskComplete: (taskId: string) => void }) {
+  // Stretch = "doable work" by kind (action / follow-up / errand / decision /
+  // communication). Appointments and habits drop out — appointments are
+  // already booked (showing up IS the work), habits live in Hyper Focus
+  // basics. Goal-link is informative for sort order but NOT a filter; a
+  // goal-less call to mum is still actionable, just less weighty.
   const stretch = useMemo(() => {
     const eight = prioritize(p.tasks, { prefs: p.prefs, limit: 8, goals: p.goals });
     const topIds = new Set(p.prioritized.map((pt) => pt.task.id));
-    return eight.filter((s) => !topIds.has(s.task.id)).slice(0, 5);
+    return eight
+      .filter((s) => !topIds.has(s.task.id))
+      .filter((s) => isActionable(s.task))
+      .sort((a, b) => {
+        // goal-aligned first within the stretch list
+        const ga = (a.task.goalIds ?? []).length > 0 ? 0 : 1;
+        const gb = (b.task.goalIds ?? []).length > 0 ? 0 : 1;
+        return ga - gb;
+      })
+      .slice(0, 5);
   }, [p.tasks, p.prefs, p.goals, p.prioritized]);
 
   const goalById = useMemo(() => {
@@ -351,7 +400,7 @@ function FocusTab(p: IosShellProps & { onOpenHyper: () => void }) {
                 task={pt.task}
                 tier={pt.tier}
                 goal={pickGoal(pt.task, goalById)}
-                onComplete={() => p.onComplete(pt.task.id)}
+                onComplete={() => p.onAskComplete(pt.task.id)}
                 onSchedule={() => p.onSchedule(pt.task.id)}
                 onEdit={() => p.onEditTask(pt.task.id)}
               />
@@ -370,7 +419,7 @@ function FocusTab(p: IosShellProps & { onOpenHyper: () => void }) {
                 task={s.task}
                 tier={s.tier}
                 goal={pickGoal(s.task, goalById)}
-                onComplete={() => p.onComplete(s.task.id)}
+                onComplete={() => p.onAskComplete(s.task.id)}
                 onEdit={() => p.onEditTask(s.task.id)}
                 onSchedule={() => p.onSchedule(s.task.id)}
               />
@@ -561,6 +610,7 @@ function CompactTopCard({
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-1">
             <Tag>{TIER_LABELS[tier]}</Tag>
+            <KindTag task={task} />
             {task.theme && task.theme !== "personal" && (
               <Tag tone="muted">{task.theme}</Tag>
             )}
@@ -631,7 +681,13 @@ function StretchRow({
           {task.title}
         </div>
         <div className="flex items-center gap-1 text-[11px]" style={{ color: "var(--ios-text-muted)" }}>
-          {task.theme && task.theme !== "personal" && <span>{task.theme}</span>}
+          <span>{kindGlyph(inferTaskKind(task))} {kindLabel(inferTaskKind(task))}</span>
+          {task.theme && task.theme !== "personal" && (
+            <>
+              <span>·</span>
+              <span>{task.theme}</span>
+            </>
+          )}
           {task.dueDate && (
             <>
               <span>·</span>
@@ -738,7 +794,7 @@ function QuickTray() {
 }
 
 // ─── GOALS TAB ───────────────────────────────────────────────────────
-function GoalsTab(p: IosShellProps) {
+function GoalsTab(p: IosShellProps & { onAskComplete: (id: string) => void }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const ignoredEvents = useMemo(
@@ -812,7 +868,7 @@ function GoalsTab(p: IosShellProps) {
             doneLast30={progress?.doneLast30 ?? 0}
             open={open}
             onToggle={() => toggle(g.id)}
-            onCompleteTask={p.onComplete}
+            onCompleteTask={p.onAskComplete}
             onScheduleTask={p.onSchedule}
             onEditTask={p.onEditTask}
           />
@@ -824,7 +880,7 @@ function GoalsTab(p: IosShellProps) {
           tasks={tasksByGoal.unlinked}
           open={expanded.has("__unlinked")}
           onToggle={() => toggle("__unlinked")}
-          onCompleteTask={p.onComplete}
+          onCompleteTask={p.onAskComplete}
           onScheduleTask={p.onSchedule}
           onEditTask={p.onEditTask}
         />
@@ -1477,6 +1533,166 @@ function Empty({ title, body }: { title: string; body: string }) {
         {body}
       </div>
     </div>
+  );
+}
+
+// ─── COMPLETION SHEET ────────────────────────────────────────────────
+//
+// Three closes per task — three button paths. Visible by design: the user
+// has to make a small judgement on every close, which is what makes this
+// more than tick-the-box. We keep the inputs lightweight (one optional
+// note, one optional follow-up title) so it stays a 2-tap close in the
+// common case.
+function CompletionSheet({
+  task,
+  onClose,
+  onResolve,
+}: {
+  task: Task;
+  onClose: () => void;
+  onResolve: (
+    resolution: "achieved" | "course-corrected" | "accepted",
+    opts?: { note?: string; followUp?: { title: string } },
+  ) => void;
+}) {
+  const [mode, setMode] = useState<"choose" | "course" | "accept">("choose");
+  const [followUp, setFollowUp] = useState("");
+  const [note, setNote] = useState("");
+
+  return (
+    <div
+      className="ios-sheet-backdrop fixed inset-0 z-40 flex items-end"
+      onClick={onClose}
+      style={{ background: "rgba(0, 0, 0, 0.6)" }}
+    >
+      <div
+        className="ios-sheet w-full"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--ios-surface)",
+          borderTopLeftRadius: "24px",
+          borderTopRightRadius: "24px",
+          padding: "12px 16px calc(env(safe-area-inset-bottom, 0) + 16px)",
+          borderTop: "1px solid var(--ios-border)",
+        }}
+      >
+        <div
+          className="mx-auto mb-3 h-1 w-10 rounded-full"
+          style={{ background: "var(--ios-border-strong)" }}
+        />
+        <div className="mb-3 px-1">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--ios-text-secondary)" }}>
+            Closing
+          </div>
+          <div className="mt-0.5 text-[15px] font-bold leading-snug" style={{ color: "var(--ios-text)" }}>
+            {task.title}
+          </div>
+          {task.intendedOutcome && (
+            <div className="mt-1.5 rounded-lg px-2.5 py-1.5 text-[12px]" style={{ background: "var(--ios-surface-elev)", color: "var(--ios-text-secondary)" }}>
+              <span style={{ color: "var(--ios-text-muted)" }}>Intended outcome: </span>
+              {task.intendedOutcome}
+            </div>
+          )}
+        </div>
+
+        {mode === "choose" && (
+          <>
+            <SheetButton
+              variant="primary"
+              onClick={() => onResolve("achieved")}
+              title="✅ Done — outcome as planned"
+              subtitle="Close clean. Counts towards goal momentum."
+            />
+            <SheetButton
+              variant="secondary"
+              onClick={() => setMode("course")}
+              title="↻ Course-correct"
+              subtitle="Outcome diverged — set a follow-up to get back on track"
+            />
+            <SheetButton
+              variant="secondary"
+              onClick={() => setMode("accept")}
+              title="🤝 Accept & close"
+              subtitle="Diverged but not worth chasing — note why & move on"
+            />
+            <SheetButton variant="cancel" onClick={onClose} title="Cancel" />
+          </>
+        )}
+
+        {mode === "course" && (
+          <>
+            <p className="mb-2 px-1 text-[12px]" style={{ color: "var(--ios-text-secondary)" }}>
+              What's the next attempt? Keep it concrete — one line is enough.
+            </p>
+            <input
+              type="text"
+              autoFocus
+              value={followUp}
+              onChange={(e) => setFollowUp(e.target.value)}
+              placeholder="e.g. Re-draft proposal with revised pricing"
+              className="mb-3 w-full rounded-xl px-3 py-3 text-[15px] outline-none"
+              style={{
+                background: "var(--ios-surface-elev)",
+                color: "var(--ios-text)",
+                border: "1px solid var(--ios-border)",
+              }}
+            />
+            <SheetButton
+              variant="primary"
+              onClick={() => {
+                const t = followUp.trim();
+                if (!t) return;
+                onResolve("course-corrected", { followUp: { title: t } });
+              }}
+              title="Create follow-up & close this"
+            />
+            <SheetButton variant="cancel" onClick={() => setMode("choose")} title="Back" />
+          </>
+        )}
+
+        {mode === "accept" && (
+          <>
+            <p className="mb-2 px-1 text-[12px]" style={{ color: "var(--ios-text-secondary)" }}>
+              One line on what happened — not punishment, just memory. Skippable.
+            </p>
+            <input
+              type="text"
+              autoFocus
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. Client moved on; not worth pursuing"
+              className="mb-3 w-full rounded-xl px-3 py-3 text-[15px] outline-none"
+              style={{
+                background: "var(--ios-surface-elev)",
+                color: "var(--ios-text)",
+                border: "1px solid var(--ios-border)",
+              }}
+            />
+            <SheetButton
+              variant="primary"
+              onClick={() =>
+                onResolve("accepted", { note: note.trim() || undefined })
+              }
+              title="Accept & close"
+            />
+            <SheetButton variant="cancel" onClick={() => setMode("choose")} title="Back" />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function KindTag({ task }: { task: Task }) {
+  const kind = inferTaskKind(task);
+  // follow-ups are the "course-corrected before" signal — make them visible
+  // so the user can see at a glance which items are second-attempts.
+  const tone = kind === "follow-up" ? "accent" : kind === "appointment" ? "muted" : "default";
+  return (
+    <Tag tone={tone}>
+      <span style={{ marginRight: 3 }}>{kindGlyph(kind)}</span>
+      {kindLabel(kind)}
+    </Tag>
   );
 }
 
