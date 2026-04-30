@@ -1,0 +1,524 @@
+import type { Task, UserPrefs } from "@/types/task";
+import type { CalendarEvent } from "./googleCalendar";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export interface BusyBlock {
+  start: number;
+  end: number;
+  /** Optional human-readable label so diagnostics can say WHAT blocked a slot. */
+  label?: string;
+}
+
+interface WorkingHours {
+  start: number; // hour 0-24
+  end: number;
+  days: number[]; // day-of-week 0=Sun..6=Sat
+  officeDays: number[];
+  commuteHours: number;
+  /** Buffer in hours around commute on office days. Slots can't sit within
+   *  this many hours of commute start/end. */
+  commuteBufferHours: number;
+  /** Wake-up hour. Earliest acceptable slot is wakeUp + 0.5 (half hour). */
+  wakeUp: number;
+  /** Bedtime hour. Latest acceptable slot is bed - 1 (one hour before bed). */
+  bed: number;
+  /** ISO date strings ("YYYY-MM-DD") the user has marked as holidays —
+   *  treated as non-working (no work-hours block, no commute, weekend
+   *  slot shape). */
+  holidayDates: Set<string>;
+}
+
+function parseHour(hhmm: string | undefined | null): number | null {
+  if (!hhmm || typeof hhmm !== "string") return null;
+  const [h, m] = hhmm.split(":").map(Number);
+  if (!Number.isFinite(h)) return null;
+  return h + (Number.isFinite(m) ? m / 60 : 0);
+}
+
+function workingHoursFromPrefs(prefs?: UserPrefs): WorkingHours {
+  // Defensive parsing — anything unparseable falls back to a sensible
+  // default. Prevents one bad pref value from collapsing the whole
+  // candidate-slot window to nothing.
+  const start = parseHour(prefs?.workingHoursStart) ?? 9;
+  const end = parseHour(prefs?.workingHoursEnd) ?? 18;
+  let wakeUp = parseHour(prefs?.wakeUpTime) ?? 7;
+  let bed = parseHour(prefs?.bedTime) ?? 23;
+  // wake == bed would be a 0-hour window. Reset to defaults to avoid an
+  // empty candidate set. wake > bed is intentionally valid — see
+  // isOutsideWakingHours for the night-owl wrap-around handling.
+  if (wakeUp === bed) {
+    wakeUp = 7;
+    bed = 23;
+  }
+  return {
+    start,
+    end,
+    days: prefs?.workingDays ?? [1, 2, 3, 4, 5],
+    officeDays: prefs?.officeDays ?? [],
+    commuteHours: (prefs?.commuteMinutes ?? 0) / 60,
+    commuteBufferHours: (prefs?.commuteBufferMinutes ?? 30) / 60,
+    wakeUp,
+    bed,
+    holidayDates: new Set(prefs?.holidayDates ?? []),
+  };
+}
+
+/**
+ * Effective bedtime in hours-from-midnight-of-wake-day. If bed is
+ * numerically <= wake, treat it as next-day (e.g. wake=10, bed=2 → 26).
+ * Used to size the candidate window correctly for night-owl schedules.
+ */
+function effectiveBedHour(wh: WorkingHours): number {
+  return wh.bed > wh.wakeUp ? wh.bed : wh.bed + 24;
+}
+
+function isoDateOf(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function isHolidayOf(date: Date, wh: WorkingHours): boolean {
+  return wh.holidayDates.has(isoDateOf(date));
+}
+
+/**
+ * Generate every legal candidate start time inside the wake → bed window
+ * for the given date, in 30-minute steps. Returns them sorted by preference:
+ *   - Working day  → evenings (after work end) first, then early-mornings
+ *                    (before work start), then anywhere else.
+ *   - Weekend / holiday → ascending time (morning first).
+ *
+ * The slot list IS the wake/bed window — every minute the user is awake is
+ * a candidate. work-hours / busy / rest-gap / past filters apply downstream.
+ */
+function preferredCandidatesFor(
+  date: Date,
+  wh: WorkingHours,
+  isHoliday = false,
+  preferredHourOrder: number[] = [],
+): Date[] {
+  const dayOfWeek = date.getDay();
+  const isWorkingDay = !isHoliday && wh.days.includes(dayOfWeek);
+  const STEP_MIN = 30;
+  // Walk wake+0.5 → effectiveBed-1 in 30-min steps. effectiveBed extends
+  // past 24h when bed wraps past midnight (night-owl schedule). setHours
+  // with hour > 23 rolls the Date forward to the next day, which is what
+  // we want — Sunday's candidate window can naturally include Mon 1am.
+  const bedH = effectiveBedHour(wh);
+  const startMin = Math.ceil((wh.wakeUp + 0.5) * 60 / STEP_MIN) * STEP_MIN;
+  const endMin = Math.floor((bedH - 1) * 60 / STEP_MIN) * STEP_MIN;
+  const out: Date[] = [];
+  for (let m = startMin; m <= endMin; m += STEP_MIN) {
+    const c = new Date(date);
+    c.setHours(Math.floor(m / 60), m % 60, 0, 0);
+    out.push(c);
+  }
+  // Habitual-time bias: if the user has run this task before, prefer
+  // candidates whose hour matches their dominant past hours. Applied AFTER
+  // the working-day / weekend ordering so it's a tiebreaker, not an
+  // override (still respects work-hours, busy, etc. downstream).
+  const preferredSet = new Set(preferredHourOrder);
+  const preferredRank = new Map(
+    preferredHourOrder.map((h, i) => [h, i]),
+  );
+
+  if (!isWorkingDay) {
+    if (preferredSet.size > 0) {
+      out.sort((a, b) => {
+        const ah = a.getHours();
+        const bh = b.getHours();
+        const aPref = preferredSet.has(ah) ? 0 : 1;
+        const bPref = preferredSet.has(bh) ? 0 : 1;
+        if (aPref !== bPref) return aPref - bPref;
+        if (aPref === 0) {
+          return (preferredRank.get(ah) ?? 99) - (preferredRank.get(bh) ?? 99);
+        }
+        return a.getTime() - b.getTime();
+      });
+    }
+    return out;
+  }
+  // Working day: bucket by relationship to work hours, prefer evenings.
+  // Within each bucket, prefer the user's habitual hours when known.
+  const workEndH = wh.end;
+  const workStartH = wh.start;
+  out.sort((a, b) => {
+    const ah = a.getHours() + a.getMinutes() / 60;
+    const bh = b.getHours() + b.getMinutes() / 60;
+    const bucket = (h: number) =>
+      h >= workEndH ? 0 : h < workStartH ? 1 : 2;
+    const ab = bucket(ah);
+    const bb = bucket(bh);
+    if (ab !== bb) return ab - bb;
+    if (preferredSet.size > 0) {
+      const aPref = preferredSet.has(a.getHours()) ? 0 : 1;
+      const bPref = preferredSet.has(b.getHours()) ? 0 : 1;
+      if (aPref !== bPref) return aPref - bPref;
+      if (aPref === 0) {
+        return (
+          (preferredRank.get(a.getHours()) ?? 99) -
+          (preferredRank.get(b.getHours()) ?? 99)
+        );
+      }
+    }
+    return a.getTime() - b.getTime();
+  });
+  return out;
+}
+
+function isWorkHours(date: Date, wh: WorkingHours): boolean {
+  if (!wh.days.includes(date.getDay())) return false;
+  // Holidays disable the work-hours block for that specific date.
+  if (isHolidayOf(date, wh)) return false;
+  const t = date.getHours() + date.getMinutes() / 60;
+  // On office days, commute + buffer extends busy windows either side.
+  const isOffice = wh.officeDays.includes(date.getDay());
+  const padding = isOffice ? wh.commuteHours + wh.commuteBufferHours : 0;
+  const startBlock = wh.start - padding;
+  const endBlock = wh.end + padding;
+  return t >= startBlock && t < endBlock;
+}
+
+function isOutsideWakingHours(date: Date, wh: WorkingHours): boolean {
+  const t = date.getHours() + date.getMinutes() / 60;
+  const wakeStart = wh.wakeUp + 0.5;
+  const bedEnd = wh.bed - 1;
+  if (wh.bed > wh.wakeUp) {
+    // Same-day window (e.g. 7am–11pm): outside if before wake or after bed.
+    return t < wakeStart || t > bedEnd;
+  }
+  // Wrap-around window (night owl, e.g. wake 10am, bed 2am next day):
+  // outside if the time falls in the GAP between bedEnd same-day and
+  // wakeStart same-day — i.e. bedEnd < t < wakeStart.
+  return t > bedEnd && t < wakeStart;
+}
+
+/**
+ * Pre-computed even-spread day patterns indexed by N. Each value is a list of
+ * day offsets from week start (0=Mon..6=Sun). Patterns chosen for:
+ *   - max gap between consecutive days (no back-to-back when avoidable)
+ *   - at least one weekend day for sanity
+ */
+const SPREAD_PATTERNS: Record<number, number[]> = {
+  1: [5],                    // Sat
+  2: [2, 5],                 // Wed, Sat
+  3: [1, 3, 5],              // Tue, Thu, Sat
+  4: [0, 2, 4, 6],           // Mon, Wed, Fri, Sun
+  5: [0, 2, 3, 5, 6],        // Mon, Wed, Thu, Sat, Sun
+  6: [0, 1, 3, 4, 5, 6],     // Mon, Tue, Thu, Fri, Sat, Sun
+  7: [0, 1, 2, 3, 4, 5, 6],
+};
+
+// Auto-schedule rule: at most one session of the same task per day.
+// Replaces the previous 16h rest-gap heuristic, which was both stricter
+// (effectively blocked back-to-back days) and less explicit.
+
+/**
+ * Suggest N session start times for the given week.
+ *
+ * Strategy:
+ *  1. Pick N days using SPREAD_PATTERNS so sessions are spread out (no
+ *     back-to-back days when avoidable).
+ *  2. For each day, try its preferred slots (weekend mornings, weekday evenings).
+ *  3. If a day has no free slot, fall back to neighbouring days.
+ *  4. Reject any candidate that lands within MIN_GAP_HOURS of an already-
+ *     placed session, or clashes with existing busy blocks.
+ */
+export interface SlotAttempt {
+  candidate: Date;
+  reason: "past" | "work-hours" | "outside-waking" | "busy" | "same-day";
+  /** When reason === "busy", the busy window that blocked it (start/end ms). */
+  conflict?: BusyBlock;
+}
+
+export interface SuggestResult {
+  slots: Date[];
+  /** Per-day attempt log — one entry per slot tried. */
+  attempts: SlotAttempt[];
+  /** Effective day-shape window used (HH:MM strings) — surfaces in
+   *  diagnostic messages so the user can see what's being applied. */
+  windowStart: string;
+  windowEnd: string;
+}
+
+function fmtHour(h: number): string {
+  // Wrap past-midnight values (e.g. 25:30) into "01:30 next day" so the
+  // diagnostic message reads naturally for night-owl schedules.
+  const wrapped = h % 24;
+  const dayLabel = h >= 24 ? " next day" : "";
+  const hh = String(Math.floor(wrapped)).padStart(2, "0");
+  const mm = String(Math.round((wrapped - Math.floor(wrapped)) * 60)).padStart(2, "0");
+  return `${hh}:${mm}${dayLabel}`;
+}
+
+export interface SuggestOptions {
+  /** Task theme — when "fitness", allows a lunch-window slot (12:00–13:30)
+   *  inside the user's work hours, on the assumption that gym/yoga can
+   *  reasonably happen on a lunch break. */
+  theme?: string;
+  /** Past sessionTimes for this task (across all of history). Used to
+   *  bias the candidate ordering toward the user's habitual time-of-day
+   *  windows so auto-schedule "learns" the rhythm they actually keep. */
+  pastSessionIsoTimes?: string[];
+}
+
+/** Find the dominant hour-bands the user has run this task in. Returns
+ *  the centre hour (0-23) of the most-used bands, in descending frequency. */
+function dominantHourBands(isoTimes: string[]): number[] {
+  if (!isoTimes || isoTimes.length === 0) return [];
+  const counts = new Array<number>(24).fill(0);
+  for (const iso of isoTimes) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) continue;
+    counts[d.getHours()] += 1;
+  }
+  // Pick all hours with at least one occurrence, sorted by frequency desc.
+  const ranked: Array<{ hour: number; n: number }> = [];
+  for (let h = 0; h < 24; h++) if (counts[h] > 0) ranked.push({ hour: h, n: counts[h] });
+  ranked.sort((a, b) => b.n - a.n);
+  return ranked.map((r) => r.hour);
+}
+
+export function suggestSessionTimes(
+  count: number,
+  durationMinutes: number,
+  weekStart: Date,
+  busy: BusyBlock[],
+  prefs?: UserPrefs,
+  options: SuggestOptions = {},
+): Date[] {
+  return suggestSessionTimesDetailed(
+    count,
+    durationMinutes,
+    weekStart,
+    busy,
+    prefs,
+    options,
+  ).slots;
+}
+
+export function suggestSessionTimesDetailed(
+  count: number,
+  durationMinutes: number,
+  weekStart: Date,
+  busy: BusyBlock[],
+  prefs?: UserPrefs,
+  options: SuggestOptions = {},
+): SuggestResult {
+  const wh = workingHoursFromPrefs(prefs);
+  if (count <= 0)
+    return {
+      slots: [],
+      attempts: [],
+      windowStart: fmtHour(wh.wakeUp + 0.5),
+      windowEnd: fmtHour(effectiveBedHour(wh) - 1),
+    };
+  const n = Math.min(count, 7);
+  const habitHourOrder = dominantHourBands(options.pastSessionIsoTimes ?? []);
+
+  const placed: Date[] = [];
+  const attempts: SlotAttempt[] = [];
+  const localBusy = [...busy];
+
+  const tryDayWithSlot = (dayOffset: number): Date | null => {
+    const date = new Date(weekStart.getTime() + dayOffset * DAY_MS);
+    const candidates = preferredCandidatesFor(
+      date,
+      wh,
+      isHolidayOf(date, wh),
+      habitHourOrder,
+    );
+    for (const candidate of candidates) {
+      if (candidate.getTime() < Date.now()) {
+        attempts.push({ candidate, reason: "past" });
+        continue;
+      }
+      // outside-waking is implicit now: candidates are generated only
+      // inside the wake/bed window. Keep the check defensively in case
+      // someone passes a custom candidate set later.
+      if (isOutsideWakingHours(candidate, wh)) {
+        attempts.push({ candidate, reason: "outside-waking" });
+        continue;
+      }
+      if (isWorkHours(candidate, wh)) {
+        // Theme exception: fitness tasks may use a lunch slot
+        // (12:00–13:30) inside work hours — gym / yoga / a walk.
+        const t = candidate.getHours() + candidate.getMinutes() / 60;
+        const isLunch = t >= 12 && t < 13.5;
+        const isFitness = options.theme === "fitness";
+        if (!(isFitness && isLunch)) {
+          attempts.push({ candidate, reason: "work-hours" });
+          continue;
+        }
+      }
+      const start = candidate.getTime();
+      const end = start + durationMinutes * 60 * 1000;
+      const conflict = localBusy.find(
+        (b) => start < b.end && end > b.start,
+      );
+      if (conflict) {
+        attempts.push({ candidate, reason: "busy", conflict });
+        continue;
+      }
+      // Never place two sessions of the same task on the same calendar
+      // day. The candidate's date is compared by toDateString to handle
+      // local-time correctly (handles DST without arithmetic).
+      const sameDay = placed.some(
+        (p) => p.toDateString() === candidate.toDateString(),
+      );
+      if (sameDay) {
+        attempts.push({ candidate, reason: "same-day" });
+        continue;
+      }
+      localBusy.push({ start, end });
+      return candidate;
+    }
+    return null;
+  };
+
+  // Build the day search order: ideal pattern first, then nearby neighbours
+  // for anything that can't be placed on its ideal day.
+  const ideal = SPREAD_PATTERNS[n] ?? [];
+  const remaining = ideal.slice();
+
+  // Pass 1: place each ideal day in order
+  for (const day of ideal) {
+    if (placed.length >= n) break;
+    const slot = tryDayWithSlot(day);
+    if (slot) {
+      placed.push(slot);
+      const idx = remaining.indexOf(day);
+      if (idx >= 0) remaining.splice(idx, 1);
+    }
+  }
+
+  // Pass 2: for each missing slot, try every other day in the week, picking
+  // the one that maximises the minimum gap to already-placed sessions.
+  const allDays = [0, 1, 2, 3, 4, 5, 6];
+  while (placed.length < n) {
+    let bestDay = -1;
+    let bestGap = -1;
+    for (const day of allDays) {
+      // Skip days whose date is already used by a placed session.
+      const dayDate = new Date(weekStart.getTime() + day * DAY_MS);
+      const used = placed.some(
+        (p) => p.toDateString() === dayDate.toDateString(),
+      );
+      if (used) continue;
+      // Compute the min gap (in days) this day would have to placed days.
+      const minDayGap = placed.length === 0
+        ? Infinity
+        : Math.min(
+            ...placed.map((p) => {
+              const pIdx = Math.floor((p.getTime() - weekStart.getTime()) / DAY_MS);
+              return Math.abs(pIdx - day);
+            }),
+          );
+      if (minDayGap > bestGap) {
+        bestGap = minDayGap;
+        bestDay = day;
+      }
+    }
+    if (bestDay < 0) break;
+    const slot = tryDayWithSlot(bestDay);
+    if (slot) placed.push(slot);
+    else {
+      // No slot on the best day; try any other day NOT already used.
+      // (We never want two placements on the same calendar day, so
+      // skip used days here too.)
+      let fallbackPlaced = false;
+      for (const day of allDays) {
+        if (day === bestDay) continue;
+        const dayDate = new Date(weekStart.getTime() + day * DAY_MS);
+        const used = placed.some(
+          (p) => p.toDateString() === dayDate.toDateString(),
+        );
+        if (used) continue;
+        const slot2 = tryDayWithSlot(day);
+        if (slot2) {
+          placed.push(slot2);
+          fallbackPlaced = true;
+          break;
+        }
+      }
+      if (!fallbackPlaced) break;
+    }
+  }
+
+  return {
+    slots: placed.sort((a, b) => a.getTime() - b.getTime()),
+    attempts,
+    windowStart: fmtHour(wh.wakeUp + 0.5),
+    windowEnd: fmtHour(effectiveBedHour(wh) - 1),
+  };
+}
+
+/**
+ * Collect all currently-busy windows for the upcoming week, from:
+ *  - Google Calendar events (passed in)
+ *  - Other tasks' scheduledFor + estimatedMinutes
+ *  - Other tasks' sessionTimes (excluding the task being scheduled itself)
+ *  - dueDates falling within the week (treated as one-hour blocks)
+ */
+export function busyWindowsForWeek(
+  weekStart: Date,
+  weekEnd: Date,
+  tasks: Task[],
+  events: CalendarEvent[],
+  excludeTaskId?: string,
+  /** Calendar IDs the user marked as "shadow" — visible but don't block. */
+  shadowCalendarIds: string[] = [],
+  /** Calendar IDs the user marked as "exclude" — also don't block. */
+  excludedCalendarIds: string[] = [],
+  /** Per-event shadow / ignore IDs — visible-but-not-blocking or hidden;
+   *  either way the user has said these don't claim their time. */
+  shadowedEventIds: string[] = [],
+  shadowedSeriesIds: string[] = [],
+  ignoredEventIds: string[] = [],
+  ignoredSeriesIds: string[] = [],
+): BusyBlock[] {
+  const busy: BusyBlock[] = [];
+  const shadowSet = new Set(shadowCalendarIds);
+  const excludedSet = new Set(excludedCalendarIds);
+  const shadowEventSet = new Set(shadowedEventIds);
+  const shadowSeriesSet = new Set(shadowedSeriesIds);
+  const ignoredEventSet = new Set(ignoredEventIds);
+  const ignoredSeriesSet = new Set(ignoredSeriesIds);
+
+  for (const ev of events) {
+    if (!ev.start || !ev.end) continue;
+    if (ev.calendarId && shadowSet.has(ev.calendarId)) continue;
+    if (ev.calendarId && excludedSet.has(ev.calendarId)) continue;
+    if (ev.id && shadowEventSet.has(ev.id)) continue;
+    if (ev.id && ignoredEventSet.has(ev.id)) continue;
+    if (ev.recurringEventId && shadowSeriesSet.has(ev.recurringEventId)) continue;
+    if (ev.recurringEventId && ignoredSeriesSet.has(ev.recurringEventId)) continue;
+    const s = new Date(ev.start).getTime();
+    const e = new Date(ev.end).getTime();
+    if (e < weekStart.getTime() || s > weekEnd.getTime()) continue;
+    busy.push({ start: s, end: e, label: ev.summary || "calendar event" });
+  }
+
+  for (const t of tasks) {
+    if (t.id === excludeTaskId) continue;
+    if (t.status === "completed") continue;
+    const dur = (t.estimatedMinutes ?? 60) * 60 * 1000;
+    if (t.scheduledFor) {
+      const s = new Date(t.scheduledFor).getTime();
+      if (s >= weekStart.getTime() && s < weekEnd.getTime()) {
+        busy.push({ start: s, end: s + dur, label: t.title });
+      }
+    }
+    for (const iso of t.sessionTimes ?? []) {
+      const s = new Date(iso).getTime();
+      if (s >= weekStart.getTime() && s < weekEnd.getTime()) {
+        busy.push({ start: s, end: s + dur, label: `${t.title} (session)` });
+      }
+    }
+  }
+
+  return busy;
+}
