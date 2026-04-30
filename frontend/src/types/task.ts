@@ -38,6 +38,31 @@ export const TIME_OF_DAY = [
 ] as const;
 export type TimeOfDay = (typeof TIME_OF_DAY)[number];
 
+/**
+ * What KIND of thing a task represents — orthogonal to theme. Drives where it
+ * surfaces (appointments don't belong on a "do work" stretch list; they're
+ * already booked) and which actions make sense (a decision needs think-time,
+ * a communication needs a recipient).
+ *
+ * - "action"        — discrete piece of work; the default
+ * - "appointment"   — booked time slot; showing up IS the action
+ * - "follow-up"     — spawned to course-correct after an earlier task closed off-target
+ * - "errand"        — small physical / fetch task ("pick up dry cleaning")
+ * - "decision"      — needs thought / choice, not hands
+ * - "communication" — call / email / reply
+ * - "habit"         — recurring foundation; lives in Hyper Focus basics
+ */
+export const TASK_KINDS = [
+  "action",
+  "appointment",
+  "follow-up",
+  "errand",
+  "decision",
+  "communication",
+  "habit",
+] as const;
+export type TaskKind = (typeof TASK_KINDS)[number];
+
 /** State for counter-style foundations (e.g. drink 8 glasses of water). */
 export interface DailyCounter {
   target: number;
@@ -104,6 +129,27 @@ export interface Task {
    *  omitted — covers tasks created via the Schedule button which always
    *  push to the user's primary calendar. */
   calendarId?: string;
+  /** Optional "what good looks like" set at task creation. When the task
+   *  is closed we compare reality to this to decide whether to course-correct
+   *  or accept the gap. Free-text on purpose — the user knows the shape. */
+  intendedOutcome?: string;
+  /** How the task was closed. "achieved" = outcome matched intent; "course-corrected"
+   *  = outcome diverged so a follow-up was spawned; "accepted" = outcome diverged but
+   *  user chose to move on without a follow-up (perseverance has a budget). */
+  resolution?: "achieved" | "course-corrected" | "accepted";
+  /** Optional one-line note captured at close — what actually happened, why we
+   *  course-corrected or accepted, what we learned. */
+  resolutionNote?: string;
+  /** ISO timestamp when resolution was recorded. */
+  resolutionAt?: string;
+  /** Task ids spawned as course-correction follow-ups when this task closed. */
+  followUpTaskIds?: string[];
+  /** When this task is itself a follow-up to another task, points back to the
+   *  original — so we can chain "we noticed it didn't work → tried again" lineage. */
+  followUpToTaskId?: string;
+  /** Task kind — set explicitly by the user, or inferred via inferTaskKind()
+   *  when omitted. Drives display + which list a task surfaces on. */
+  kind?: TaskKind;
 }
 
 /** Output of the prioritization engine. */

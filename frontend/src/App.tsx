@@ -226,6 +226,47 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     }
   };
 
+  /**
+   * Outcome-aware close. Records resolution metadata on the task and, when
+   * course-correcting, spawns a follow-up that inherits the original's goal
+   * links + theme. The follow-up holds a backref via followUpToTaskId so we
+   * can build a "perseverance lineage" view later.
+   *
+   * Note: we deliberately set resolution BEFORE toggling complete, so the
+   * resolved task carries the metadata at the moment of completion. Recurring
+   * tasks get the resolution applied to the current instance's snapshot.
+   */
+  const handleResolveTask = (
+    id: string,
+    resolution: "achieved" | "course-corrected" | "accepted",
+    opts?: { note?: string; followUp?: { title: string } },
+  ) => {
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+    updateTask(id, {
+      resolution,
+      resolutionNote: opts?.note,
+      resolutionAt: new Date().toISOString(),
+    });
+    if (resolution === "course-corrected" && opts?.followUp?.title) {
+      const followUp = addTask({
+        title: opts.followUp.title,
+        theme: task.theme,
+        urgency: task.urgency,
+        privacy: task.privacy,
+        isWork: task.isWork,
+        isBlocker: false,
+        recurrence: "none",
+        status: "pending",
+        goalIds: task.goalIds ? [...task.goalIds] : undefined,
+        kind: "follow-up",
+        followUpToTaskId: id,
+      });
+      updateTask(id, { followUpTaskIds: [...(task.followUpTaskIds ?? []), followUp.id] });
+    }
+    handleTopThreeComplete(id);
+  };
+
   // Notification ticker — runs every minute when the user has opted in.
   useEffect(() => {
     if (!prefs.notificationsEnabled) return;
@@ -929,6 +970,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         foundations={foundations}
         aiTierMap={aiTierMap}
         onComplete={(id) => handleTopThreeComplete(id)}
+        onResolve={handleResolveTask}
         onToggleTask={toggleComplete}
         onRemoveTask={removeTask}
         onEditTask={startEdit}
