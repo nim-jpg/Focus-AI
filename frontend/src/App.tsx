@@ -971,6 +971,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         aiTierMap={aiTierMap}
         onComplete={(id) => handleTopThreeComplete(id)}
         onResolve={handleResolveTask}
+        onSetScheduledFor={(taskId, iso) => updateTask(taskId, { scheduledFor: iso })}
         onToggleTask={toggleComplete}
         onRemoveTask={removeTask}
         onEditTask={startEdit}
