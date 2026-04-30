@@ -6,6 +6,7 @@ import { inferTaskKind, isActionable, kindGlyph, kindLabel } from "@/lib/taskKin
 import {
   assignDayLanes,
   autoReschedule,
+  cascadeShift,
   collectDayItems,
   type DayItem,
   type UnscheduledItem,
@@ -75,7 +76,10 @@ interface IosShellProps {
 export function IosShell(props: IosShellProps) {
   const [tab, setTab] = useState<Tab>("focus");
   const [fabOpen, setFabOpen] = useState(false);
-  const [hyperOpen, setHyperOpen] = useState(false);
+  // Hyper Focus is a 3-state machine: closed → countdown ("grab your
+  // coffee...") → open. The countdown is a deliberate ritual — gives the
+  // user a moment to land in their seat before the day plan takes over.
+  const [hyperState, setHyperState] = useState<"closed" | "countdown" | "open">("closed");
   const [completingId, setCompletingId] = useState<string | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -104,27 +108,33 @@ export function IosShell(props: IosShellProps) {
           WebkitBackdropFilter: scrolled ? "saturate(180%) blur(24px)" : "none",
         }}
       >
-        <div className="flex items-end justify-between px-6 pb-4 pt-2">
-          <div className="min-w-0 flex-1">
-            <h1
-              className="font-bold tracking-tight transition-all"
-              style={{
-                fontSize: scrolled ? "20px" : "44px",
-                lineHeight: scrolled ? "24px" : "48px",
-                letterSpacing: "-0.035em",
-                color: "var(--ios-text)",
-              }}
-            >
-              {TAB_TITLES[tab]}
-            </h1>
-            {!scrolled && (
-              <p
-                className="mt-1 text-[15px] font-medium"
-                style={{ color: "var(--ios-text-secondary)" }}
+        <div className="flex items-end justify-between gap-3 px-6 pb-4 pt-2">
+          <div className="flex min-w-0 flex-1 items-end gap-3">
+            <HyperButton
+              compact={scrolled}
+              onClick={() => setHyperState("countdown")}
+            />
+            <div className="min-w-0 flex-1">
+              <h1
+                className="font-bold tracking-tight transition-all"
+                style={{
+                  fontSize: scrolled ? "20px" : "40px",
+                  lineHeight: scrolled ? "24px" : "44px",
+                  letterSpacing: "-0.035em",
+                  color: "var(--ios-text)",
+                }}
               >
-                {TAB_SUBTITLES[tab]}
-              </p>
-            )}
+                {TAB_TITLES[tab]}
+              </h1>
+              {!scrolled && (
+                <p
+                  className="mt-1 text-[15px] font-medium"
+                  style={{ color: "var(--ios-text-secondary)" }}
+                >
+                  {TAB_SUBTITLES[tab]}
+                </p>
+              )}
+            </div>
           </div>
           <button
             type="button"
@@ -149,7 +159,6 @@ export function IosShell(props: IosShellProps) {
           {tab === "focus" && (
             <FocusTab
               {...props}
-              onOpenHyper={() => setHyperOpen(true)}
               onAskComplete={(id) => setCompletingId(id)}
             />
           )}
@@ -270,7 +279,14 @@ export function IosShell(props: IosShellProps) {
         />
       )}
 
-      {hyperOpen && (
+      {hyperState === "countdown" && (
+        <HyperCountdown
+          onDone={() => setHyperState("open")}
+          onCancel={() => setHyperState("closed")}
+        />
+      )}
+
+      {hyperState === "open" && (
         <HyperFocus
           tasks={props.tasks}
           foundations={props.foundations}
@@ -282,7 +298,7 @@ export function IosShell(props: IosShellProps) {
           onDeferFoundation={props.onDeferFoundation}
           onIncrementCounter={props.onIncrementCounter}
           onSetScheduledFor={props.onSetScheduledFor}
-          onClose={() => setHyperOpen(false)}
+          onClose={() => setHyperState("closed")}
         />
       )}
 
@@ -313,6 +329,33 @@ export function IosShell(props: IosShellProps) {
         .ios-fab { transition: transform 120ms cubic-bezier(0.32, 0.72, 0, 1); }
         .ios-fab:active { transform: scale(0.92); }
         .hyper-enter { animation: hyperEnter 320ms cubic-bezier(0.32, 0.72, 0, 1); }
+        .hyper-pulse {
+          animation: hyperPulse 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+          transition: transform 120ms cubic-bezier(0.32, 0.72, 0, 1);
+        }
+        .hyper-pulse:active { transform: scale(0.92); }
+        .hyper-tick {
+          animation: hyperTick 320ms cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes hyperPulse {
+          0%, 100% {
+            box-shadow:
+              0 0 18px rgba(0, 200, 255, 0.55),
+              0 0 36px rgba(0, 120, 255, 0.32),
+              inset 0 0 12px rgba(255,255,255,0.18);
+          }
+          50% {
+            box-shadow:
+              0 0 28px rgba(0, 220, 255, 0.85),
+              0 0 56px rgba(0, 140, 255, 0.55),
+              inset 0 0 16px rgba(255,255,255,0.28);
+          }
+        }
+        @keyframes hyperTick {
+          0% { opacity: 0; transform: scale(1.4); filter: blur(8px); }
+          40% { opacity: 1; filter: blur(0); }
+          100% { opacity: 1; transform: scale(1); }
+        }
         @keyframes iosFade {
           from { opacity: 0; transform: translateY(6px); }
           to { opacity: 1; transform: translateY(0); }
@@ -357,7 +400,7 @@ const TIER_COLORS: Record<1 | 2 | 3 | 4, string> = {
 };
 
 // ─── FOCUS ───────────────────────────────────────────────────────────
-function FocusTab(p: IosShellProps & { onOpenHyper: () => void; onAskComplete: (taskId: string) => void }) {
+function FocusTab(p: IosShellProps & { onAskComplete: (taskId: string) => void }) {
   // Stretch = "doable work" by kind (action / follow-up / errand / decision /
   // communication). Appointments and habits drop out — appointments are
   // already booked (showing up IS the work), habits live in Hyper Focus
@@ -388,8 +431,6 @@ function FocusTab(p: IosShellProps & { onOpenHyper: () => void; onAskComplete: (
 
   return (
     <div className="space-y-5 pt-3">
-      <HyperFocusPill onOpen={p.onOpenHyper} />
-
       {p.calendarConnected && (
         <CalendarStrip events={todayEvents} />
       )}
@@ -443,41 +484,108 @@ function FocusTab(p: IosShellProps & { onOpenHyper: () => void; onAskComplete: (
   );
 }
 
-function HyperFocusPill({ onOpen }: { onOpen: () => void }) {
+/**
+ * Header trigger for Hyper Focus — electric-blue glowing lightning button
+ * positioned in front of the page title. Pulses gently to invite a tap.
+ * Tap → countdown ritual (5..0) → day plan opens.
+ *
+ * Sized down when the header collapses on scroll; same trigger, smaller hit
+ * target so it doesn't crowd the compact title.
+ */
+function HyperButton({ compact, onClick }: { compact: boolean; onClick: () => void }) {
+  const size = compact ? 32 : 44;
   return (
     <button
       type="button"
-      onClick={onOpen}
-      className="flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left"
+      onClick={onClick}
+      aria-label="Enter Hyper Focus"
+      className="hyper-pulse flex flex-none items-center justify-center rounded-2xl"
       style={{
+        width: `${size}px`,
+        height: `${size}px`,
         background:
-          "linear-gradient(135deg, rgba(124, 58, 237, 0.18), rgba(236, 72, 153, 0.14))",
-        border: "1px solid rgba(167, 139, 250, 0.32)",
+          "linear-gradient(135deg, #00E5FF 0%, #0077FF 60%, #2A1FFF 100%)",
+        boxShadow:
+          "0 0 18px rgba(0, 200, 255, 0.55), 0 0 36px rgba(0, 120, 255, 0.32), inset 0 0 12px rgba(255,255,255,0.18)",
+        transition: "width 220ms cubic-bezier(0.32,0.72,0,1), height 220ms cubic-bezier(0.32,0.72,0,1)",
       }}
     >
-      <div>
+      <svg width={compact ? 16 : 22} height={compact ? 16 : 22} viewBox="0 0 24 24" fill="white">
+        <path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" />
+      </svg>
+    </button>
+  );
+}
+
+/**
+ * Pre-Hyper-Focus ritual: a 5..0 countdown with a soft prompt to grab a
+ * coffee. Slows the user down by ~6 seconds so they enter the day plan
+ * intentionally, not by accident. Each digit cross-fades + scales via the
+ * `key`-changes-on-each-tick trick.
+ */
+function HyperCountdown({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [n, setN] = useState(5);
+  useEffect(() => {
+    if (n < 0) {
+      const t = setTimeout(onDone, 350);
+      return () => clearTimeout(t);
+    }
+    const t = setTimeout(() => setN((v) => v - 1), 1000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [n]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex flex-col items-center justify-center px-6"
+      style={{
+        background:
+          "radial-gradient(ellipse at center, #001932 0%, #0B0E13 80%)",
+        paddingTop: "env(safe-area-inset-top, 0)",
+      }}
+    >
+      <button
+        type="button"
+        onClick={onCancel}
+        className="absolute right-5 top-5 rounded-full px-3 py-1.5 text-[12px] font-medium"
+        style={{
+          background: "rgba(255,255,255,0.08)",
+          color: "var(--ios-text-secondary)",
+        }}
+      >
+        Cancel
+      </button>
+
+      <div className="text-center">
         <div
-          className="text-[15px] font-bold"
-          style={{ color: "var(--ios-text)" }}
+          key={n}
+          className="hyper-tick"
+          style={{
+            fontSize: n >= 0 ? "220px" : "120px",
+            fontWeight: 900,
+            lineHeight: 1,
+            color: "#7CFFFF",
+            letterSpacing: "-0.04em",
+            textShadow:
+              "0 0 40px rgba(0, 220, 255, 0.85), 0 0 80px rgba(0, 140, 255, 0.55)",
+          }}
         >
-          Enter Hyper Focus
+          {n > 0 ? n : n === 0 ? "GO" : "GO"}
         </div>
         <div
-          className="text-[12px]"
+          className="mt-6 text-[18px] font-semibold"
+          style={{ color: "#A8D5FF", letterSpacing: "-0.01em" }}
+        >
+          Hyper Focus starting…
+        </div>
+        <div
+          className="mt-1.5 text-[14px]"
           style={{ color: "var(--ios-text-secondary)" }}
         >
-          Today's basics, the day's timeline, defer with a tap.
+          Grab your coffee — get ready.
         </div>
       </div>
-      <span
-        className="flex h-8 w-8 flex-none items-center justify-center rounded-full"
-        style={{ background: "rgba(255,255,255,0.08)" }}
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ color: "var(--ios-accent)" }}>
-          <path d="M9 6l6 6-6 6" />
-        </svg>
-      </span>
-    </button>
+    </div>
   );
 }
 
@@ -1180,8 +1288,14 @@ function HyperFocus(p: HyperFocusProps) {
 
   function handleAdjustTime(item: DayItem, deltaMin: number) {
     if (item.fixed || !item.task) return;
-    const newStart = new Date(item.start.getTime() + deltaMin * 60_000);
-    p.onSetScheduledFor(item.task.id, newStart.toISOString());
+    // Cascade subsequent movable items if pushing this one later would
+    // overlap them. Stops cold at fixed appointments. Pulling earlier
+    // doesn't cascade — that would yank items the user hasn't asked to
+    // move.
+    const updates = cascadeShift({ items, targetItemId: item.id, deltaMin });
+    for (const u of updates) {
+      p.onSetScheduledFor(u.taskId, u.newScheduledForIso);
+    }
   }
 
   const dayLabel = useMemo(() => {
@@ -1331,11 +1445,11 @@ function BasicsSection({
         Today's basics
       </h2>
       <p className="mt-0.5 text-[12px]" style={{ color: dropoutSoon ? "var(--ios-warning)" : "var(--ios-text-secondary)" }}>
-        {dropoutSoon ? "Late in the day — incomplete basics will drop out tonight" : "Tap to tick. Defer with a swipe-style button."}
+        {dropoutSoon ? "Late in the day — incomplete basics will drop out tonight" : "Quick wins. Tap a tile, deeper outcomes happen on the timeline below."}
       </p>
-      <div className="mt-3 space-y-1.5">
+      <div className="mt-3 grid grid-cols-2 gap-2.5">
         {items.map((f) => (
-          <BasicRow
+          <BasicTile
             key={f.id}
             foundation={f}
             onComplete={() => {
@@ -1353,7 +1467,62 @@ function BasicsSection({
   );
 }
 
-function BasicRow({
+/** Glyph picked for the foundation's theme — used as the tile's headline
+ *  visual. Falls back to ✓ for the "personal" / unthemed case. */
+function basicTileGlyph(t: Task): string {
+  switch (t.theme) {
+    case "medication":
+      return "💊";
+    case "fitness":
+      return "💪";
+    case "diet":
+      return "🥗";
+    case "household":
+      return "🏠";
+    case "finance":
+      return "💰";
+    case "work":
+      return "💼";
+    case "school":
+      return "📚";
+    case "development":
+      return "🚀";
+    case "projects":
+      return "🎯";
+    default:
+      return "✓";
+  }
+}
+
+/** Theme-tinted accent — sets the tile gradient + ring colour. Picked to
+ *  feel "trendy" without being loud; muted on dark, with a single coloured
+ *  edge. */
+function basicTileAccent(t: Task): string {
+  switch (t.theme) {
+    case "medication":
+      return "#EC4899";
+    case "fitness":
+      return "#10B981";
+    case "diet":
+      return "#34D399";
+    case "household":
+      return "#F59E0B";
+    case "finance":
+      return "#FACC15";
+    case "work":
+      return "#A78BFA";
+    case "school":
+      return "#60A5FA";
+    case "development":
+      return "#F472B6";
+    case "projects":
+      return "#818CF8";
+    default:
+      return "#A78BFA";
+  }
+}
+
+function BasicTile({
   foundation,
   onComplete,
   onDefer,
@@ -1363,48 +1532,87 @@ function BasicRow({
   onDefer: () => void;
 }) {
   const isCounter = !!foundation.counter;
-  const counterText =
-    isCounter && foundation.counter
-      ? `${foundation.counter.count}/${foundation.counter.target}`
-      : "";
+  const target = foundation.counter?.target ?? 0;
+  const count = foundation.counter?.count ?? 0;
+  const pct = isCounter && target > 0 ? Math.min(100, Math.round((count / target) * 100)) : 0;
+  const accent = basicTileAccent(foundation);
+  const glyph = basicTileGlyph(foundation);
+  const done = isCounter ? count >= target : foundation.status === "completed";
+
   return (
     <div
-      className="flex items-center gap-3 rounded-xl px-3 py-2.5"
-      style={{ background: "var(--ios-surface)", border: "1px solid var(--ios-border)" }}
+      className="relative overflow-hidden rounded-2xl"
+      style={{
+        height: "112px",
+        background: `linear-gradient(135deg, ${accent}1F 0%, ${accent}08 100%)`,
+        border: `1px solid ${accent}40`,
+      }}
     >
+      {/* Counter progress fill — climbs up from the bottom as the count rises. */}
+      {isCounter && (
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0"
+          style={{
+            height: `${pct}%`,
+            background: `linear-gradient(180deg, ${accent}10 0%, ${accent}30 100%)`,
+            transition: "height 280ms cubic-bezier(0.32,0.72,0,1)",
+          }}
+        />
+      )}
+
+      {/* Defer chip — top-right, tiny. */}
       <button
         type="button"
-        onClick={onComplete}
-        className="flex h-8 w-8 flex-none items-center justify-center rounded-full"
-        style={{ background: "var(--ios-success)", color: "white" }}
-        aria-label="Complete"
-      >
-        {isCounter ? (
-          <span className="text-[12px] font-bold">+1</span>
-        ) : (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12l5 5L20 7" />
-          </svg>
-        )}
-      </button>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[15px] font-semibold" style={{ color: "var(--ios-text)" }}>
-          {foundation.title}
-          {counterText && <span className="ml-2 text-[12px] font-normal" style={{ color: "var(--ios-text-muted)" }}>{counterText}</span>}
-        </div>
-        <div className="text-[11px]" style={{ color: "var(--ios-text-muted)" }}>
-          {foundation.theme && foundation.theme !== "personal" ? foundation.theme : "foundation"}
-          {foundation.recurrence && foundation.recurrence !== "none" && ` · ${foundation.recurrence}`}
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={onDefer}
-        className="flex-none rounded-md px-2 py-1 text-[11px] font-medium"
-        style={{ color: "var(--ios-text-secondary)", background: "var(--ios-surface-elev)" }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDefer();
+        }}
+        className="absolute right-1.5 top-1.5 z-10 rounded-md px-1.5 py-0.5 text-[10px] font-medium"
+        style={{
+          background: "rgba(255,255,255,0.05)",
+          color: "var(--ios-text-muted)",
+        }}
       >
         Later
       </button>
+
+      {/* Whole-tile tap target = primary action (complete / +1). */}
+      <button
+        type="button"
+        onClick={onComplete}
+        className="relative z-0 flex h-full w-full flex-col items-start justify-end px-3 pb-2.5 pt-3 text-left"
+      >
+        <div className="text-[34px] leading-none">{glyph}</div>
+        <div
+          className="mt-1.5 line-clamp-2 text-[13px] font-bold leading-tight"
+          style={{ color: "var(--ios-text)" }}
+        >
+          {foundation.title}
+        </div>
+        <div className="mt-0.5 flex items-center gap-1 text-[10px]" style={{ color: "var(--ios-text-muted)" }}>
+          {isCounter ? (
+            <span>{count}/{target}</span>
+          ) : (
+            <span>{foundation.theme && foundation.theme !== "personal" ? foundation.theme : "foundation"}</span>
+          )}
+          {foundation.recurrence && foundation.recurrence !== "none" && (
+            <>
+              <span>·</span>
+              <span>{foundation.recurrence}</span>
+            </>
+          )}
+        </div>
+      </button>
+
+      {done && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center" style={{ background: "rgba(16, 185, 129, 0.18)" }}>
+          <div className="flex h-12 w-12 items-center justify-center rounded-full" style={{ background: "var(--ios-success)", color: "white" }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12l5 5L20 7" />
+            </svg>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
