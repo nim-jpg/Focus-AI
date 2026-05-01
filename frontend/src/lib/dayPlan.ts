@@ -62,6 +62,42 @@ function sameDay(a: Date, b: Date): boolean {
   );
 }
 
+/**
+ * Heuristic: does this Google Calendar event look like a meeting or
+ * appointment that the user can't unilaterally move? Things involving
+ * other people / external venues are "fixed"; everything else (a self-
+ * scheduled focus block, a personal reminder) stays movable.
+ *
+ * Title-based because we don't fetch attendees today. False negatives
+ * are fine — the user just gets ± controls on something they could
+ * just as well leave alone. False positives are worse — we'd lock a
+ * block they need to shift — so the patterns stay opinionated and the
+ * default is movable.
+ */
+export function isLikelyAppointment(ev: CalendarEvent): boolean {
+  const title = (ev.summary ?? "").toLowerCase().trim();
+  if (!title) return false;
+  // Meeting / work-collaboration keywords
+  if (
+    /\b(meeting|call|sync|stand[- ]?up|review|interview|catch[- ]?up|all[- ]?hands|kick[- ]?off|presentation|demo|workshop|training|webinar|conf|onboarding|retro|1[: -]?on[: -]?1|1[: -]?1)\b/.test(
+      title,
+    )
+  ) {
+    return true;
+  }
+  // Appointment / external commitment keywords
+  if (
+    /\b(doctor|dentist|gp|clinic|hospital|appointment|appt|surgery|consult|consultation|specialist|therapist|physio|massage|hairdresser|barber|optometrist|optician|class|lesson|tutor|coaching|hearing)\b/.test(
+      title,
+    )
+  ) {
+    return true;
+  }
+  // "with someone" / "w/ name" suggests another person involved
+  if (/\b(with|w\/)\s+[a-z]/.test(title)) return true;
+  return false;
+}
+
 function parseHhmm(s: string | undefined, fallback: { h: number; m: number }): { h: number; m: number } {
   if (!s) return fallback;
   const m = /^(\d{1,2}):(\d{2})$/.exec(s);
@@ -90,23 +126,26 @@ export function collectDayItems(args: {
   const items: DayItem[] = [];
   const unscheduled: UnscheduledItem[] = [];
 
-  // Calendar appointments
+  // Calendar events — only meetings / external appointments lock as fixed.
+  // Self-scheduled focus blocks on the calendar stay movable; the user can
+  // shuffle them around like anything else.
   for (const ev of events) {
     if (!ev.start || ev.allDay) continue;
     const start = new Date(ev.start);
     if (Number.isNaN(start.getTime())) continue;
     const end = ev.end ? new Date(ev.end) : new Date(start.getTime() + 60 * 60_000);
     if (!sameDay(start, day)) continue;
+    const fixed = isLikelyAppointment(ev);
     items.push({
       id: `cal:${ev.id}`,
       source: "calendar",
-      fixed: true,
+      fixed,
       title: ev.summary || "(no title)",
       start,
       end,
       event: ev,
-      accent: ev.calendarColor || "#A78BFA",
-      kindGlyph: "📅",
+      accent: ev.calendarColor || (fixed ? "#94A3B8" : "#A78BFA"),
+      kindGlyph: fixed ? "📅" : "🕓",
     });
   }
 
@@ -123,10 +162,11 @@ export function collectDayItems(args: {
         items.push({
           id: `task:${t.id}`,
           source: "task",
-          // If the task is also linked to a Google event, treat that as the
-          // source of truth — i.e. fixed. Otherwise it's a Focus3 item that
-          // the user can shuffle.
-          fixed: !!t.calendarEventId,
+          // Tasks ARE the user's own work — even if pushed to Google
+          // Calendar, they remain movable. Only events that look like
+          // meetings/appointments (handled in the events loop above)
+          // get the fixed treatment.
+          fixed: false,
           title: t.title,
           start,
           end,
@@ -146,7 +186,7 @@ export function collectDayItems(args: {
         items.push({
           id: `session:${t.id}:${i}`,
           source: "session",
-          fixed: !!t.calendarEventId,
+          fixed: false,
           title: `${t.title} · session ${i + 1}`,
           start,
           end: new Date(start.getTime() + dur),
@@ -272,23 +312,15 @@ export function autoReschedule(args: {
     };
   }
 
-  // Build "pending" list: movable items whose end is in the past (overdue
-  // for today) PLUS the unscheduled bucket. Items that are fixed or already
-  // scheduled in the future stay where they are.
+  // Build "pending" list. Crucially we do NOT pull overdue items into this
+  // pool — the user's intent is to actually tick those off, not have them
+  // silently shuffled forward. They stay where they were so they keep
+  // showing up as "still on the list". Only truly-unscheduled items
+  // (dueDate today, no slot) get auto-placed into gaps.
+  //
+  // If the user wants an overdue item moved, the right tool is the ±15/±60
+  // shift (with cascade) or marking it deferred / cancelled / done.
   const pending: Array<{ taskId: string; minutes: number; sortKey: number }> = [];
-  for (const item of items) {
-    if (item.fixed) continue;
-    if (item.source === "foundation") continue; // foundations have specific times by design
-    if (!item.task) continue;
-    if (item.end.getTime() < from.getTime()) {
-      const minutes = Math.max(15, Math.round((item.end.getTime() - item.start.getTime()) / 60_000));
-      pending.push({
-        taskId: item.task.id,
-        minutes,
-        sortKey: minutes, // largest first
-      });
-    }
-  }
   for (const u of unscheduled) {
     pending.push({ taskId: u.task.id, minutes: u.estimatedMinutes, sortKey: u.estimatedMinutes });
   }
