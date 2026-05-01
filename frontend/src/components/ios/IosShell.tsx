@@ -2895,7 +2895,7 @@ function LaneCard({
           >
             {item.title}
           </div>
-          {!item.fixed && (
+          {!item.fixed && item.task && (
             <button
               type="button"
               onClick={(e) => {
