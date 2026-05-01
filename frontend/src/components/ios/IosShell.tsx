@@ -2697,6 +2697,114 @@ function RiverGroup({
   );
 }
 
+/**
+ * Vertical shift track — Design C from the picker.
+ *
+ * Sits down the side opposite the centre spine. Top half is "earlier",
+ * bottom half is "later" — tap once for ±15, hold for ±60. The
+ * direction of movement matches the spatial intuition of the timeline:
+ * tap up to push the card up (earlier), tap down to push it down
+ * (later in the day).
+ *
+ * Long-press detection: pointerdown starts a 400ms timer that fires
+ * the ±60 shift; pointerup before the timer fires the ±15 shift; if
+ * the user drags off the button (pointerleave) we cancel without
+ * firing anything.
+ */
+function ShiftTrack({
+  side,
+  onShift,
+}: {
+  side: "left" | "right";
+  onShift: (deltaMin: number) => void;
+}) {
+  const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firedLongRef = useRef(false);
+
+  function bind(deltaShort: number, deltaLong: number) {
+    return {
+      onPointerDown: (e: React.PointerEvent) => {
+        e.stopPropagation();
+        firedLongRef.current = false;
+        longPressRef.current = setTimeout(() => {
+          firedLongRef.current = true;
+          onShift(deltaLong);
+          longPressRef.current = null;
+        }, 400);
+      },
+      onPointerUp: (e: React.PointerEvent) => {
+        e.stopPropagation();
+        if (longPressRef.current) {
+          clearTimeout(longPressRef.current);
+          longPressRef.current = null;
+          if (!firedLongRef.current) onShift(deltaShort);
+        }
+      },
+      onPointerLeave: () => {
+        if (longPressRef.current) {
+          clearTimeout(longPressRef.current);
+          longPressRef.current = null;
+        }
+      },
+      onPointerCancel: () => {
+        if (longPressRef.current) {
+          clearTimeout(longPressRef.current);
+          longPressRef.current = null;
+        }
+      },
+    };
+  }
+
+  return (
+    <div
+      className="pointer-events-none absolute bottom-3 top-1.5 flex flex-col"
+      style={{
+        [side]: 2,
+        width: 18,
+      }}
+    >
+      <button
+        type="button"
+        {...bind(-15, -60)}
+        className="pointer-events-auto flex flex-1 items-start justify-center pt-0.5"
+        style={{
+          color: "var(--ios-text-secondary)",
+          background:
+            "linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.0))",
+          borderRadius: "6px 6px 0 0",
+        }}
+        aria-label="Earlier — tap −15, hold for −60"
+        title="Earlier · tap −15 · hold −60"
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 15l6-6 6 6" />
+        </svg>
+      </button>
+      <span
+        className="mx-auto h-[1px] w-2/3"
+        style={{ background: "rgba(255,255,255,0.10)" }}
+      />
+      <button
+        type="button"
+        {...bind(15, 60)}
+        className="pointer-events-auto flex flex-1 items-end justify-center pb-0.5"
+        style={{
+          color: "var(--ios-text-secondary)",
+          background:
+            "linear-gradient(0deg, rgba(255,255,255,0.06), rgba(255,255,255,0.0))",
+          borderRadius: "0 0 6px 6px",
+        }}
+        aria-label="Later — tap +15, hold for +60"
+        title="Later · tap +15 · hold +60"
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 /** A card sat in its lane (left, right, or one of N concurrents). Lean,
  *  half-width-ish since we run two columns. The complete tick is the
  *  loudest control — ticking off is the primary action. ±15/±60 do the
@@ -2784,6 +2892,11 @@ function LaneCard({
   const textAlign =
     align === "right" ? "right" : align === "left" ? "left" : "center";
   const showShiftControls = !item.fixed && item.task && !(past && !done);
+  // Vertical shift track sits OPPOSITE the centre spine so it doesn't
+  // crowd the timeline. Left-of-spine cards (align=right) get a track
+  // on the LEFT edge; right-of-spine cards (align=left) on the RIGHT.
+  // Centred / fixed cards default to the right edge.
+  const trackSide: "left" | "right" = align === "right" ? "left" : "right";
 
   return (
     <div
@@ -2796,6 +2909,9 @@ function LaneCard({
         opacity: cardOpacity,
         // Bottom padding leaves room for the protruding ±5 duration chip.
         paddingBottom: !item.fixed && item.task && item.source !== "foundation" ? 14 : 0,
+        // Side padding leaves room for the vertical shift track.
+        paddingLeft: showShiftControls && trackSide === "left" ? 20 : 0,
+        paddingRight: showShiftControls && trackSide === "right" ? 20 : 0,
         boxShadow: cardGlow,
       }}
     >
@@ -2943,16 +3059,15 @@ function LaneCard({
             </button>
           </div>
         )}
-        {showShiftControls && (
-          <div className="mt-1.5 flex items-center gap-0.5">
-            <FineTuneButton onClick={() => onAdjust(-60)} label="−60" />
-            <FineTuneButton onClick={() => onAdjust(-15)} label="−15" />
-            <span className="flex-1" />
-            <FineTuneButton onClick={() => onAdjust(15)} label="+15" />
-            <FineTuneButton onClick={() => onAdjust(60)} label="+60" />
-          </div>
-        )}
       </div>
+
+      {/* Vertical shift track — design C. Top half = move start earlier
+          (card visually rises on the timeline). Bottom half = move
+          later (card drops). Tap = ±15, hold ≥400ms = ±60. Sits on
+          the side opposite the centre spine. */}
+      {showShiftControls && (
+        <ShiftTrack side={trackSide} onShift={onAdjust} />
+      )}
 
       {/* ±5 duration chip — half-protruding outside the bottom-centre
           border. Duration label sits BETWEEN the −5 and +5 buttons so
@@ -3003,24 +3118,6 @@ function LaneCard({
         </div>
       )}
     </div>
-  );
-}
-
-function FineTuneButton({ onClick, label }: { onClick: () => void; label: string }) {
-  // Lower-weight inline control — feels like a text adjuster, not a button.
-  // Rests muted; lights up on tap. No background, no border.
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      className="fine-tune px-1 text-[10px] font-semibold tabular-nums leading-none"
-      style={{ color: "rgba(255, 255, 255, 0.45)" }}
-    >
-      {label}
-    </button>
   );
 }
 
