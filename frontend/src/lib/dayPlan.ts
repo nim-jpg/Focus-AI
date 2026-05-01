@@ -63,38 +63,42 @@ function sameDay(a: Date, b: Date): boolean {
 }
 
 /**
- * Heuristic: does this Google Calendar event look like a meeting or
- * appointment that the user can't unilaterally move? Things involving
- * other people / external venues are "fixed"; everything else (a self-
- * scheduled focus block, a personal reminder) stays movable.
+ * Heuristic: does this Google Calendar event look like a third-party
+ * appointment we genuinely can't shift unilaterally? Conservative on
+ * purpose — the prior pattern caught too many false positives ("contact
+ * British Gas" / "resolve account with Apple" got locked because of the
+ * `with` and `call` patterns). Default is movable; we only lock things
+ * that read unmistakably as a booking with another person or place.
  *
- * Title-based because we don't fetch attendees today. False negatives
- * are fine — the user just gets ± controls on something they could
- * just as well leave alone. False positives are worse — we'd lock a
- * block they need to shift — so the patterns stay opinionated and the
- * default is movable.
+ * False negatives (a real meeting that doesn't match) are fine — the
+ * user just gets the ± controls and can ignore them. False positives
+ * (locking work that should be flexible) are bad — they break the
+ * core flow.
+ *
+ * When attendees come through the API, switch to using that signal
+ * instead and drop this heuristic to a fallback.
  */
 export function isLikelyAppointment(ev: CalendarEvent): boolean {
   const title = (ev.summary ?? "").toLowerCase().trim();
   if (!title) return false;
-  // Meeting / work-collaboration keywords
+  // Tightly-scoped meeting formats — strong signal that another person
+  // owns the slot too. We deliberately drop generic "call" and "with X"
+  // matches because they're verbs the user uses in their own task titles.
   if (
-    /\b(meeting|call|sync|stand[- ]?up|review|interview|catch[- ]?up|all[- ]?hands|kick[- ]?off|presentation|demo|workshop|training|webinar|conf|onboarding|retro|1[: -]?on[: -]?1|1[: -]?1)\b/.test(
+    /\b(1[: -]?on[: -]?1|1[: -]?1|stand[- ]?up|interview|all[- ]?hands|kick[- ]?off|kickoff|retro|all hands)\b/.test(
       title,
     )
   ) {
     return true;
   }
-  // Appointment / external commitment keywords
+  // Health appointments — these almost always involve a clinician.
   if (
-    /\b(doctor|dentist|gp|clinic|hospital|appointment|appt|surgery|consult|consultation|specialist|therapist|physio|massage|hairdresser|barber|optometrist|optician|class|lesson|tutor|coaching|hearing)\b/.test(
+    /\b(doctor appointment|dentist appointment|gp appointment|clinic appointment|hospital appointment|specialist appointment|consultation|surgery (visit|consultation)|therapist appointment|physio appointment|hairdresser|barber|optometrist|optician)\b/.test(
       title,
     )
   ) {
     return true;
   }
-  // "with someone" / "w/ name" suggests another person involved
-  if (/\b(with|w\/)\s+[a-z]/.test(title)) return true;
   return false;
 }
 

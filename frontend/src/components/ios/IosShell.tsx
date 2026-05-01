@@ -362,6 +362,10 @@ export function IosShell(props: IosShellProps) {
           100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
         .now-pulse { animation: nowOpacity 1.8s ease-in-out infinite; }
+        @keyframes centreDotPulse {
+          0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+          50% { transform: translate(-50%, -50%) scale(1.35); opacity: 0.7; }
+        }
         @keyframes nowOpacity {
           0%, 100% { opacity: 0.85; }
           50% { opacity: 1; }
@@ -1735,35 +1739,20 @@ function BasicTile({
         />
       )}
 
-      {/* Tick box top-right — primary affordance. Empty when pending,
-          filled white-on-dark when ticked. */}
+      {/* Whole tile is the tap target — completes the foundation or +1's
+          the counter. No separate tick box: the visual feedback is the
+          tile dimming and the counter fill rising. The user said they'll
+          tick foundations themselves through interaction; cleaner without
+          the explicit checkbox affordance. */}
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
           onComplete();
         }}
-        className="absolute right-2 top-2 z-10 flex h-[18px] w-[18px] items-center justify-center rounded-[4px]"
-        style={{
-          background: done ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.04)",
-          border: done
-            ? "1px solid rgba(255, 255, 255, 0.95)"
-            : "1px solid rgba(255, 255, 255, 0.55)",
-          color: done ? "#0B0E13" : "var(--ios-text)",
-          boxShadow: done
-            ? "0 0 10px rgba(255, 255, 255, 0.45)"
-            : "0 0 6px rgba(255, 255, 255, 0.32)",
-        }}
-        aria-label={done ? "Done — tap to undo" : isCounter ? "Add one" : "Tick off"}
+        className="relative z-0 flex w-full items-center gap-2 px-2.5 py-2 pr-9 text-left"
+        aria-label={done ? "Done" : isCounter ? "Add one" : "Mark done"}
       >
-        {done && (
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12l5 5L20 7" />
-          </svg>
-        )}
-      </button>
-
-      <div className="relative z-0 flex items-center gap-2 px-2.5 py-2 pr-9">
         <span className="flex-none text-[20px] leading-none">{glyph}</span>
         <div className="min-w-0 flex-1">
           <div
@@ -1789,10 +1778,9 @@ function BasicTile({
             )}
           </div>
         </div>
-      </div>
+      </button>
 
-      {/* Defer — tiny corner chip. Long-tap-friendly; doesn't compete with the
-          tick visually. */}
+      {/* Defer — tiny corner chip. */}
       <button
         type="button"
         onClick={(e) => {
@@ -1938,7 +1926,7 @@ function DayRiver({
             className="text-[22px] font-bold tracking-tight"
             style={{ color: "var(--ios-text)", letterSpacing: "-0.02em" }}
           >
-            Day's Focus
+            Focus
           </h2>
           <p
             className="mt-0.5 text-[12px]"
@@ -2107,9 +2095,8 @@ function TomorrowPreview({
     [items],
   );
 
-  const showFromHour = 16; // 4pm — start showing the next-day preview
-  const isLateEnough = new Date().getHours() >= showFromHour;
-  if (!isLateEnough) return null;
+  // Always show when there's something to glimpse — sits at the bottom
+  // of today so the user can prep mentally before tomorrow lands.
   if (previewItems.length === 0) return null;
 
   return (
@@ -2403,14 +2390,18 @@ function LaneCard({
         boxShadow: cardGlow,
       }}
     >
+      {/* In-progress indicator — centred along the top edge, a small
+          pulsing dot. Reads as "this is the live one" without dominating
+          the card layout from the side. */}
       {isCurrent && (
         <span
-          className="pointer-events-none absolute -left-0.5 -top-0.5 -bottom-0.5 w-[3px]"
+          className="pointer-events-none absolute left-1/2 top-0 h-[6px] w-[6px] -translate-x-1/2 -translate-y-1/2 rounded-full"
           style={{
-            background: `linear-gradient(180deg, ${accent}, ${accent}80)`,
-            boxShadow: `0 0 8px ${accent}cc`,
-            animation: "iosNowPulse 1.8s ease-in-out infinite",
+            background: accent,
+            boxShadow: `0 0 10px ${accent}, 0 0 18px ${accent}80`,
+            animation: "centreDotPulse 1.6s ease-in-out infinite",
           }}
+          aria-label="In progress"
         />
       )}
       <div className="px-2.5 py-2">
@@ -2443,44 +2434,68 @@ function LaneCard({
           {item.source !== "calendar" && item.kindGlyph && (
             <span className="text-[11px]">{item.kindGlyph}</span>
           )}
-          {item.fixed ? (
-            <span
-              className="ml-auto inline-flex items-center gap-1 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-[0.08em]"
-              style={{
-                background: "rgba(148, 163, 184, 0.18)",
-                color: "var(--ios-text-muted)",
-              }}
-              title="Meeting / appointment — managed externally"
-            >
-              <svg width="7" height="7" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5Zm-3 8V6a3 3 0 1 1 6 0v3H9Z" />
-              </svg>
-              fixed
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={onComplete}
-              className="ml-auto flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[4px]"
-              style={{
-                background: done ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.04)",
-                border: done
-                  ? "1px solid rgba(255, 255, 255, 0.95)"
-                  : "1px solid rgba(255, 255, 255, 0.55)",
-                color: done ? "#0B0E13" : "var(--ios-text)",
-                boxShadow: done
-                  ? "0 0 10px rgba(255, 255, 255, 0.45)"
-                  : "0 0 8px rgba(255, 255, 255, 0.32), inset 0 0 4px rgba(255, 255, 255, 0.08)",
-              }}
-              aria-label={done ? "Done — tap to undo" : "Tick off"}
-            >
-              {done && (
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M5 12l5 5L20 7" />
+          <div className="ml-auto flex items-center gap-1">
+            {item.source === "calendar" && item.event?.htmlLink && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.open(item.event!.htmlLink!, "_blank", "noopener,noreferrer");
+                }}
+                className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[4px]"
+                style={{
+                  background: "rgba(255, 255, 255, 0.04)",
+                  border: "1px solid rgba(255, 255, 255, 0.18)",
+                  color: "var(--ios-text-secondary)",
+                }}
+                title="Edit in Google Calendar"
+                aria-label="Edit in Google Calendar"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z" />
                 </svg>
-              )}
-            </button>
-          )}
+              </button>
+            )}
+            {item.fixed ? (
+              <span
+                className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-[0.08em]"
+                style={{
+                  background: "rgba(148, 163, 184, 0.18)",
+                  color: "var(--ios-text-muted)",
+                }}
+                title="Meeting / appointment — managed externally"
+              >
+                <svg width="7" height="7" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5Zm-3 8V6a3 3 0 1 1 6 0v3H9Z" />
+                </svg>
+                fixed
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={onComplete}
+                className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[4px]"
+                style={{
+                  background: done ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.04)",
+                  border: done
+                    ? "1px solid rgba(255, 255, 255, 0.95)"
+                    : "1px solid rgba(255, 255, 255, 0.55)",
+                  color: done ? "#0B0E13" : "var(--ios-text)",
+                  boxShadow: done
+                    ? "0 0 10px rgba(255, 255, 255, 0.45)"
+                    : "0 0 8px rgba(255, 255, 255, 0.32), inset 0 0 4px rgba(255, 255, 255, 0.08)",
+                }}
+                aria-label={done ? "Done — tap to undo" : "Tick off"}
+              >
+                {done && (
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12l5 5L20 7" />
+                  </svg>
+                )}
+              </button>
+            )}
+          </div>
         </div>
 
         <div
