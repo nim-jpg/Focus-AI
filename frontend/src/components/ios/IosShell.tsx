@@ -108,44 +108,41 @@ export function IosShell(props: IosShellProps) {
         }}
       >
         <div className="flex items-end justify-between gap-3 px-6 pb-4 pt-2">
-          <div className="flex min-w-0 flex-1 items-end gap-3">
-            <HyperButton
-              compact={scrolled}
-              onClick={() => setHyperState("countdown")}
-            />
-            <div className="min-w-0 flex-1">
-              <h1
-                className="font-bold tracking-tight transition-all"
-                style={{
-                  fontSize: scrolled ? "20px" : "40px",
-                  lineHeight: scrolled ? "24px" : "44px",
-                  letterSpacing: "-0.035em",
-                  color: "var(--ios-text)",
-                }}
+          <div className="min-w-0 flex-1">
+            <h1
+              className="font-bold tracking-tight transition-all"
+              style={{
+                fontSize: scrolled ? "20px" : "40px",
+                lineHeight: scrolled ? "24px" : "44px",
+                letterSpacing: "-0.035em",
+                color: "var(--ios-text)",
+              }}
+            >
+              {TAB_TITLES[tab]}
+            </h1>
+            {!scrolled && (
+              <p
+                className="mt-1 text-[15px] font-medium"
+                style={{ color: "var(--ios-text-secondary)" }}
               >
-                {TAB_TITLES[tab]}
-              </h1>
-              {!scrolled && (
-                <p
-                  className="mt-1 text-[15px] font-medium"
-                  style={{ color: "var(--ios-text-secondary)" }}
-                >
-                  {TAB_SUBTITLES[tab]}
-                </p>
-              )}
-            </div>
+                {TAB_SUBTITLES[tab]}
+              </p>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={props.onExitIosLayout}
-            className="-mr-1 inline-flex h-8 items-center rounded-full px-3 text-[12px] font-medium"
-            style={{
-              color: "var(--ios-accent)",
-              background: "var(--ios-accent-soft)",
-            }}
-          >
-            Desktop
-          </button>
+          <div className="flex flex-none items-center gap-2">
+            <HyperLaunchButton onClick={() => setHyperState("countdown")} />
+            <button
+              type="button"
+              onClick={props.onExitIosLayout}
+              className="-mr-1 inline-flex h-8 items-center rounded-full px-3 text-[12px] font-medium"
+              style={{
+                color: "var(--ios-accent)",
+                background: "var(--ios-accent-soft)",
+              }}
+            >
+              Desktop
+            </button>
+          </div>
         </div>
       </header>
 
@@ -328,26 +325,25 @@ export function IosShell(props: IosShellProps) {
         .ios-fab { transition: transform 120ms cubic-bezier(0.32, 0.72, 0, 1); }
         .ios-fab:active { transform: scale(0.92); }
         .hyper-enter { animation: hyperEnter 320ms cubic-bezier(0.32, 0.72, 0, 1); }
-        .hyper-pulse {
-          animation: hyperPulse 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        .hyper-launch {
+          animation: hyperLaunchPulse 2.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
           transition: transform 120ms cubic-bezier(0.32, 0.72, 0, 1);
         }
-        .hyper-pulse:active { transform: scale(0.92); }
+        .hyper-launch:active { transform: scale(0.94); }
         .hyper-tick {
           animation: hyperTick 320ms cubic-bezier(0.16, 1, 0.3, 1);
         }
-        @keyframes hyperPulse {
+        @keyframes hyperLaunchPulse {
           0%, 100% {
             box-shadow:
-              0 0 18px rgba(0, 200, 255, 0.55),
-              0 0 36px rgba(0, 120, 255, 0.32),
-              inset 0 0 12px rgba(255,255,255,0.18);
+              0 0 10px rgba(0, 200, 255, 0.35),
+              inset 0 0 6px rgba(0, 200, 255, 0.10);
           }
           50% {
             box-shadow:
-              0 0 28px rgba(0, 220, 255, 0.85),
-              0 0 56px rgba(0, 140, 255, 0.55),
-              inset 0 0 16px rgba(255,255,255,0.28);
+              0 0 18px rgba(0, 220, 255, 0.65),
+              0 0 36px rgba(0, 140, 255, 0.30),
+              inset 0 0 10px rgba(0, 220, 255, 0.20);
           }
         }
         @keyframes hyperTick {
@@ -489,34 +485,29 @@ function FocusTab(p: IosShellProps & { onAskComplete: (taskId: string) => void }
 }
 
 /**
- * Header trigger for Hyper Focus — electric-blue glowing lightning button
- * positioned in front of the page title. Pulses gently to invite a tap.
- * Tap → countdown ritual (5..0) → day plan opens.
- *
- * Sized down when the header collapses on scroll; same trigger, smaller hit
- * target so it doesn't crowd the compact title.
+ * Header trigger for Hyper Focus — text-led pill reading "HYPER" in
+ * electric cyan, sat top-right next to the Desktop button. Wide letter-
+ * spacing + soft pulse on the glow makes it feel like a system-mode toggle
+ * rather than a content link. Tapping launches the countdown ritual which
+ * brands the mode as HYPERFOCUS.
  */
-function HyperButton({ compact, onClick }: { compact: boolean; onClick: () => void }) {
-  const size = compact ? 32 : 44;
+function HyperLaunchButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-label="Enter Hyper Focus"
-      className="hyper-pulse flex flex-none items-center justify-center rounded-2xl"
+      aria-label="Launch Hyperfocus"
+      className="hyper-launch inline-flex h-8 items-center rounded-full px-3 text-[11px] font-black"
       style={{
-        width: `${size}px`,
-        height: `${size}px`,
         background:
-          "linear-gradient(135deg, #00E5FF 0%, #0077FF 60%, #2A1FFF 100%)",
-        boxShadow:
-          "0 0 18px rgba(0, 200, 255, 0.55), 0 0 36px rgba(0, 120, 255, 0.32), inset 0 0 12px rgba(255,255,255,0.18)",
-        transition: "width 220ms cubic-bezier(0.32,0.72,0,1), height 220ms cubic-bezier(0.32,0.72,0,1)",
+          "linear-gradient(135deg, rgba(0, 229, 255, 0.16), rgba(0, 119, 255, 0.16))",
+        color: "#7CFFFF",
+        border: "1px solid rgba(0, 229, 255, 0.55)",
+        letterSpacing: "0.18em",
+        textShadow: "0 0 8px rgba(0, 229, 255, 0.55)",
       }}
     >
-      <svg width={compact ? 16 : 22} height={compact ? 16 : 22} viewBox="0 0 24 24" fill="white">
-        <path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" />
-      </svg>
+      HYPER
     </button>
   );
 }
@@ -562,6 +553,16 @@ function HyperCountdown({ onDone, onCancel }: { onDone: () => void; onCancel: ()
 
       <div className="text-center">
         <div
+          className="mb-4 text-[14px] font-black"
+          style={{
+            color: "#7CFFFF",
+            letterSpacing: "0.32em",
+            textShadow: "0 0 12px rgba(0, 220, 255, 0.6)",
+          }}
+        >
+          HYPERFOCUS
+        </div>
+        <div
           key={n}
           className="hyper-tick"
           style={{
@@ -574,13 +575,13 @@ function HyperCountdown({ onDone, onCancel }: { onDone: () => void; onCancel: ()
               "0 0 40px rgba(0, 220, 255, 0.85), 0 0 80px rgba(0, 140, 255, 0.55)",
           }}
         >
-          {n > 0 ? n : n === 0 ? "GO" : "GO"}
+          {n > 0 ? n : "GO"}
         </div>
         <div
           className="mt-6 text-[18px] font-semibold"
           style={{ color: "#A8D5FF", letterSpacing: "-0.01em" }}
         >
-          Hyper Focus starting…
+          Engaging…
         </div>
         <div
           className="mt-1.5 text-[14px]"
@@ -1320,6 +1321,25 @@ function HyperFocus(p: HyperFocusProps) {
         paddingBottom: "env(safe-area-inset-bottom, 0)",
       }}
     >
+      <div
+        className="flex items-center justify-center px-5 py-1.5"
+        style={{
+          background:
+            "linear-gradient(90deg, rgba(0, 229, 255, 0.06), rgba(0, 119, 255, 0.10), rgba(0, 229, 255, 0.06))",
+          borderBottom: "1px solid rgba(0, 229, 255, 0.18)",
+        }}
+      >
+        <span
+          className="text-[10px] font-black"
+          style={{
+            color: "#7CFFFF",
+            letterSpacing: "0.32em",
+            textShadow: "0 0 8px rgba(0, 220, 255, 0.55)",
+          }}
+        >
+          HYPERFOCUS
+        </span>
+      </div>
       <header className="flex items-center justify-between px-5 py-3" style={{ borderBottom: "1px solid var(--ios-border)" }}>
         <div className="flex items-center gap-2">
           <button
