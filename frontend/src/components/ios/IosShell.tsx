@@ -1842,6 +1842,7 @@ function DayRiver({
                     )}
                     <RiverGroup
                       group={group}
+                      index={idx}
                       onAdjust={onAdjust}
                       onComplete={onComplete}
                       isCurrent={isCurrentGroup}
@@ -1868,21 +1869,24 @@ function DayRiver({
 
 /** Decorative gradient spine running down the river's left edge. Pure
  *  visual — adds the "flowing path" feel without carrying data. */
+/** Vertical spine running down the centre of the river. Single items
+ *  hang off it left/right alternating; concurrent groups split into
+ *  parallel lanes either side. */
 function RiverSpine() {
   return (
     <div
-      className="pointer-events-none absolute bottom-4 left-[26px] top-4 w-[2px] rounded-full"
+      className="pointer-events-none absolute bottom-4 top-4 w-[2px] rounded-full"
       style={{
+        left: "calc(50% - 1px)",
         background:
-          "linear-gradient(180deg, rgba(167,139,250,0.0) 0%, rgba(167,139,250,0.32) 12%, rgba(124,58,237,0.36) 50%, rgba(0,200,255,0.18) 100%)",
+          "linear-gradient(180deg, rgba(167,139,250,0.0) 0%, rgba(167,139,250,0.28) 12%, rgba(124,58,237,0.32) 50%, rgba(0,200,255,0.16) 100%)",
       }}
     />
   );
 }
 
-/** Connector between two groups — a thin gradient line, with a "Nh gap"
- *  pill if the spread is meaningful (>30 min). Tight back-to-back
- *  transitions get just a small dot to keep the rhythm. */
+/** Connector between two groups — sits over the centre spine. Shows a
+ *  "Nh gap" pill if the spread is meaningful (>30 min). */
 function RiverConnector({ from, to }: { from: Date; to: Date }) {
   const gapMin = Math.max(0, Math.round((to.getTime() - from.getTime()) / 60_000));
   const tight = gapMin < 30;
@@ -1894,20 +1898,14 @@ function RiverConnector({ from, to }: { from: Date; to: Date }) {
         ? `${gapMin}m gap`
         : null;
   return (
-    <div className="relative ml-[18px] flex items-center" style={{ height: tight ? 14 : big ? 30 : 22 }}>
-      <div
-        className="absolute left-[8px] top-0 bottom-0 w-[2px]"
-        style={{
-          background:
-            "linear-gradient(180deg, rgba(167,139,250,0.5), rgba(124,58,237,0.25))",
-        }}
-      />
+    <div className="relative flex items-center justify-center" style={{ height: tight ? 12 : big ? 28 : 20 }}>
       {label && (
         <span
-          className="ml-7 rounded-full px-2 py-0.5 text-[10px] font-medium"
+          className="relative z-10 rounded-full px-2 py-0.5 text-[10px] font-medium"
           style={{
             background: "var(--ios-surface-elev)",
             color: "var(--ios-text-muted)",
+            border: "1px solid var(--ios-border)",
           }}
         >
           {label}
@@ -1967,72 +1965,68 @@ const NowBeam = forwardRef<HTMLDivElement, { now: Date; variant?: "between" | "i
   },
 );
 
-/** A group of items overlapping in time. Renders as a primary card with
- *  any concurrent siblings nested under it — visually clear that "two
- *  things are happening at the same time" without throwing them into
- *  separate columns the user has to scan horizontally. */
+/** A group of items at one chronological "moment". Single-item groups
+ *  alternate left/right of the centre spine for visual rhythm; multi-
+ *  item groups (concurrent) render as parallel lanes side-by-side so
+ *  the overlap reads at a glance. */
 function RiverGroup({
   group,
+  index,
   onAdjust,
   onComplete,
   isCurrent,
 }: {
   group: DayItemGroup;
+  /** Index in the river — drives left/right alternation for singles. */
+  index: number;
   onAdjust: (item: DayItem, deltaMin: number) => void;
   onComplete: (taskId: string) => void;
   isCurrent: boolean;
 }) {
-  const [primary, ...siblings] = group.items;
+  // Concurrent — render as side-by-side lanes. Cards split the row in
+  // equal portions so it reads as "two (or more) things at once".
+  if (group.items.length > 1) {
+    return (
+      <div className="relative my-1.5 flex items-stretch gap-2 px-1">
+        {group.items.map((item) => (
+          <div key={item.id} className="flex-1 min-w-0">
+            <LaneCard
+              item={item}
+              isCurrent={isCurrent}
+              onAdjust={(delta) => onAdjust(item, delta)}
+              onComplete={() => item.task && onComplete(item.task.id)}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Single item — alternate sides. Spacer fills the other half so the
+  // card is anchored to its lane, not centred.
+  const item = group.items[0];
+  const right = index % 2 === 1;
   return (
-    <div className="relative">
-      <RiverCard
-        item={primary}
-        onAdjust={(delta) => onAdjust(primary, delta)}
-        onComplete={() => primary.task && onComplete(primary.task.id)}
-        isCurrent={isCurrent}
-      />
-      {siblings.length > 0 && (
-        <div className="ml-6 mt-1.5 space-y-1.5">
-          {siblings.map((sib) => (
-            <div key={sib.id} className="flex items-stretch gap-2">
-              <div
-                className="flex-none self-stretch"
-                style={{
-                  width: "2px",
-                  marginLeft: "8px",
-                  background:
-                    "linear-gradient(180deg, rgba(167,139,250,0.5), rgba(167,139,250,0.15))",
-                }}
-              />
-              <div className="flex-1">
-                <div
-                  className="mb-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]"
-                  style={{
-                    background: "rgba(167,139,250,0.12)",
-                    color: "var(--ios-accent)",
-                  }}
-                >
-                  Concurrent
-                </div>
-                <RiverCard
-                  item={sib}
-                  onAdjust={(delta) => onAdjust(sib, delta)}
-                  onComplete={() => sib.task && onComplete(sib.task.id)}
-                  isCurrent={isCurrent}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+    <div className="relative my-1.5 flex items-stretch px-1">
+      {right && <div className="flex-1" aria-hidden />}
+      <div className="flex-1 min-w-0">
+        <LaneCard
+          item={item}
+          isCurrent={isCurrent}
+          onAdjust={(delta) => onAdjust(item, delta)}
+          onComplete={() => item.task && onComplete(item.task.id)}
+        />
+      </div>
+      {!right && <div className="flex-1" aria-hidden />}
     </div>
   );
 }
 
-/** Single river card — title-led, time as a label, ±15/±60 + complete
- *  on movable items, padlock on fixed. Theme-tinted gradient background.
- *  Past items dim. Current item gets an accent ring + subtle glow. */
-function RiverCard({
+/** A card sat in its lane (left, right, or one of N concurrents). Lean,
+ *  half-width-ish since we run two columns. The complete tick is the
+ *  loudest control — ticking off is the primary action. ±15/±60 do the
+ *  shifting (with cascade); fixed items show a padlock and no controls. */
+function LaneCard({
   item,
   onAdjust,
   onComplete,
@@ -2051,108 +2045,90 @@ function RiverCard({
   );
 
   return (
-    <div className="relative ml-[18px] pl-6">
-      {/* Node dot on the spine */}
-      <span
-        className="absolute left-[2px] top-3 z-10 flex h-3 w-3 items-center justify-center rounded-full"
-        style={{
-          background: "var(--ios-bg)",
-          border: `2px solid ${accent}`,
-          boxShadow: isCurrent
-            ? `0 0 0 4px rgba(239, 68, 68, 0.18), 0 0 12px ${accent}cc`
-            : `0 0 6px ${accent}80`,
-        }}
-      >
-        {isCurrent && (
-          <span
-            className="absolute inset-0 rounded-full"
-            style={{
-              animation: "iosNowPulse 1.6s ease-in-out infinite",
-              boxShadow: `0 0 0 0 rgba(239, 68, 68, 0.6)`,
-            }}
-          />
-        )}
-      </span>
-
-      <div
-        className="overflow-hidden rounded-xl"
-        style={{
-          background: item.fixed
-            ? `linear-gradient(135deg, ${accent}10, ${accent}04)`
-            : `linear-gradient(135deg, ${accent}1F, ${accent}08)`,
-          border: isCurrent
-            ? `1px solid ${accent}80`
-            : `1px solid ${accent}30`,
-          opacity: past ? 0.55 : 1,
-          boxShadow: isCurrent ? `0 4px 18px ${accent}30` : undefined,
-        }}
-      >
-        <div className="px-3 py-2.5">
-          {/* Top row: time, duration, kind glyph, complete tick */}
-          <div className="flex items-center gap-2">
-            <span className="text-[12px] font-bold tabular-nums" style={{ color: "var(--ios-text)" }}>
-              {fmtTime(item.start)}
+    <div
+      className="relative overflow-hidden rounded-xl"
+      style={{
+        background: item.fixed
+          ? `linear-gradient(135deg, ${accent}10, ${accent}04)`
+          : `linear-gradient(135deg, ${accent}22, ${accent}0A)`,
+        border: isCurrent
+          ? `1px solid ${accent}80`
+          : `1px solid ${accent}30`,
+        opacity: past ? 0.55 : 1,
+        boxShadow: isCurrent ? `0 4px 18px ${accent}30` : undefined,
+      }}
+    >
+      {isCurrent && (
+        <span
+          className="pointer-events-none absolute -left-0.5 -top-0.5 -bottom-0.5 w-[3px]"
+          style={{
+            background: `linear-gradient(180deg, ${accent}, ${accent}80)`,
+            boxShadow: `0 0 8px ${accent}cc`,
+            animation: "iosNowPulse 1.8s ease-in-out infinite",
+          }}
+        />
+      )}
+      <div className="px-2.5 py-2">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] font-bold tabular-nums" style={{ color: "var(--ios-text)" }}>
+            {fmtTime(item.start)}
+          </span>
+          <span className="text-[10px]" style={{ color: "var(--ios-text-muted)" }}>
+            {durationMin}m
+          </span>
+          {item.kindGlyph && <span className="text-[11px]">{item.kindGlyph}</span>}
+          {item.fixed ? (
+            <span
+              className="ml-auto inline-flex items-center gap-1 rounded-full px-1 py-0.5 text-[8px] font-bold uppercase tracking-[0.08em]"
+              style={{
+                background: "rgba(148, 163, 184, 0.18)",
+                color: "var(--ios-text-muted)",
+              }}
+              title="Meeting / appointment — managed externally"
+            >
+              <svg width="7" height="7" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5Zm-3 8V6a3 3 0 1 1 6 0v3H9Z" />
+              </svg>
+              fixed
             </span>
-            <span className="text-[11px]" style={{ color: "var(--ios-text-muted)" }}>
-              {durationMin}m
-            </span>
-            {item.kindGlyph && (
-              <span className="text-[12px]">{item.kindGlyph}</span>
-            )}
-            {item.fixed && (
-              <span
-                className="ml-auto inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]"
-                style={{
-                  background: "rgba(148, 163, 184, 0.18)",
-                  color: "var(--ios-text-muted)",
-                }}
-              >
-                <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5Zm-3 8V6a3 3 0 1 1 6 0v3H9Z" />
-                </svg>
-                fixed
-              </span>
-            )}
-            {!item.fixed && (
-              <button
-                type="button"
-                onClick={onComplete}
-                className="ml-auto flex h-6 w-6 flex-none items-center justify-center rounded-full"
-                style={{
-                  background: "rgba(16, 185, 129, 0.16)",
-                  color: "var(--ios-success)",
-                }}
-                aria-label="Complete"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M5 12l5 5L20 7" />
-                </svg>
-              </button>
-            )}
-          </div>
-
-          {/* Title — the centrepiece */}
-          <div
-            className="mt-1.5 text-[15px] font-bold leading-snug"
-            style={{
-              color: "var(--ios-text)",
-              letterSpacing: "-0.01em",
-            }}
-          >
-            {item.title}
-          </div>
-
-          {/* Time-shift cluster */}
-          {!item.fixed && (
-            <div className="mt-2 flex items-center gap-1">
-              <FineTuneButton onClick={() => onAdjust(-60)} label="−60" />
-              <FineTuneButton onClick={() => onAdjust(-15)} label="−15" />
-              <span className="flex-1" />
-              <FineTuneButton onClick={() => onAdjust(15)} label="+15" />
-              <FineTuneButton onClick={() => onAdjust(60)} label="+60" />
-            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onComplete}
+              className="ml-auto flex h-7 w-7 flex-none items-center justify-center rounded-full"
+              style={{
+                background: "rgba(16, 185, 129, 0.18)",
+                color: "var(--ios-success)",
+                boxShadow: "0 0 0 1px rgba(16, 185, 129, 0.35)",
+              }}
+              aria-label="Tick off"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12l5 5L20 7" />
+              </svg>
+            </button>
           )}
         </div>
+
+        <div
+          className="mt-1 text-[13px] font-bold leading-snug"
+          style={{
+            color: "var(--ios-text)",
+            letterSpacing: "-0.01em",
+          }}
+        >
+          {item.title}
+        </div>
+
+        {!item.fixed && (
+          <div className="mt-1.5 flex items-center gap-0.5">
+            <FineTuneButton onClick={() => onAdjust(-60)} label="−60" />
+            <FineTuneButton onClick={() => onAdjust(-15)} label="−15" />
+            <span className="flex-1" />
+            <FineTuneButton onClick={() => onAdjust(15)} label="+15" />
+            <FineTuneButton onClick={() => onAdjust(60)} label="+60" />
+          </div>
+        )}
       </div>
     </div>
   );
