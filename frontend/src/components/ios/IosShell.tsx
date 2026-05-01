@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import type { Goal, PrioritizedTask, Task, UserPrefs } from "@/types/task";
 import { prioritize } from "@/lib/prioritize";
 import { fetchEvents, type CalendarEvent } from "@/lib/googleCalendar";
 import { inferTaskKind, isActionable, kindGlyph, kindLabel } from "@/lib/taskKind";
 import {
-  assignDayLanes,
   autoReschedule,
   cascadeShift,
   collectDayItems,
@@ -355,6 +354,11 @@ export function IosShell(props: IosShellProps) {
           0% { opacity: 0; transform: scale(1.4); filter: blur(8px); }
           40% { opacity: 1; filter: blur(0); }
           100% { opacity: 1; transform: scale(1); }
+        }
+        @keyframes iosNowPulse {
+          0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+          70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
         @keyframes iosFade {
           from { opacity: 0; transform: translateY(6px); }
@@ -1270,7 +1274,6 @@ function HyperFocus(p: HyperFocusProps) {
       }),
     [targetDay, p.tasks, p.foundations, events],
   );
-  const lanes = useMemo(() => assignDayLanes(items), [items]);
 
   function handleAutoReschedule() {
     const now = new Date();
@@ -1374,10 +1377,9 @@ function HyperFocus(p: HyperFocusProps) {
           />
         )}
 
-        <BrickStack
+        <DayRiver
           items={items}
           unscheduled={unscheduled}
-          lanes={lanes}
           isToday={dayOffset === 0}
           calendarConnected={p.calendarConnected}
           onAdjust={handleAdjustTime}
@@ -1617,26 +1619,55 @@ function BasicTile({
   );
 }
 
-// ─── BRICK STACK (the day plan) ──────────────────────────────────────
-const PX_PER_MIN = 1.6;
-const TIMELINE_START_HOUR = 6;
-const TIMELINE_END_HOUR = 23;
-
+// ─── DAY RIVER (the day plan) ────────────────────────────────────────
 /**
- * The day-plan view. Shows YOUR work for the day stacked vertically:
- * Google appointments locked in place, Focus3 items (scheduled tasks,
- * foundations, sessions) movable with ±15 / ±60 controls, and an
- * auto-reschedule button that flows pending items into the gaps from
- * NOW onward.
+ * The day plan as a chronological river of cards — NOT an hour grid.
+ * Drops the calendar-grid metaphor entirely: items stack one after the
+ * other in time order, sized by content not by their duration in pixels.
+ * Gaps become small connectors with optional "2h gap" labels rather than
+ * vast empty space. Concurrent items group together visually so a busy
+ * collision reads as "two things at once" not "two separate hours".
  *
- * NOW is rendered as a wide gradient beam across the whole stack —
- * sitting BEHIND the bricks, so it reads as ambient "where we are"
- * without competing with item content.
+ * NOW is a glowing red beam inserted at its proper chronological position
+ * — between the last past item and the first future item — and auto-
+ * scrolls into view. Past items dim. Fixed (Google) items lock with a
+ * padlock; movable items get the ±15/±60 + complete cluster.
+ *
+ * Pure presentation — all data prep happens in lib/dayPlan.ts.
  */
-function BrickStack({
+
+interface DayItemGroup {
+  /** Items overlapping in time. Sorted by start within the group. */
+  items: DayItem[];
+  /** Earliest start across the group. */
+  start: Date;
+  /** Latest end across the group. */
+  end: Date;
+}
+
+/** Walk sorted items and bundle anything that overlaps in time. Two items
+ *  with start/end ranges that touch but don't intersect are still distinct
+ *  groups (back-to-back, not concurrent). */
+function groupConcurrent(items: DayItem[]): DayItemGroup[] {
+  const sorted = [...items].sort((a, b) => a.start.getTime() - b.start.getTime());
+  const groups: DayItemGroup[] = [];
+  let cur: DayItemGroup | null = null;
+  for (const item of sorted) {
+    if (!cur || item.start.getTime() >= cur.end.getTime()) {
+      if (cur) groups.push(cur);
+      cur = { items: [item], start: item.start, end: item.end };
+    } else {
+      cur.items.push(item);
+      if (item.end.getTime() > cur.end.getTime()) cur.end = item.end;
+    }
+  }
+  if (cur) groups.push(cur);
+  return groups;
+}
+
+function DayRiver({
   items,
   unscheduled,
-  lanes,
   isToday,
   calendarConnected,
   onAdjust,
@@ -1645,40 +1676,51 @@ function BrickStack({
 }: {
   items: DayItem[];
   unscheduled: UnscheduledItem[];
-  lanes: Map<string, number>;
   isToday: boolean;
   calendarConnected: boolean;
   onAdjust: (item: DayItem, deltaMin: number) => void;
   onAutoReschedule: () => void;
   onComplete: (taskId: string) => void;
 }) {
-  const totalMin = (TIMELINE_END_HOUR - TIMELINE_START_HOUR) * 60;
-  const totalHeight = totalMin * PX_PER_MIN;
-  const laneCount = Math.max(1, ...Array.from(lanes.values()).map((l) => l + 1));
+  const groups = useMemo(() => groupConcurrent(items), [items]);
 
-  const nowOffsetPx = useMemo(() => {
-    if (!isToday) return null;
-    const now = new Date();
-    const min = now.getHours() * 60 + now.getMinutes() - TIMELINE_START_HOUR * 60;
-    if (min < 0 || min > totalMin) return null;
-    return min * PX_PER_MIN;
-  }, [isToday, totalMin]);
+  // Find where to slot the NOW beam in the chronological river:
+  //   - Index of the first group whose start is in the future
+  //   - If a current group brackets NOW, the beam renders inside that group
+  //   - If everything is in the past, beam goes at the end
+  const nowDate = isToday ? new Date() : null;
+  const nowMs = nowDate?.getTime() ?? null;
+  const nowSlot = useMemo(() => {
+    if (nowMs == null) return { kind: "none" as const };
+    const insideIdx = groups.findIndex(
+      (g) => g.start.getTime() <= nowMs && g.end.getTime() > nowMs,
+    );
+    if (insideIdx !== -1) return { kind: "inside" as const, index: insideIdx };
+    const futureIdx = groups.findIndex((g) => g.start.getTime() > nowMs);
+    if (futureIdx !== -1) return { kind: "before" as const, index: futureIdx };
+    return { kind: "after" as const };
+  }, [groups, nowMs]);
 
+  // Auto-scroll the NOW beam into view on mount + whenever groups change.
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const nowRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (nowOffsetPx == null || !containerRef.current) return;
-    const el = containerRef.current;
-    el.scrollTop = Math.max(0, nowOffsetPx - 140);
-  }, [nowOffsetPx]);
+    const c = containerRef.current;
+    const n = nowRef.current;
+    if (!c || !n) return;
+    const cRect = c.getBoundingClientRect();
+    const nRect = n.getBoundingClientRect();
+    c.scrollTop += nRect.top - cRect.top - 80;
+  }, [groups, nowSlot]);
 
   const fixedCount = items.filter((i) => i.fixed).length;
   const movableCount = items.length - fixedCount;
   const overdue = useMemo(() => {
-    if (!isToday) return 0;
-    const now = Date.now();
-    return items.filter((i) => !i.fixed && i.task && i.end.getTime() < now && !i.task.status?.includes("completed"))
-      .length;
-  }, [items, isToday]);
+    if (!isToday || nowMs == null) return 0;
+    return items.filter(
+      (i) => !i.fixed && i.task && i.end.getTime() < nowMs && i.task.status !== "completed",
+    ).length;
+  }, [items, isToday, nowMs]);
 
   return (
     <section>
@@ -1741,6 +1783,10 @@ function BrickStack({
         </div>
       )}
 
+      {/* The river itself — a vertical stream of cards with a soft gradient
+          spine on the left. No hour grid, no fixed pixel-per-minute mapping;
+          the cards take their natural height and connectors carry the
+          chronological signal. */}
       <div
         ref={containerRef}
         className="mt-3 overflow-y-auto rounded-2xl"
@@ -1750,165 +1796,343 @@ function BrickStack({
           maxHeight: "60vh",
         }}
       >
-        <div className="relative" style={{ height: `${totalHeight}px` }}>
-          {/* Hour grid — labels live in a thin gutter on the left. */}
-          {Array.from({ length: TIMELINE_END_HOUR - TIMELINE_START_HOUR + 1 }, (_, i) => {
-            const h = TIMELINE_START_HOUR + i;
-            return (
-              <div
-                key={h}
-                className="absolute inset-x-0 flex items-center"
-                style={{ top: `${i * 60 * PX_PER_MIN}px`, height: 0 }}
-              >
-                <span
-                  className="ml-2 text-[10px] font-medium"
-                  style={{ color: "var(--ios-text-muted)" }}
-                >
-                  {h.toString().padStart(2, "0")}:00
-                </span>
-                <div
-                  className="ml-2 flex-1 border-t"
-                  style={{ borderColor: "var(--ios-border)" }}
-                />
-              </div>
-            );
-          })}
-
-          {/* NOW beam — full-width gradient strip behind bricks. */}
-          {nowOffsetPx != null && (
+        <div className="relative px-4 py-4">
+          <RiverSpine />
+          {groups.length === 0 ? (
+            <div className="py-10 text-center text-[13px]" style={{ color: "var(--ios-text-muted)" }}>
+              {calendarConnected ? "Nothing on the day yet." : "Connect Calendar or schedule something on Desktop."}
+            </div>
+          ) : (
             <>
-              <div
-                className="pointer-events-none absolute inset-x-0 z-0"
-                style={{
-                  top: `${nowOffsetPx - 18}px`,
-                  height: "36px",
-                  background:
-                    "linear-gradient(180deg, transparent 0%, rgba(239, 68, 68, 0.12) 50%, transparent 100%)",
-                }}
-              />
-              <div
-                className="pointer-events-none absolute inset-x-0 z-0"
-                style={{
-                  top: `${nowOffsetPx}px`,
-                  height: "1.5px",
-                  background:
-                    "linear-gradient(90deg, rgba(239, 68, 68, 0.08), rgba(239, 68, 68, 0.9) 30%, rgba(239, 68, 68, 0.9) 70%, rgba(239, 68, 68, 0.08))",
-                }}
-              />
-              <div
-                className="absolute z-10 flex items-center"
-                style={{ top: `${nowOffsetPx - 8}px`, left: "2px", height: "16px" }}
-              >
-                <span
-                  className="rounded-full px-1.5 text-[9px] font-bold"
-                  style={{ background: "var(--ios-danger)", color: "white" }}
-                >
-                  NOW
-                </span>
-              </div>
+              {nowSlot.kind === "before" && nowSlot.index === 0 && nowDate && (
+                <NowBeam now={nowDate} ref={nowRef} />
+              )}
+              {groups.map((group, idx) => {
+                const isCurrentGroup =
+                  nowSlot.kind === "inside" && nowSlot.index === idx;
+                const showNowBefore =
+                  nowSlot.kind === "before" && nowSlot.index === idx && idx !== 0;
+                const showNowAfter =
+                  nowSlot.kind === "after" && idx === groups.length - 1;
+                return (
+                  <Fragment key={group.items[0].id}>
+                    {showNowBefore && nowDate && <NowBeam now={nowDate} ref={nowRef} />}
+                    {isCurrentGroup && nowDate && (
+                      <NowBeam now={nowDate} ref={nowRef} variant="inside" />
+                    )}
+                    <RiverGroup
+                      group={group}
+                      onAdjust={onAdjust}
+                      onComplete={onComplete}
+                      isCurrent={isCurrentGroup}
+                    />
+                    {idx < groups.length - 1 && (
+                      <RiverConnector
+                        from={group.end}
+                        to={groups[idx + 1].start}
+                      />
+                    )}
+                    {showNowAfter && nowDate && idx === groups.length - 1 && (
+                      <NowBeam now={nowDate} ref={nowRef} />
+                    )}
+                  </Fragment>
+                );
+              })}
             </>
           )}
-
-          {/* Bricks — items positioned absolutely by start/end, columnised by lane. */}
-          {items.map((item) => (
-            <Brick
-              key={item.id}
-              item={item}
-              lane={lanes.get(item.id) ?? 0}
-              laneCount={laneCount}
-              totalMin={totalMin}
-              onAdjust={(delta) => onAdjust(item, delta)}
-              onComplete={() =>
-                item.task ? onComplete(item.task.id) : undefined
-              }
-            />
-          ))}
         </div>
       </div>
     </section>
   );
 }
 
-function Brick({
-  item,
-  lane,
-  laneCount,
-  totalMin,
-  onAdjust,
-  onComplete,
-}: {
-  item: DayItem;
-  lane: number;
-  laneCount: number;
-  totalMin: number;
-  onAdjust: (deltaMin: number) => void;
-  onComplete: () => void;
-}) {
-  const startMin = item.start.getHours() * 60 + item.start.getMinutes() - TIMELINE_START_HOUR * 60;
-  const endMin = item.end.getHours() * 60 + item.end.getMinutes() - TIMELINE_START_HOUR * 60;
-  if (endMin <= 0 || startMin >= totalMin) return null;
-  const top = Math.max(0, startMin) * PX_PER_MIN;
-  const height = Math.max(40, (Math.min(endMin, totalMin) - Math.max(0, startMin)) * PX_PER_MIN);
-  const laneWidth = `calc((100% - 56px) / ${laneCount})`;
-  const left = `calc(48px + ${lane} * ${laneWidth})`;
-  const accent = item.accent || (item.fixed ? "#94A3B8" : "#A78BFA");
-  const past = item.end.getTime() < Date.now();
-  const showFineTune = !item.fixed && height >= 60;
-
+/** Decorative gradient spine running down the river's left edge. Pure
+ *  visual — adds the "flowing path" feel without carrying data. */
+function RiverSpine() {
   return (
     <div
-      className="absolute z-10 overflow-hidden rounded-md"
+      className="pointer-events-none absolute bottom-4 left-[26px] top-4 w-[2px] rounded-full"
       style={{
-        top: `${top}px`,
-        height: `${height}px`,
-        left,
-        width: laneWidth,
-        marginRight: "8px",
-        background: item.fixed ? `${accent}1A` : `${accent}22`,
-        borderLeft: `3px solid ${accent}`,
-        opacity: past ? 0.55 : 1,
+        background:
+          "linear-gradient(180deg, rgba(167,139,250,0.0) 0%, rgba(167,139,250,0.32) 12%, rgba(124,58,237,0.36) 50%, rgba(0,200,255,0.18) 100%)",
       }}
-    >
-      <div className="flex h-full flex-col px-1.5 py-1">
-        <div className="flex items-start gap-1">
-          {item.fixed && (
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style={{ color: "var(--ios-text-muted)", marginTop: 2 }}>
-              <path d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5Zm-3 8V6a3 3 0 1 1 6 0v3H9Z" />
-            </svg>
-          )}
-          <div
-            className="min-w-0 flex-1 truncate text-[12px] font-semibold leading-tight"
-            style={{ color: "var(--ios-text)" }}
+    />
+  );
+}
+
+/** Connector between two groups — a thin gradient line, with a "Nh gap"
+ *  pill if the spread is meaningful (>30 min). Tight back-to-back
+ *  transitions get just a small dot to keep the rhythm. */
+function RiverConnector({ from, to }: { from: Date; to: Date }) {
+  const gapMin = Math.max(0, Math.round((to.getTime() - from.getTime()) / 60_000));
+  const tight = gapMin < 30;
+  const big = gapMin >= 120;
+  const label =
+    gapMin >= 60
+      ? `${Math.round(gapMin / 60)}h gap`
+      : gapMin >= 30
+        ? `${gapMin}m gap`
+        : null;
+  return (
+    <div className="relative ml-[18px] flex items-center" style={{ height: tight ? 14 : big ? 30 : 22 }}>
+      <div
+        className="absolute left-[8px] top-0 bottom-0 w-[2px]"
+        style={{
+          background:
+            "linear-gradient(180deg, rgba(167,139,250,0.5), rgba(124,58,237,0.25))",
+        }}
+      />
+      {label && (
+        <span
+          className="ml-7 rounded-full px-2 py-0.5 text-[10px] font-medium"
+          style={{
+            background: "var(--ios-surface-elev)",
+            color: "var(--ios-text-muted)",
+          }}
+        >
+          {label}
+        </span>
+      )}
+    </div>
+  );
+}
+
+const NowBeam = forwardRef<HTMLDivElement, { now: Date; variant?: "between" | "inside" }>(
+  function NowBeam({ now, variant = "between" }, ref) {
+    const inside = variant === "inside";
+    return (
+      <div ref={ref} className="relative my-2 -mx-2">
+        <div
+          className="now-beam-glow absolute inset-x-0"
+          style={{
+            top: "-10px",
+            height: "30px",
+            background:
+              "radial-gradient(ellipse at center, rgba(239, 68, 68, 0.28) 0%, transparent 75%)",
+          }}
+        />
+        <div
+          className="relative flex items-center gap-2 rounded-full px-3 py-1.5"
+          style={{
+            background:
+              "linear-gradient(90deg, rgba(239,68,68,0.12) 0%, rgba(239,68,68,0.32) 50%, rgba(239,68,68,0.12) 100%)",
+            border: "1px solid rgba(239, 68, 68, 0.45)",
+            boxShadow: "0 0 18px rgba(239, 68, 68, 0.35)",
+          }}
+        >
+          <span
+            className="flex h-1.5 w-1.5 rounded-full"
+            style={{
+              background: "var(--ios-danger)",
+              boxShadow: "0 0 8px rgba(239,68,68,0.9)",
+            }}
+          />
+          <span
+            className="text-[11px] font-bold uppercase tracking-[0.12em]"
+            style={{ color: "var(--ios-danger)" }}
           >
-            {item.kindGlyph ? `${item.kindGlyph} ` : ""}
+            Now
+          </span>
+          <span className="text-[11px] font-semibold" style={{ color: "var(--ios-text)" }}>
+            {fmtTime(now)}
+          </span>
+          {inside && (
+            <span className="text-[10px]" style={{ color: "var(--ios-text-muted)" }}>
+              · in progress
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  },
+);
+
+/** A group of items overlapping in time. Renders as a primary card with
+ *  any concurrent siblings nested under it — visually clear that "two
+ *  things are happening at the same time" without throwing them into
+ *  separate columns the user has to scan horizontally. */
+function RiverGroup({
+  group,
+  onAdjust,
+  onComplete,
+  isCurrent,
+}: {
+  group: DayItemGroup;
+  onAdjust: (item: DayItem, deltaMin: number) => void;
+  onComplete: (taskId: string) => void;
+  isCurrent: boolean;
+}) {
+  const [primary, ...siblings] = group.items;
+  return (
+    <div className="relative">
+      <RiverCard
+        item={primary}
+        onAdjust={(delta) => onAdjust(primary, delta)}
+        onComplete={() => primary.task && onComplete(primary.task.id)}
+        isCurrent={isCurrent}
+      />
+      {siblings.length > 0 && (
+        <div className="ml-6 mt-1.5 space-y-1.5">
+          {siblings.map((sib) => (
+            <div key={sib.id} className="flex items-stretch gap-2">
+              <div
+                className="flex-none self-stretch"
+                style={{
+                  width: "2px",
+                  marginLeft: "8px",
+                  background:
+                    "linear-gradient(180deg, rgba(167,139,250,0.5), rgba(167,139,250,0.15))",
+                }}
+              />
+              <div className="flex-1">
+                <div
+                  className="mb-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]"
+                  style={{
+                    background: "rgba(167,139,250,0.12)",
+                    color: "var(--ios-accent)",
+                  }}
+                >
+                  Concurrent
+                </div>
+                <RiverCard
+                  item={sib}
+                  onAdjust={(delta) => onAdjust(sib, delta)}
+                  onComplete={() => sib.task && onComplete(sib.task.id)}
+                  isCurrent={isCurrent}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Single river card — title-led, time as a label, ±15/±60 + complete
+ *  on movable items, padlock on fixed. Theme-tinted gradient background.
+ *  Past items dim. Current item gets an accent ring + subtle glow. */
+function RiverCard({
+  item,
+  onAdjust,
+  onComplete,
+  isCurrent,
+}: {
+  item: DayItem;
+  onAdjust: (deltaMin: number) => void;
+  onComplete: () => void;
+  isCurrent: boolean;
+}) {
+  const accent = item.accent || (item.fixed ? "#94A3B8" : "#A78BFA");
+  const past = item.end.getTime() < Date.now();
+  const durationMin = Math.max(
+    1,
+    Math.round((item.end.getTime() - item.start.getTime()) / 60_000),
+  );
+
+  return (
+    <div className="relative ml-[18px] pl-6">
+      {/* Node dot on the spine */}
+      <span
+        className="absolute left-[2px] top-3 z-10 flex h-3 w-3 items-center justify-center rounded-full"
+        style={{
+          background: "var(--ios-bg)",
+          border: `2px solid ${accent}`,
+          boxShadow: isCurrent
+            ? `0 0 0 4px rgba(239, 68, 68, 0.18), 0 0 12px ${accent}cc`
+            : `0 0 6px ${accent}80`,
+        }}
+      >
+        {isCurrent && (
+          <span
+            className="absolute inset-0 rounded-full"
+            style={{
+              animation: "iosNowPulse 1.6s ease-in-out infinite",
+              boxShadow: `0 0 0 0 rgba(239, 68, 68, 0.6)`,
+            }}
+          />
+        )}
+      </span>
+
+      <div
+        className="overflow-hidden rounded-xl"
+        style={{
+          background: item.fixed
+            ? `linear-gradient(135deg, ${accent}10, ${accent}04)`
+            : `linear-gradient(135deg, ${accent}1F, ${accent}08)`,
+          border: isCurrent
+            ? `1px solid ${accent}80`
+            : `1px solid ${accent}30`,
+          opacity: past ? 0.55 : 1,
+          boxShadow: isCurrent ? `0 4px 18px ${accent}30` : undefined,
+        }}
+      >
+        <div className="px-3 py-2.5">
+          {/* Top row: time, duration, kind glyph, complete tick */}
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] font-bold tabular-nums" style={{ color: "var(--ios-text)" }}>
+              {fmtTime(item.start)}
+            </span>
+            <span className="text-[11px]" style={{ color: "var(--ios-text-muted)" }}>
+              {durationMin}m
+            </span>
+            {item.kindGlyph && (
+              <span className="text-[12px]">{item.kindGlyph}</span>
+            )}
+            {item.fixed && (
+              <span
+                className="ml-auto inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]"
+                style={{
+                  background: "rgba(148, 163, 184, 0.18)",
+                  color: "var(--ios-text-muted)",
+                }}
+              >
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5Zm-3 8V6a3 3 0 1 1 6 0v3H9Z" />
+                </svg>
+                fixed
+              </span>
+            )}
+            {!item.fixed && (
+              <button
+                type="button"
+                onClick={onComplete}
+                className="ml-auto flex h-6 w-6 flex-none items-center justify-center rounded-full"
+                style={{
+                  background: "rgba(16, 185, 129, 0.16)",
+                  color: "var(--ios-success)",
+                }}
+                aria-label="Complete"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12l5 5L20 7" />
+                </svg>
+              </button>
+            )}
+          </div>
+
+          {/* Title — the centrepiece */}
+          <div
+            className="mt-1.5 text-[15px] font-bold leading-snug"
+            style={{
+              color: "var(--ios-text)",
+              letterSpacing: "-0.01em",
+            }}
+          >
             {item.title}
           </div>
+
+          {/* Time-shift cluster */}
           {!item.fixed && (
-            <button
-              type="button"
-              onClick={onComplete}
-              className="-mr-0.5 -mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full"
-              style={{ background: "rgba(16, 185, 129, 0.16)", color: "var(--ios-success)" }}
-              aria-label="Complete"
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M5 12l5 5L20 7" />
-              </svg>
-            </button>
+            <div className="mt-2 flex items-center gap-1">
+              <FineTuneButton onClick={() => onAdjust(-60)} label="−60" />
+              <FineTuneButton onClick={() => onAdjust(-15)} label="−15" />
+              <span className="flex-1" />
+              <FineTuneButton onClick={() => onAdjust(15)} label="+15" />
+              <FineTuneButton onClick={() => onAdjust(60)} label="+60" />
+            </div>
           )}
         </div>
-        <div className="text-[9px]" style={{ color: "var(--ios-text-muted)" }}>
-          {fmtTime(item.start)}–{fmtTime(item.end)}
-        </div>
-        {showFineTune && (
-          <div className="mt-auto flex items-center gap-0.5 pt-1">
-            <FineTuneButton onClick={() => onAdjust(-60)} label="−60" />
-            <FineTuneButton onClick={() => onAdjust(-15)} label="−15" />
-            <span className="flex-1" />
-            <FineTuneButton onClick={() => onAdjust(15)} label="+15" />
-            <FineTuneButton onClick={() => onAdjust(60)} label="+60" />
-          </div>
-        )}
       </div>
     </div>
   );
