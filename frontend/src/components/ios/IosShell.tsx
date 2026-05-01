@@ -42,6 +42,8 @@ interface IosShellProps {
   onDeferFoundation: (id: string) => void;
   /** Set scheduledFor on a task — used by Hyper Focus ±15/±60 + auto-reschedule. */
   onSetScheduledFor: (taskId: string, iso: string) => void;
+  /** Update estimatedMinutes on a task — used by the ±5 duration chip on lane cards. */
+  onUpdateEstimatedMinutes: (taskId: string, minutes: number) => void;
   onAddGoal: (input: Omit<Goal, "id" | "createdAt" | "updatedAt" | "source">) => void;
   onUpdateGoal: (id: string, patch: Partial<Goal>) => void;
   onRemoveGoal: (id: string) => void;
@@ -294,6 +296,7 @@ export function IosShell(props: IosShellProps) {
           onDeferFoundation={props.onDeferFoundation}
           onIncrementCounter={props.onIncrementCounter}
           onSetScheduledFor={props.onSetScheduledFor}
+          onUpdateEstimatedMinutes={props.onUpdateEstimatedMinutes}
           onClose={() => setHyperState("closed")}
         />
       )}
@@ -330,6 +333,8 @@ export function IosShell(props: IosShellProps) {
           transition: transform 120ms cubic-bezier(0.32, 0.72, 0, 1);
         }
         .hyper-launch:active { transform: scale(0.94); }
+        .fine-tune { transition: color 100ms ease, transform 100ms ease; }
+        .fine-tune:active { color: white !important; transform: scale(1.1); }
         .hyper-tick {
           animation: hyperTick 320ms cubic-bezier(0.16, 1, 0.3, 1);
         }
@@ -355,6 +360,24 @@ export function IosShell(props: IosShellProps) {
           0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
           70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
           100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .now-pulse { animation: nowOpacity 1.8s ease-in-out infinite; }
+        @keyframes nowOpacity {
+          0%, 100% { opacity: 0.85; }
+          50% { opacity: 1; }
+        }
+        .hyper-ribbon-pulse { animation: hyperRibbon 2.6s ease-in-out infinite; }
+        @keyframes hyperRibbon {
+          0%, 100% {
+            text-shadow:
+              0 0 14px rgba(0, 220, 255, 0.7),
+              0 0 28px rgba(0, 140, 255, 0.35);
+          }
+          50% {
+            text-shadow:
+              0 0 22px rgba(0, 220, 255, 1),
+              0 0 44px rgba(0, 140, 255, 0.6);
+          }
         }
         @keyframes iosFade {
           from { opacity: 0; transform: translateY(6px); }
@@ -1263,6 +1286,8 @@ interface HyperFocusProps {
   /** Set the scheduledFor timestamp on a task. Used by ±15/±60 buttons and
    *  by auto-reschedule. The caller (App.tsx) routes this to updateTask. */
   onSetScheduledFor: (taskId: string, iso: string) => void;
+  /** Update task duration (estimatedMinutes). Used by the ±5 chip. */
+  onUpdateEstimatedMinutes: (taskId: string, minutes: number) => void;
   onClose: () => void;
 }
 
@@ -1340,6 +1365,31 @@ function HyperFocus(p: HyperFocusProps) {
     }
   }
 
+  /** Push an overdue item to the next 15-min boundary from now, cascading
+   *  anything that would overlap. The user's "I missed this — do it now". */
+  function handleReschedule(item: DayItem) {
+    if (item.fixed || !item.task) return;
+    const now = Date.now();
+    const next = new Date(Math.ceil(now / (15 * 60_000)) * 15 * 60_000);
+    const deltaMin = Math.round(
+      (next.getTime() - item.start.getTime()) / 60_000,
+    );
+    const updates = cascadeShift({ items, targetItemId: item.id, deltaMin });
+    for (const u of updates) {
+      p.onSetScheduledFor(u.taskId, u.newScheduledForIso);
+    }
+  }
+
+  /** Stretch / shrink the slot duration by deltaMin (typically ±5). Min 5,
+   *  max 480 minutes. Doesn't move the start; just lengthens the slot. */
+  function handleExtendDuration(item: DayItem, deltaMin: number) {
+    if (!item.task) return;
+    const current = item.task.estimatedMinutes ?? 30;
+    const next = Math.max(5, Math.min(480, current + deltaMin));
+    if (next === current) return;
+    p.onUpdateEstimatedMinutes(item.task.id, next);
+  }
+
   const dayLabel = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1370,12 +1420,10 @@ function HyperFocus(p: HyperFocusProps) {
         }}
       >
         <span
-          className="text-[18px] font-black"
+          className="hyper-ribbon-pulse text-[18px] font-black"
           style={{
             color: "#7CFFFF",
             letterSpacing: "0.36em",
-            textShadow:
-              "0 0 14px rgba(0, 220, 255, 0.7), 0 0 28px rgba(0, 140, 255, 0.35)",
           }}
         >
           HYPERFOCUS
@@ -1449,7 +1497,18 @@ function HyperFocus(p: HyperFocusProps) {
           onAdjust={handleAdjustTime}
           onAutoReschedule={handleAutoReschedule}
           onComplete={(taskId) => p.onComplete(taskId)}
+          onReschedule={handleReschedule}
+          onExtendDuration={handleExtendDuration}
         />
+
+        {dayOffset === 0 && (
+          <TomorrowPreview
+            tasks={p.tasks}
+            foundations={p.foundations}
+            prefs={p.prefs}
+            calendarConnected={p.calendarConnected}
+          />
+        )}
       </div>
 
       <div
@@ -1480,15 +1539,42 @@ function BasicsSection({
   onDeferFoundation: (id: string) => void;
   onIncrementCounter: (id: string, delta: number) => void;
 }) {
-  const items = useMemo(
+  // Foundations: keep ticked items visible too — completed ones drop their
+  // glow, the box fills, but they stay on the grid so the user can see the
+  // day's progress. If there are >4 we show only the first 4 by priority
+  // (specificTime asc → theme weight) and a "+N more" label below.
+  const allActive = useMemo(
     () =>
       foundations.filter((f) => {
-        if (f.status === "completed") return false;
         if (f.snoozedUntil && new Date(f.snoozedUntil).getTime() > Date.now()) return false;
         return true;
       }),
     [foundations],
   );
+  const items = useMemo(() => {
+    const themeWeight = (theme: string) => {
+      const order = ["medication", "fitness", "diet", "household", "finance", "work", "school", "development", "projects", "personal"];
+      const i = order.indexOf(theme);
+      return i === -1 ? order.length : i;
+    };
+    const isFoundationDone = (f: Task) =>
+      f.status === "completed" ||
+      (f.counter ? f.counter.count >= f.counter.target : false);
+    return [...allActive].sort((a, b) => {
+      // Done items sink to the bottom
+      const aDone = isFoundationDone(a) ? 1 : 0;
+      const bDone = isFoundationDone(b) ? 1 : 0;
+      if (aDone !== bDone) return aDone - bDone;
+      // Then by specificTime asc (items with a time go first)
+      if (a.specificTime && b.specificTime) return a.specificTime.localeCompare(b.specificTime);
+      if (a.specificTime) return -1;
+      if (b.specificTime) return 1;
+      // Then by theme weight (medication > fitness > diet > ...)
+      return themeWeight(a.theme) - themeWeight(b.theme);
+    });
+  }, [allActive]);
+  const visibleItems = items.slice(0, 4);
+  const overflowCount = Math.max(0, items.length - visibleItems.length);
   const dropoutCutoffHour = parseHourOf(prefs.workingHoursEnd ?? "22:00") - 1;
   const dropoutSoon = new Date().getHours() >= dropoutCutoffHour;
 
@@ -1496,7 +1582,7 @@ function BasicsSection({
     return (
       <section className="text-center">
         <h2 className="text-[20px] font-bold tracking-tight" style={{ color: "var(--ios-text)", letterSpacing: "-0.02em" }}>
-          Today's foundations
+          Foundational Items
         </h2>
         <p className="mt-1 text-[13px]" style={{ color: "var(--ios-success)" }}>
           All ticked. Quiet day on the foundations front.
@@ -1511,7 +1597,7 @@ function BasicsSection({
         className="text-center text-[22px] font-bold tracking-tight"
         style={{ color: "var(--ios-text)", letterSpacing: "-0.02em" }}
       >
-        Today's foundations
+        Foundational Items
       </h2>
       <p
         className="mt-0.5 text-center text-[12px]"
@@ -1520,7 +1606,7 @@ function BasicsSection({
         {dropoutSoon ? "Late in the day — incomplete foundations will drop out tonight" : "Quick wins. Tap a tile, deeper outcomes happen on the timeline below."}
       </p>
       <div className="mt-3 grid grid-cols-2 gap-2.5">
-        {items.map((f) => (
+        {visibleItems.map((f) => (
           <BasicTile
             key={f.id}
             foundation={f}
@@ -1535,6 +1621,11 @@ function BasicsSection({
           />
         ))}
       </div>
+      {overflowCount > 0 && (
+        <p className="mt-2 text-center text-[11px]" style={{ color: "var(--ios-text-muted)" }}>
+          +{overflowCount} more · Focus is managing the order
+        </p>
+      )}
     </section>
   );
 }
@@ -1594,6 +1685,15 @@ function basicTileAccent(t: Task): string {
   }
 }
 
+/**
+ * Compact foundation tile. Glyph + title + meta in a single row, with a
+ * tick box on the right and a tiny "Later" defer in the corner.
+ *
+ * Pending = soft white glow (tile says "this still wants doing").
+ * Done    = glow drops, tile dims to ~50%, tick box fills white. The
+ *           item stays on the grid so the user sees today's progress
+ *           rather than the slot vanishing on tap.
+ */
 function BasicTile({
   foundation,
   onComplete,
@@ -1613,14 +1713,17 @@ function BasicTile({
 
   return (
     <div
-      className="relative overflow-hidden rounded-2xl"
+      className="relative overflow-hidden rounded-xl transition-shadow duration-200"
       style={{
-        height: "112px",
-        background: `linear-gradient(135deg, ${accent}1F 0%, ${accent}08 100%)`,
-        border: `1px solid ${accent}40`,
+        background: done
+          ? `linear-gradient(135deg, ${accent}10 0%, ${accent}04 100%)`
+          : `linear-gradient(135deg, ${accent}1F 0%, ${accent}08 100%)`,
+        border: `1px solid ${accent}${done ? "20" : "40"}`,
+        opacity: done ? 0.5 : 1,
+        boxShadow: done ? "none" : "0 0 14px rgba(255, 255, 255, 0.16)",
       }}
     >
-      {/* Counter progress fill — climbs up from the bottom as the count rises. */}
+      {/* Counter progress fill — climbs from the bottom as count rises. */}
       {isCounter && (
         <div
           className="pointer-events-none absolute inset-x-0 bottom-0"
@@ -1632,64 +1735,75 @@ function BasicTile({
         />
       )}
 
-      {/* Defer chip — top-right, tiny. */}
+      {/* Tick box top-right — primary affordance. Empty when pending,
+          filled white-on-dark when ticked. */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onComplete();
+        }}
+        className="absolute right-2 top-2 z-10 flex h-[18px] w-[18px] items-center justify-center rounded-[4px]"
+        style={{
+          background: done ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.04)",
+          border: done
+            ? "1px solid rgba(255, 255, 255, 0.95)"
+            : "1px solid rgba(255, 255, 255, 0.55)",
+          color: done ? "#0B0E13" : "var(--ios-text)",
+          boxShadow: done
+            ? "0 0 10px rgba(255, 255, 255, 0.45)"
+            : "0 0 6px rgba(255, 255, 255, 0.32)",
+        }}
+        aria-label={done ? "Done — tap to undo" : isCounter ? "Add one" : "Tick off"}
+      >
+        {done && (
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12l5 5L20 7" />
+          </svg>
+        )}
+      </button>
+
+      <div className="relative z-0 flex items-center gap-2 px-2.5 py-2 pr-9">
+        <span className="flex-none text-[20px] leading-none">{glyph}</span>
+        <div className="min-w-0 flex-1">
+          <div
+            className="line-clamp-2 text-[12px] font-bold leading-tight"
+            style={{ color: "var(--ios-text)" }}
+          >
+            {foundation.title}
+          </div>
+          <div
+            className="mt-0.5 flex items-center gap-1 text-[9px] leading-tight"
+            style={{ color: "var(--ios-text-muted)" }}
+          >
+            {isCounter ? (
+              <span>{count}/{target}</span>
+            ) : (
+              <span>{foundation.theme && foundation.theme !== "personal" ? foundation.theme : "foundation"}</span>
+            )}
+            {foundation.recurrence && foundation.recurrence !== "none" && (
+              <>
+                <span>·</span>
+                <span>{foundation.recurrence}</span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Defer — tiny corner chip. Long-tap-friendly; doesn't compete with the
+          tick visually. */}
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
           onDefer();
         }}
-        className="absolute right-1.5 top-1.5 z-10 rounded-md px-1.5 py-0.5 text-[10px] font-medium"
-        style={{
-          background: "rgba(255,255,255,0.05)",
-          color: "var(--ios-text-muted)",
-        }}
+        className="absolute bottom-1.5 right-2 z-10 text-[9px] font-medium"
+        style={{ color: "var(--ios-text-muted)" }}
       >
-        Later
+        later →
       </button>
-
-      {/* Whole-tile tap target = primary action (complete / +1). */}
-      <button
-        type="button"
-        onClick={onComplete}
-        className="relative z-0 flex h-full w-full flex-col items-start justify-end px-3 pb-2.5 pt-3 text-left"
-      >
-        <div className="text-[34px] leading-none">{glyph}</div>
-        <div
-          className="mt-1.5 line-clamp-2 text-[13px] font-bold leading-tight"
-          style={{ color: "var(--ios-text)" }}
-        >
-          {foundation.title}
-        </div>
-        <div className="mt-0.5 flex items-center gap-1 text-[10px]" style={{ color: "var(--ios-text-muted)" }}>
-          {isCounter ? (
-            <span>{count}/{target}</span>
-          ) : (
-            <span>{foundation.theme && foundation.theme !== "personal" ? foundation.theme : "foundation"}</span>
-          )}
-          {foundation.recurrence && foundation.recurrence !== "none" && (
-            <>
-              <span>·</span>
-              <span>{foundation.recurrence}</span>
-            </>
-          )}
-        </div>
-      </button>
-
-      {done && (
-        <div
-          className="pointer-events-none absolute right-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-[4px]"
-          style={{
-            background: "rgba(255, 255, 255, 0.95)",
-            color: "#0B0E13",
-            boxShadow: "0 0 12px rgba(255, 255, 255, 0.55)",
-          }}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12l5 5L20 7" />
-          </svg>
-        </div>
-      )}
     </div>
   );
 }
@@ -1748,6 +1862,8 @@ function DayRiver({
   onAdjust,
   onAutoReschedule,
   onComplete,
+  onReschedule,
+  onExtendDuration,
 }: {
   items: DayItem[];
   unscheduled: UnscheduledItem[];
@@ -1756,14 +1872,25 @@ function DayRiver({
   onAdjust: (item: DayItem, deltaMin: number) => void;
   onAutoReschedule: () => void;
   onComplete: (taskId: string) => void;
+  onReschedule: (item: DayItem) => void;
+  onExtendDuration: (item: DayItem, deltaMin: number) => void;
 }) {
   const groups = useMemo(() => groupConcurrent(items), [items]);
+
+  // Live ticker — re-evaluates "now" every minute so the NOW beam and
+  // current-group highlights update without a refresh. Cheap (one render
+  // per minute), worth the always-fresh feel.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   // Find where to slot the NOW beam in the chronological river:
   //   - Index of the first group whose start is in the future
   //   - If a current group brackets NOW, the beam renders inside that group
   //   - If everything is in the past, beam goes at the end
-  const nowDate = isToday ? new Date() : null;
+  const nowDate = isToday ? new Date(nowTick) : null;
   const nowMs = nowDate?.getTime() ?? null;
   const nowSlot = useMemo(() => {
     if (nowMs == null) return { kind: "none" as const };
@@ -1912,6 +2039,8 @@ function DayRiver({
                       index={idx}
                       onAdjust={onAdjust}
                       onComplete={onComplete}
+                      onReschedule={onReschedule}
+                      onExtendDuration={onExtendDuration}
                       isCurrent={isCurrentGroup}
                     />
                     {idx < groups.length - 1 && (
@@ -1929,6 +2058,105 @@ function DayRiver({
             </>
           )}
         </div>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * "Tomorrow morning" preview. Sits below today's day plan so the user can
+ * see what's coming first thing tomorrow — useful at end of day when
+ * planning is mostly closing out, not starting things. Shows the first
+ * 3 items of tomorrow by start time. Read-only: no controls, just the
+ * heads-up.
+ *
+ * Conditional render: only shows after 16:00 local time (when "end of
+ * day" starts to feel meaningful), and only if tomorrow has any items.
+ */
+function TomorrowPreview({
+  tasks,
+  foundations,
+  prefs,
+  calendarConnected,
+}: {
+  tasks: Task[];
+  foundations: Task[];
+  prefs: UserPrefs;
+  calendarConnected: boolean;
+}) {
+  const tomorrow = useMemo(() => {
+    const t = new Date();
+    t.setHours(0, 0, 0, 0);
+    t.setDate(t.getDate() + 1);
+    return t;
+  }, []);
+  const events = useDayEvents(calendarConnected, tomorrow);
+  const { items } = useMemo(
+    () =>
+      collectDayItems({
+        day: tomorrow,
+        tasks,
+        foundations,
+        events,
+        prefs,
+      }),
+    [tomorrow, tasks, foundations, events, prefs],
+  );
+  const previewItems = useMemo(
+    () => [...items].sort((a, b) => a.start.getTime() - b.start.getTime()).slice(0, 3),
+    [items],
+  );
+
+  const showFromHour = 16; // 4pm — start showing the next-day preview
+  const isLateEnough = new Date().getHours() >= showFromHour;
+  if (!isLateEnough) return null;
+  if (previewItems.length === 0) return null;
+
+  return (
+    <section className="mt-5">
+      <h3
+        className="mb-2 text-center text-[10px] font-semibold uppercase tracking-[0.16em]"
+        style={{ color: "var(--ios-text-muted)" }}
+      >
+        Tomorrow's first
+      </h3>
+      <div
+        className="rounded-xl px-3 py-2.5"
+        style={{
+          background: "rgba(255, 255, 255, 0.02)",
+          border: "1px solid rgba(255, 255, 255, 0.06)",
+        }}
+      >
+        {previewItems.map((item, i) => (
+          <div
+            key={item.id}
+            className="flex items-center gap-2 py-1"
+            style={{
+              borderTop: i === 0 ? undefined : "1px solid var(--ios-border)",
+            }}
+          >
+            <span
+              className="flex-none text-[11px] font-bold tabular-nums"
+              style={{ color: "var(--ios-text-secondary)" }}
+            >
+              {fmtTime(item.start)}
+            </span>
+            <span
+              className="min-w-0 flex-1 truncate text-[12px]"
+              style={{ color: "var(--ios-text)" }}
+            >
+              {item.title}
+            </span>
+            {item.fixed && (
+              <span
+                className="flex-none text-[9px]"
+                style={{ color: "var(--ios-text-muted)" }}
+              >
+                fixed
+              </span>
+            )}
+          </div>
+        ))}
       </div>
     </section>
   );
@@ -1982,50 +2210,49 @@ function RiverConnector({ from, to }: { from: Date; to: Date }) {
   );
 }
 
+/** NOW marker — pure glow, no pill / no border. The time itself reads as
+ *  the headline; "NOW" sits underneath as a wide-spaced caption. Centred
+ *  horizontally; pulses red so a glance in the user's peripheral vision
+ *  catches it. The radial halo behind the type does the visual heavy
+ *  lifting — text-shadow + background blur, no contained box. */
 const NowBeam = forwardRef<HTMLDivElement, { now: Date; variant?: "between" | "inside" }>(
   function NowBeam({ now, variant = "between" }, ref) {
     const inside = variant === "inside";
     return (
-      <div ref={ref} className="relative my-2 -mx-2">
+      <div ref={ref} className="relative my-3 flex justify-center">
         <div
-          className="now-beam-glow absolute inset-x-0"
+          className="pointer-events-none absolute"
           style={{
-            top: "-10px",
-            height: "30px",
+            top: "-12px",
+            bottom: "-12px",
+            left: "10%",
+            right: "10%",
             background:
-              "radial-gradient(ellipse at center, rgba(239, 68, 68, 0.28) 0%, transparent 75%)",
+              "radial-gradient(ellipse at center, rgba(239, 68, 68, 0.32) 0%, transparent 70%)",
           }}
         />
-        <div
-          className="relative flex items-center gap-2 rounded-md px-3 py-1.5"
-          style={{
-            background:
-              "linear-gradient(90deg, rgba(239,68,68,0.12) 0%, rgba(239,68,68,0.32) 50%, rgba(239,68,68,0.12) 100%)",
-            boxShadow:
-              "0 0 18px rgba(239, 68, 68, 0.45), 0 0 36px rgba(239, 68, 68, 0.18)",
-          }}
-        >
+        <div className="now-pulse relative flex flex-col items-center px-4">
           <span
-            className="flex h-1.5 w-1.5 rounded-full"
+            className="text-[20px] font-black tabular-nums leading-none"
             style={{
-              background: "var(--ios-danger)",
-              boxShadow: "0 0 8px rgba(239,68,68,0.9)",
+              color: "#FCA5A5",
+              letterSpacing: "-0.02em",
+              textShadow:
+                "0 0 14px rgba(239, 68, 68, 0.95), 0 0 28px rgba(239, 68, 68, 0.55)",
             }}
-          />
-          <span
-            className="text-[11px] font-bold uppercase tracking-[0.12em]"
-            style={{ color: "var(--ios-danger)" }}
           >
-            Now
-          </span>
-          <span className="text-[11px] font-semibold" style={{ color: "var(--ios-text)" }}>
             {fmtTime(now)}
           </span>
-          {inside && (
-            <span className="text-[10px]" style={{ color: "var(--ios-text-muted)" }}>
-              · in progress
-            </span>
-          )}
+          <span
+            className="mt-0.5 text-[8px] font-black"
+            style={{
+              color: "#FCA5A5",
+              letterSpacing: "0.32em",
+              textShadow: "0 0 10px rgba(239, 68, 68, 0.6)",
+            }}
+          >
+            {inside ? "NOW · IN PROGRESS" : "NOW"}
+          </span>
         </div>
       </div>
     );
@@ -2041,6 +2268,8 @@ function RiverGroup({
   index,
   onAdjust,
   onComplete,
+  onReschedule,
+  onExtendDuration,
   isCurrent,
 }: {
   group: DayItemGroup;
@@ -2048,23 +2277,43 @@ function RiverGroup({
   index: number;
   onAdjust: (item: DayItem, deltaMin: number) => void;
   onComplete: (taskId: string) => void;
+  onReschedule: (item: DayItem) => void;
+  onExtendDuration: (item: DayItem, deltaMin: number) => void;
   isCurrent: boolean;
 }) {
-  // Concurrent — render as side-by-side lanes. Cards split the row in
-  // equal portions so it reads as "two (or more) things at once".
+  // Concurrent — render as side-by-side lanes, staggered vertically by
+  // each item's offset from the group start. So an item starting 15 mins
+  // after another visibly drops below it (a stair-step), even though
+  // they sit in different lanes. ~1.6 px/min keeps the offset readable
+  // on phone widths without making concurrent groups extremely tall.
   if (group.items.length > 1) {
+    const STAGGER_PX_PER_MIN = 1.6;
+    const groupStartMs = group.start.getTime();
     return (
-      <div className="relative my-1.5 flex items-stretch gap-2 px-1">
-        {group.items.map((item) => (
-          <div key={item.id} className="flex-1 min-w-0">
-            <LaneCard
-              item={item}
-              isCurrent={isCurrent}
-              onAdjust={(delta) => onAdjust(item, delta)}
-              onComplete={() => item.task && onComplete(item.task.id)}
-            />
-          </div>
-        ))}
+      <div className="relative my-1.5 flex items-start gap-2 px-1">
+        {group.items.map((item) => {
+          const offsetMin = Math.max(
+            0,
+            (item.start.getTime() - groupStartMs) / 60_000,
+          );
+          const offsetPx = offsetMin * STAGGER_PX_PER_MIN;
+          return (
+            <div
+              key={item.id}
+              className="flex-1 min-w-0"
+              style={{ marginTop: `${offsetPx}px` }}
+            >
+              <LaneCard
+                item={item}
+                isCurrent={isCurrent}
+                onAdjust={(delta) => onAdjust(item, delta)}
+                onComplete={() => item.task && onComplete(item.task.id)}
+                onReschedule={() => onReschedule(item)}
+                onExtendDuration={(delta) => onExtendDuration(item, delta)}
+              />
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -2082,6 +2331,8 @@ function RiverGroup({
           isCurrent={isCurrent}
           onAdjust={(delta) => onAdjust(item, delta)}
           onComplete={() => item.task && onComplete(item.task.id)}
+          onReschedule={() => onReschedule(item)}
+          onExtendDuration={(delta) => onExtendDuration(item, delta)}
         />
       </div>
       {!right && <div className="flex-1" aria-hidden />}
@@ -2097,32 +2348,59 @@ function LaneCard({
   item,
   onAdjust,
   onComplete,
+  onReschedule,
+  onExtendDuration,
   isCurrent,
 }: {
   item: DayItem;
   onAdjust: (deltaMin: number) => void;
   onComplete: () => void;
+  /** Push this item to NOW (snapped to next 15-min). Cascade pushes
+   *  anything in the way. Visible only on past-not-done movables. */
+  onReschedule: () => void;
+  /** Adjust the slot's duration in minutes (±5). Min 5, max 480. */
+  onExtendDuration: (deltaMin: number) => void;
   isCurrent: boolean;
 }) {
   const accent = item.accent || (item.fixed ? "#94A3B8" : "#A78BFA");
   const past = item.end.getTime() < Date.now();
+  const done = item.done === true;
   const durationMin = Math.max(
     1,
     Math.round((item.end.getTime() - item.start.getTime()) / 60_000),
   );
 
+  // Pending cards carry a soft white glow — "this still wants doing".
+  // Once ticked the glow drops, the card dims, and the box fills. Past
+  // (overdue) items also dim a touch even when not ticked, so the eye
+  // gets pulled to "due now" things.
+  const cardGlow = done
+    ? "none"
+    : isCurrent
+      ? `0 4px 22px ${accent}40, 0 0 18px rgba(255, 255, 255, 0.20)`
+      : "0 0 14px rgba(255, 255, 255, 0.16)";
+  const cardOpacity = done ? 0.45 : past ? 0.7 : 1;
+
+  // Fixed (meeting / appointment) cards get a clearly solid border —
+  // signals "you can't shuffle this around" without needing to read
+  // the chip. Movable cards keep a soft tinted border + the white glow
+  // that says "this still wants doing".
+  const cardBorder = item.fixed
+    ? "1.5px solid rgba(255, 255, 255, 0.55)"
+    : isCurrent
+      ? `1px solid ${accent}80`
+      : `1px solid ${accent}30`;
+
   return (
     <div
-      className="relative overflow-hidden rounded-xl"
+      className="relative rounded-xl transition-shadow duration-200"
       style={{
         background: item.fixed
           ? `linear-gradient(135deg, ${accent}10, ${accent}04)`
           : `linear-gradient(135deg, ${accent}22, ${accent}0A)`,
-        border: isCurrent
-          ? `1px solid ${accent}80`
-          : `1px solid ${accent}30`,
-        opacity: past ? 0.55 : 1,
-        boxShadow: isCurrent ? `0 4px 18px ${accent}30` : undefined,
+        border: cardBorder,
+        opacity: cardOpacity,
+        boxShadow: cardGlow,
       }}
     >
       {isCurrent && (
@@ -2143,7 +2421,28 @@ function LaneCard({
           <span className="text-[10px]" style={{ color: "var(--ios-text-muted)" }}>
             {durationMin}m
           </span>
-          {item.kindGlyph && <span className="text-[11px]">{item.kindGlyph}</span>}
+          {/* Calendar items get an inline lock outline — outlined SVG looks
+              cleaner than a clock emoji and signals "this came from your
+              calendar". Foundations keep their unicode glyph (♾). */}
+          {item.source === "calendar" && (
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ color: item.fixed ? "var(--ios-text-secondary)" : "var(--ios-text-muted)" }}
+            >
+              <rect x="4" y="11" width="16" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+            </svg>
+          )}
+          {item.source !== "calendar" && item.kindGlyph && (
+            <span className="text-[11px]">{item.kindGlyph}</span>
+          )}
           {item.fixed ? (
             <span
               className="ml-auto inline-flex items-center gap-1 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-[0.08em]"
@@ -2164,14 +2463,23 @@ function LaneCard({
               onClick={onComplete}
               className="ml-auto flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[4px]"
               style={{
-                background: "rgba(255, 255, 255, 0.04)",
-                border: "1px solid rgba(255, 255, 255, 0.55)",
-                color: "var(--ios-text)",
-                boxShadow:
-                  "0 0 8px rgba(255, 255, 255, 0.32), inset 0 0 4px rgba(255, 255, 255, 0.08)",
+                background: done ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.04)",
+                border: done
+                  ? "1px solid rgba(255, 255, 255, 0.95)"
+                  : "1px solid rgba(255, 255, 255, 0.55)",
+                color: done ? "#0B0E13" : "var(--ios-text)",
+                boxShadow: done
+                  ? "0 0 10px rgba(255, 255, 255, 0.45)"
+                  : "0 0 8px rgba(255, 255, 255, 0.32), inset 0 0 4px rgba(255, 255, 255, 0.08)",
               }}
-              aria-label="Tick off"
-            />
+              aria-label={done ? "Done — tap to undo" : "Tick off"}
+            >
+              {done && (
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12l5 5L20 7" />
+                </svg>
+              )}
+            </button>
           )}
         </div>
 
@@ -2185,7 +2493,24 @@ function LaneCard({
           {item.title}
         </div>
 
-        {!item.fixed && (
+        {!item.fixed && past && !done && (
+          <div className="mt-1.5 flex justify-center">
+            <button
+              type="button"
+              onClick={onReschedule}
+              className="rounded-md px-2 py-0.5 text-[10px] font-bold"
+              style={{
+                background: "rgba(245, 158, 11, 0.18)",
+                color: "var(--ios-warning)",
+                border: "1px solid rgba(245, 158, 11, 0.4)",
+              }}
+            >
+              Reschedule → now
+            </button>
+          </div>
+        )}
+
+        {!item.fixed && !(past && !done) && (
           <div className="mt-1.5 flex items-center gap-0.5">
             <FineTuneButton onClick={() => onAdjust(-60)} label="−60" />
             <FineTuneButton onClick={() => onAdjust(-15)} label="−15" />
@@ -2195,11 +2520,57 @@ function LaneCard({
           </div>
         )}
       </div>
+
+      {/* ±5 duration adjusters — live on the bottom-centre border so they
+          read as "stretch the slot" rather than "shift the start". Half-
+          protruding outside the card. Only on movable, non-foundation
+          tasks (foundations have a fixed implicit duration). */}
+      {!item.fixed && item.task && item.source !== "foundation" && (
+        <div
+          className="absolute bottom-0 left-1/2 z-10 flex -translate-x-1/2 translate-y-1/2 gap-0 overflow-hidden rounded"
+          style={{
+            background: "var(--ios-bg)",
+            border: "1px solid rgba(255, 255, 255, 0.18)",
+            boxShadow: "0 0 6px rgba(0, 0, 0, 0.6)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onExtendDuration(-5);
+            }}
+            className="px-1.5 py-px text-[9px] font-bold leading-none"
+            style={{ color: "var(--ios-text-muted)" }}
+            aria-label="Shorten by 5 minutes"
+          >
+            −5
+          </button>
+          <span
+            className="self-stretch"
+            style={{ width: "1px", background: "rgba(255, 255, 255, 0.12)" }}
+          />
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onExtendDuration(5);
+            }}
+            className="px-1.5 py-px text-[9px] font-bold leading-none"
+            style={{ color: "var(--ios-text-muted)" }}
+            aria-label="Extend by 5 minutes"
+          >
+            +5
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 function FineTuneButton({ onClick, label }: { onClick: () => void; label: string }) {
+  // Lower-weight inline control — feels like a text adjuster, not a button.
+  // Rests muted; lights up on tap. No background, no border.
   return (
     <button
       type="button"
@@ -2207,11 +2578,8 @@ function FineTuneButton({ onClick, label }: { onClick: () => void; label: string
         e.stopPropagation();
         onClick();
       }}
-      className="rounded px-1 py-0.5 text-[9px] font-bold leading-none"
-      style={{
-        background: "rgba(255, 255, 255, 0.08)",
-        color: "var(--ios-text)",
-      }}
+      className="fine-tune px-1 text-[10px] font-semibold tabular-nums leading-none"
+      style={{ color: "rgba(255, 255, 255, 0.45)" }}
     >
       {label}
     </button>
