@@ -366,6 +366,16 @@ export function IosShell(props: IosShellProps) {
           0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
           50% { transform: translate(-50%, -50%) scale(1.35); opacity: 0.7; }
         }
+        .card-live { animation: liveCardPulse 1.8s ease-in-out infinite; }
+        .card-live-fixed { animation: liveFixedPulse 1.6s ease-in-out infinite; }
+        @keyframes liveCardPulse {
+          0%, 100% { filter: brightness(1); }
+          50% { filter: brightness(1.18) saturate(1.1); }
+        }
+        @keyframes liveFixedPulse {
+          0%, 100% { filter: brightness(1); }
+          50% { filter: brightness(1.32) saturate(1.18); }
+        }
         @keyframes nowOpacity {
           0%, 100% { opacity: 0.85; }
           50% { opacity: 1; }
@@ -2305,9 +2315,26 @@ function RiverGroup({
     );
   }
 
-  // Single item — alternate sides. Spacer fills the other half so the
-  // card is anchored to its lane, not centred.
+  // Single item. Two layouts:
+  //   - Fixed (3rd-party appointment) → centred full-width, anchored on
+  //     the spine so it visually "anchors" the day. The user can't move
+  //     it, so it acts as a structural beam everything else flows around.
+  //   - Movable → alternate left/right of the spine for visual rhythm.
   const item = group.items[0];
+  if (item.fixed) {
+    return (
+      <div className="relative my-1.5 px-1">
+        <LaneCard
+          item={item}
+          isCurrent={isCurrent}
+          onAdjust={(delta) => onAdjust(item, delta)}
+          onComplete={() => item.task && onComplete(item.task.id)}
+          onReschedule={() => onReschedule(item)}
+          onExtendDuration={(delta) => onExtendDuration(item, delta)}
+        />
+      </div>
+    );
+  }
   const right = index % 2 === 1;
   return (
     <div className="relative my-1.5 flex items-stretch px-1">
@@ -2358,52 +2385,55 @@ function LaneCard({
   );
 
   // Pending cards carry a soft white glow — "this still wants doing".
-  // Once ticked the glow drops, the card dims, and the box fills. Past
-  // (overdue) items also dim a touch even when not ticked, so the eye
-  // gets pulled to "due now" things.
+  // Once ticked the glow drops, the card dims, and the box fills.
+  //
+  // Live cards (now happening) get a pulsing accent glow on the border
+  // — extra strong for fixed-live (a meeting in progress is the
+  // loudest signal of all). The pulse animation is driven by the
+  // `card-live` / `card-live-fixed` classes; the static box-shadow is
+  // the resting glow.
+  const cardOpacity = done ? 0.45 : past ? 0.7 : 1;
+  const liveClass = isCurrent
+    ? item.fixed
+      ? "card-live-fixed"
+      : "card-live"
+    : "";
   const cardGlow = done
     ? "none"
     : isCurrent
-      ? `0 4px 22px ${accent}40, 0 0 18px rgba(255, 255, 255, 0.20)`
+      ? item.fixed
+        ? `0 0 22px ${accent}cc, 0 0 44px ${accent}55, inset 0 0 12px ${accent}40`
+        : `0 0 18px ${accent}80, 0 4px 22px ${accent}40, inset 0 0 8px ${accent}25`
       : "0 0 14px rgba(255, 255, 255, 0.16)";
-  const cardOpacity = done ? 0.45 : past ? 0.7 : 1;
 
-  // Fixed (meeting / appointment) cards get a clearly solid border —
-  // signals "you can't shuffle this around" without needing to read
-  // the chip. Movable cards keep a soft tinted border + the white glow
-  // that says "this still wants doing".
+  // Fixed (meeting / appointment) cards get a clearly solid white-ish
+  // border — signals "you can't shuffle this". Live fixed items dial
+  // it up: a thicker, accent-coloured border so the user can see at a
+  // glance "this is happening right now".
   const cardBorder = item.fixed
-    ? "1.5px solid rgba(255, 255, 255, 0.55)"
+    ? isCurrent
+      ? `2px solid ${accent}`
+      : "1.5px solid rgba(255, 255, 255, 0.55)"
     : isCurrent
-      ? `1px solid ${accent}80`
+      ? `1.5px solid ${accent}`
       : `1px solid ${accent}30`;
 
   return (
     <div
-      className="relative rounded-xl transition-shadow duration-200"
+      className={`relative rounded-xl transition-shadow duration-200 ${liveClass}`}
       style={{
+        // Layered: the surface colour sits opaque underneath so the
+        // spine line is fully hidden where cards land; the accent
+        // gradient overlays it. Without the surface base, the spine
+        // would show through the semi-transparent gradient.
         background: item.fixed
-          ? `linear-gradient(135deg, ${accent}10, ${accent}04)`
-          : `linear-gradient(135deg, ${accent}22, ${accent}0A)`,
+          ? `linear-gradient(135deg, ${accent}10, ${accent}04), var(--ios-surface)`
+          : `linear-gradient(135deg, ${accent}22, ${accent}0A), var(--ios-surface)`,
         border: cardBorder,
         opacity: cardOpacity,
         boxShadow: cardGlow,
       }}
     >
-      {/* In-progress indicator — centred along the top edge, a small
-          pulsing dot. Reads as "this is the live one" without dominating
-          the card layout from the side. */}
-      {isCurrent && (
-        <span
-          className="pointer-events-none absolute left-1/2 top-0 h-[6px] w-[6px] -translate-x-1/2 -translate-y-1/2 rounded-full"
-          style={{
-            background: accent,
-            boxShadow: `0 0 10px ${accent}, 0 0 18px ${accent}80`,
-            animation: "centreDotPulse 1.6s ease-in-out infinite",
-          }}
-          aria-label="In progress"
-        />
-      )}
       <div className="px-2.5 py-2">
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] font-bold tabular-nums" style={{ color: "var(--ios-text)" }}>
