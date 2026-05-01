@@ -973,6 +973,11 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         onResolve={handleResolveTask}
         onSetScheduledFor={(taskId, iso) => updateTask(taskId, { scheduledFor: iso })}
         onUpdateEstimatedMinutes={(taskId, minutes) => updateTask(taskId, { estimatedMinutes: minutes })}
+        onMuteEvent={(eventId) => {
+          const cur = prefs.ignoredEventIds ?? [];
+          if (cur.includes(eventId)) return;
+          setPrefs({ ignoredEventIds: [...cur, eventId] });
+        }}
         onToggleTask={toggleComplete}
         onRemoveTask={removeTask}
         onEditTask={startEdit}

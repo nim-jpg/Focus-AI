@@ -44,6 +44,8 @@ interface IosShellProps {
   onSetScheduledFor: (taskId: string, iso: string) => void;
   /** Update estimatedMinutes on a task — used by the ±5 duration chip on lane cards. */
   onUpdateEstimatedMinutes: (taskId: string, minutes: number) => void;
+  /** Mute a Google calendar event (adds to prefs.ignoredEventIds). */
+  onMuteEvent: (eventId: string) => void;
   onAddGoal: (input: Omit<Goal, "id" | "createdAt" | "updatedAt" | "source">) => void;
   onUpdateGoal: (id: string, patch: Partial<Goal>) => void;
   onRemoveGoal: (id: string) => void;
@@ -295,8 +297,10 @@ export function IosShell(props: IosShellProps) {
           onToggleTask={props.onToggleTask}
           onDeferFoundation={props.onDeferFoundation}
           onIncrementCounter={props.onIncrementCounter}
+          onSnooze={props.onSnooze}
           onSetScheduledFor={props.onSetScheduledFor}
           onUpdateEstimatedMinutes={props.onUpdateEstimatedMinutes}
+          onMuteEvent={props.onMuteEvent}
           onClose={() => setHyperState("closed")}
         />
       )}
@@ -1297,11 +1301,17 @@ interface HyperFocusProps {
   onToggleTask: (id: string) => void;
   onDeferFoundation: (id: string) => void;
   onIncrementCounter: (id: string, delta: number) => void;
+  /** Snooze a task until iso. Used by the down-arrow defer on lane cards. */
+  onSnooze: (id: string, untilIso: string) => void;
   /** Set the scheduledFor timestamp on a task. Used by ±15/±60 buttons and
    *  by auto-reschedule. The caller (App.tsx) routes this to updateTask. */
   onSetScheduledFor: (taskId: string, iso: string) => void;
   /** Update task duration (estimatedMinutes). Used by the ±5 chip. */
   onUpdateEstimatedMinutes: (taskId: string, minutes: number) => void;
+  /** Mute a Google calendar event id (adds to prefs.ignoredEventIds). Mirrors
+   *  what desktop's WeekSchedule context-menu does — single source of truth.
+   *  Once muted on either surface, the event vanishes from both. */
+  onMuteEvent: (eventId: string) => void;
   onClose: () => void;
 }
 
@@ -1402,6 +1412,22 @@ function HyperFocus(p: HyperFocusProps) {
     const next = Math.max(5, Math.min(480, current + deltaMin));
     if (next === current) return;
     p.onUpdateEstimatedMinutes(item.task.id, next);
+  }
+
+  /** Defer / hide an item. Calendar events get muted via prefs (the same
+   *  channel desktop uses, so the change mirrors across surfaces). Tasks
+   *  get snoozed until tomorrow morning. Foundations same — back tomorrow. */
+  function handleDefer(item: DayItem) {
+    if (item.source === "calendar" && item.event) {
+      p.onMuteEvent(item.event.id);
+      return;
+    }
+    if (item.task) {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(9, 0, 0, 0);
+      p.onSnooze(item.task.id, tomorrow.toISOString());
+    }
   }
 
   const dayLabel = useMemo(() => {
@@ -1513,6 +1539,7 @@ function HyperFocus(p: HyperFocusProps) {
           onComplete={(taskId) => p.onComplete(taskId)}
           onReschedule={handleReschedule}
           onExtendDuration={handleExtendDuration}
+          onDefer={handleDefer}
         />
 
         {dayOffset === 0 && (
@@ -1862,6 +1889,7 @@ function DayRiver({
   onComplete,
   onReschedule,
   onExtendDuration,
+  onDefer,
 }: {
   items: DayItem[];
   unscheduled: UnscheduledItem[];
@@ -1872,6 +1900,7 @@ function DayRiver({
   onComplete: (taskId: string) => void;
   onReschedule: (item: DayItem) => void;
   onExtendDuration: (item: DayItem, deltaMin: number) => void;
+  onDefer: (item: DayItem) => void;
 }) {
   const groups = useMemo(() => groupConcurrent(items), [items]);
 
@@ -2039,6 +2068,7 @@ function DayRiver({
                       onComplete={onComplete}
                       onReschedule={onReschedule}
                       onExtendDuration={onExtendDuration}
+                      onDefer={onDefer}
                       isCurrent={isCurrentGroup}
                     />
                     {idx < groups.length - 1 && (
@@ -2267,6 +2297,7 @@ function RiverGroup({
   onComplete,
   onReschedule,
   onExtendDuration,
+  onDefer,
   isCurrent,
 }: {
   group: DayItemGroup;
@@ -2276,19 +2307,24 @@ function RiverGroup({
   onComplete: (taskId: string) => void;
   onReschedule: (item: DayItem) => void;
   onExtendDuration: (item: DayItem, deltaMin: number) => void;
+  onDefer: (item: DayItem) => void;
   isCurrent: boolean;
 }) {
-  // Concurrent — render as side-by-side lanes, staggered vertically by
-  // each item's offset from the group start. So an item starting 15 mins
-  // after another visibly drops below it (a stair-step), even though
-  // they sit in different lanes. ~1.6 px/min keeps the offset readable
-  // on phone widths without making concurrent groups extremely tall.
+  // Concurrent — render as flush side-by-side lanes. Cards touch each
+  // other so the row reads as one coordinated trio (instead of three
+  // disconnected items with the spine showing through gaps). Stagger
+  // is dialled down: items still drop slightly below their earlier
+  // siblings to convey time-offset, but a 60-min stagger only descends
+  // ~24px so the row stays compact and the heights remain comparable.
+  // The stretch align makes all cards in the row the same height as
+  // the tallest, which kills the "uneven top-edges" look that read
+  // as "left-clustered with gaps".
   if (group.items.length > 1) {
-    const STAGGER_PX_PER_MIN = 1.6;
+    const STAGGER_PX_PER_MIN = 0.6;
     const groupStartMs = group.start.getTime();
     return (
-      <div className="relative my-1.5 flex items-start gap-2 px-1">
-        {group.items.map((item) => {
+      <div className="relative my-1.5 flex items-stretch px-1">
+        {group.items.map((item, i) => {
           const offsetMin = Math.max(
             0,
             (item.start.getTime() - groupStartMs) / 60_000,
@@ -2298,7 +2334,10 @@ function RiverGroup({
             <div
               key={item.id}
               className="flex-1 min-w-0"
-              style={{ marginTop: `${offsetPx}px` }}
+              style={{
+                marginTop: `${offsetPx}px`,
+                marginLeft: i === 0 ? 0 : "1px",
+              }}
             >
               <LaneCard
                 item={item}
@@ -2307,6 +2346,7 @@ function RiverGroup({
                 onComplete={() => item.task && onComplete(item.task.id)}
                 onReschedule={() => onReschedule(item)}
                 onExtendDuration={(delta) => onExtendDuration(item, delta)}
+                onDefer={() => onDefer(item)}
               />
             </div>
           );
@@ -2331,6 +2371,7 @@ function RiverGroup({
           onComplete={() => item.task && onComplete(item.task.id)}
           onReschedule={() => onReschedule(item)}
           onExtendDuration={(delta) => onExtendDuration(item, delta)}
+          onDefer={() => onDefer(item)}
         />
       </div>
     );
@@ -2347,6 +2388,7 @@ function RiverGroup({
           onComplete={() => item.task && onComplete(item.task.id)}
           onReschedule={() => onReschedule(item)}
           onExtendDuration={(delta) => onExtendDuration(item, delta)}
+          onDefer={() => onDefer(item)}
         />
       </div>
       {!right && <div className="flex-1" aria-hidden />}
@@ -2364,6 +2406,7 @@ function LaneCard({
   onComplete,
   onReschedule,
   onExtendDuration,
+  onDefer,
   isCurrent,
 }: {
   item: DayItem;
@@ -2374,6 +2417,9 @@ function LaneCard({
   onReschedule: () => void;
   /** Adjust the slot's duration in minutes (±5). Min 5, max 480. */
   onExtendDuration: (deltaMin: number) => void;
+  /** Hide / defer this item. Calendar events get muted via prefs (mirrors
+   *  desktop). Tasks get snoozed until tomorrow morning. */
+  onDefer: () => void;
   isCurrent: boolean;
 }) {
   const accent = item.accent || (item.fixed ? "#94A3B8" : "#A78BFA");
@@ -2465,6 +2511,29 @@ function LaneCard({
             <span className="text-[11px]">{item.kindGlyph}</span>
           )}
           <div className="ml-auto flex items-center gap-1">
+            {/* Defer / mute — down-arrow box. For calendar events this calls
+                onMuteEvent (same prefs.ignoredEventIds desktop uses, so the
+                state mirrors). For tasks it sets snoozedUntil to tomorrow
+                9am. Single tap, no menu. */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDefer();
+              }}
+              className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[4px]"
+              style={{
+                background: "rgba(255, 255, 255, 0.04)",
+                border: "1px solid rgba(255, 255, 255, 0.18)",
+                color: "var(--ios-text-secondary)",
+              }}
+              title={item.source === "calendar" ? "Mute event" : "Defer to tomorrow"}
+              aria-label={item.source === "calendar" ? "Mute event" : "Defer to tomorrow"}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
             {item.source === "calendar" && item.event?.htmlLink && (
               <button
                 type="button"
