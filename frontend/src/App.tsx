@@ -972,6 +972,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         onComplete={(id) => handleTopThreeComplete(id)}
         onResolve={handleResolveTask}
         onSetScheduledFor={(taskId, iso) => updateTask(taskId, { scheduledFor: iso })}
+        onUpdateEstimatedMinutes={(taskId, minutes) => updateTask(taskId, { estimatedMinutes: minutes })}
         onToggleTask={toggleComplete}
         onRemoveTask={removeTask}
         onEditTask={startEdit}

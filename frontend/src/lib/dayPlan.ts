@@ -154,13 +154,18 @@ export function collectDayItems(args: {
       end,
       event: ev,
       accent: ev.calendarColor || (fixed ? "#94A3B8" : "#A78BFA"),
-      kindGlyph: fixed ? "📅" : "🕓",
+      // No emoji — LaneCard renders a small inline lock SVG for calendar
+      // items based on item.source. Cleaner than 📅 / 🕓.
     });
   }
 
-  // Tasks with scheduledFor today (and sessionTimes entries)
+  // Tasks with scheduledFor today (and sessionTimes entries).
+  // Completed tasks STAY visible in the day plan — the tick fills, the
+  // glow drops, but the slot remains so the user can see what's
+  // already been done. The unscheduled bucket excludes completed
+  // (they don't need slotting).
   for (const t of tasks) {
-    if (t.status === "completed") continue;
+    const done = t.status === "completed";
 
     if (t.scheduledFor) {
       const start = new Date(t.scheduledFor);
@@ -181,6 +186,7 @@ export function collectDayItems(args: {
           end,
           task: t,
           accent: kind === "follow-up" ? "#A78BFA" : "#10B981",
+          done,
         });
         continue;
       }
@@ -202,13 +208,15 @@ export function collectDayItems(args: {
           task: t,
           sessionIndex: i,
           accent: "#A78BFA",
+          done,
         });
       });
       continue;
     }
 
-    // dueDate today + no scheduledFor → unscheduled bucket
-    if (t.dueDate) {
+    // dueDate today + no scheduledFor → unscheduled bucket. Completed ones
+    // don't need a slot so we skip them here.
+    if (!done && t.dueDate) {
       const due = new Date(t.dueDate);
       if (!Number.isNaN(due.getTime()) && sameDay(due, day)) {
         unscheduled.push({
@@ -221,15 +229,18 @@ export function collectDayItems(args: {
     }
   }
 
-  // Foundations with specificTime — render at that time on the target day
+  // Foundations with specificTime — render at that time on the target day.
+  // Completed (and completed-counter) foundations stay visible so the user
+  // can see their progress; we mark them done so the visual reflects it.
   for (const f of foundations) {
-    if (f.status === "completed") continue;
     if (f.snoozedUntil && new Date(f.snoozedUntil).getTime() > Date.now()) continue;
     if (!f.specificTime) continue;
     const { h, m } = parseHhmm(f.specificTime, { h: 9, m: 0 });
     const start = new Date(day);
     start.setHours(h, m, 0, 0);
     const dur = (f.estimatedMinutes ?? DEFAULT_FOUNDATION_MINUTES) * 60_000;
+    const counterDone =
+      !!f.counter && f.counter.count >= f.counter.target;
     items.push({
       id: `foundation:${f.id}`,
       source: "foundation",
@@ -240,6 +251,7 @@ export function collectDayItems(args: {
       task: f,
       accent: "#F59E0B",
       kindGlyph: "♾",
+      done: f.status === "completed" || counterDone,
     });
   }
 
