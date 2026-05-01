@@ -2784,7 +2784,6 @@ function LaneCard({
   const textAlign =
     align === "right" ? "right" : align === "left" ? "left" : "center";
   const showShiftControls = !item.fixed && item.task && !(past && !done);
-  const showDurationAdjust = showShiftControls && item.source !== "foundation";
 
   return (
     <div
@@ -2795,94 +2794,37 @@ function LaneCard({
           : `linear-gradient(135deg, ${accent}22, ${accent}0A), var(--ios-surface)`,
         border: cardBorder,
         opacity: cardOpacity,
+        // Bottom padding leaves room for the protruding ±5 duration chip.
+        paddingBottom: !item.fixed && item.task && item.source !== "foundation" ? 14 : 0,
         boxShadow: cardGlow,
       }}
     >
-      <div className="px-2.5 py-1.5">
-        {/* TOP — shift earlier (reduce start time). Subtle text controls,
-            justified toward the spine like the rest of the content. */}
-        {showShiftControls && (
-          <div className="flex" style={{ justifyContent: justify }}>
-            <FineTuneButton onClick={() => onAdjust(-60)} label="−60" />
-            <FineTuneButton onClick={() => onAdjust(-15)} label="−15" />
-          </div>
-        )}
-
-        {/* TIME row — time + ±5 duration cluster + actions. The action
-            cluster always sits on the side AWAY from the spine so the
-            tap targets don't crowd the centre line. */}
-        <div
-          className="mt-0.5 flex items-center gap-1.5"
-          style={{ flexDirection: align === "right" ? "row-reverse" : "row" }}
-        >
-          {/* Time + duration cluster (with ±5 hugging the duration) */}
-          <div className="flex items-center gap-1">
-            <span
-              className="text-[11px] font-bold tabular-nums"
-              style={{ color: "var(--ios-text)" }}
+      <div className="px-2.5 pb-2 pt-1.5">
+        {/* TIME row — time, kind glyph, action cluster (defer / pencil /
+            fixed pill). The TICK is NOT here; it lives next to the title. */}
+        <div className="flex items-center gap-1.5">
+          <span
+            className="text-[11px] font-bold tabular-nums"
+            style={{ color: "var(--ios-text)" }}
+          >
+            {fmtTime(item.start)}
+          </span>
+          {item.source === "calendar" && (
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ color: "var(--ios-text-secondary)" }}
             >
-              {fmtTime(item.start)}
-            </span>
-            {showDurationAdjust ? (
-              <>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onExtendDuration(-5);
-                  }}
-                  className="fine-tune px-0.5 text-[10px] font-semibold leading-none"
-                  style={{ color: "rgba(255, 255, 255, 0.45)" }}
-                  aria-label="Shorten by 5 minutes"
-                >
-                  −5
-                </button>
-                <span
-                  className="text-[11px] font-semibold tabular-nums"
-                  style={{ color: "var(--ios-text-secondary)" }}
-                >
-                  {durationMin}m
-                </span>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onExtendDuration(5);
-                  }}
-                  className="fine-tune px-0.5 text-[10px] font-semibold leading-none"
-                  style={{ color: "rgba(255, 255, 255, 0.45)" }}
-                  aria-label="Extend by 5 minutes"
-                >
-                  +5
-                </button>
-              </>
-            ) : (
-              <span
-                className="text-[10px]"
-                style={{ color: "var(--ios-text-secondary)" }}
-              >
-                {durationMin}m
-              </span>
-            )}
-            {item.source === "calendar" && (
-              <svg
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{ color: "var(--ios-text-secondary)" }}
-              >
-                <rect x="4" y="11" width="16" height="10" rx="2" />
-                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-              </svg>
-            )}
-          </div>
-
-          {/* Action cluster — defer / pencil / tick or fixed pill */}
+              <rect x="4" y="11" width="16" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+            </svg>
+          )}
           <div className="ml-auto flex items-center gap-1">
             <button
               type="button"
@@ -2925,7 +2867,7 @@ function LaneCard({
                 </svg>
               </button>
             )}
-            {item.fixed ? (
+            {item.fixed && (
               <span
                 className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-[0.08em]"
                 style={{
@@ -2939,46 +2881,52 @@ function LaneCard({
                 </svg>
                 fixed
               </span>
-            ) : (
-              <button
-                type="button"
-                onClick={onComplete}
-                className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[4px]"
-                style={{
-                  background: done ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.04)",
-                  border: done
-                    ? "1px solid rgba(255, 255, 255, 0.95)"
-                    : "1px solid rgba(255, 255, 255, 0.55)",
-                  color: done ? "#0B0E13" : "var(--ios-text)",
-                  boxShadow: done
-                    ? "0 0 10px rgba(255, 255, 255, 0.45)"
-                    : "0 0 8px rgba(255, 255, 255, 0.32), inset 0 0 4px rgba(255, 255, 255, 0.08)",
-                }}
-                aria-label={done ? "Done — tap to undo" : "Tick off"}
-              >
-                {done && (
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M5 12l5 5L20 7" />
-                  </svg>
-                )}
-              </button>
             )}
           </div>
         </div>
 
-        {/* TITLE — same horizontal bias as the time. */}
-        <div
-          className="mt-1 text-[13px] font-bold leading-snug"
-          style={{
-            color: "var(--ios-text)",
-            letterSpacing: "-0.01em",
-            textAlign,
-          }}
-        >
-          {item.title}
+        {/* TITLE row — title on the left, BIG TICK BOX on the right.
+            The tick is the primary action; sized 24x24 so it's
+            unambiguously a tap target. */}
+        <div className="mt-1 flex items-start gap-2">
+          <div
+            className="min-w-0 flex-1 text-[13px] font-bold leading-snug"
+            style={{ color: "var(--ios-text)", letterSpacing: "-0.01em", textAlign }}
+          >
+            {item.title}
+          </div>
+          {!item.fixed && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onComplete();
+              }}
+              className="flex h-6 w-6 flex-none items-center justify-center rounded-[5px]"
+              style={{
+                background: done ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.04)",
+                border: done
+                  ? "1px solid rgba(255, 255, 255, 0.95)"
+                  : "1.5px solid rgba(255, 255, 255, 0.65)",
+                color: done ? "#0B0E13" : "var(--ios-text)",
+                boxShadow: done
+                  ? "0 0 12px rgba(255, 255, 255, 0.55)"
+                  : "0 0 8px rgba(255, 255, 255, 0.32), inset 0 0 4px rgba(255, 255, 255, 0.08)",
+              }}
+              aria-label={done ? "Done — tap to undo" : "Tick off"}
+            >
+              {done && (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12l5 5L20 7" />
+                </svg>
+              )}
+            </button>
+          )}
         </div>
 
-        {/* Past + not done → reschedule pill replaces the shift controls. */}
+        {/* SHIFT row — minus on left (earlier), plus on right (later/delay).
+            Single row with opposite ends. Past + not done shows a
+            "Reschedule → now" pill instead. */}
         {!item.fixed && past && !done && (
           <div className="mt-1.5 flex" style={{ justifyContent: justify }}>
             <button
@@ -2995,16 +2943,65 @@ function LaneCard({
             </button>
           </div>
         )}
-
-        {/* BOTTOM — shift later (delay). Mirrors the top, justified the
-            same way so the eye reads it as a paired control. */}
         {showShiftControls && (
-          <div className="mt-1 flex" style={{ justifyContent: justify }}>
+          <div className="mt-1.5 flex items-center gap-0.5">
+            <FineTuneButton onClick={() => onAdjust(-60)} label="−60" />
+            <FineTuneButton onClick={() => onAdjust(-15)} label="−15" />
+            <span className="flex-1" />
             <FineTuneButton onClick={() => onAdjust(15)} label="+15" />
             <FineTuneButton onClick={() => onAdjust(60)} label="+60" />
           </div>
         )}
       </div>
+
+      {/* ±5 duration chip — half-protruding outside the bottom-centre
+          border. Duration label sits BETWEEN the −5 and +5 buttons so
+          the duration reads as the centre of its own adjuster. */}
+      {!item.fixed && item.task && item.source !== "foundation" && (
+        <div
+          className="absolute bottom-0 left-1/2 z-10 flex -translate-x-1/2 translate-y-1/2 items-center overflow-hidden rounded-md"
+          style={{
+            background: "var(--ios-bg)",
+            border: "1px solid rgba(255, 255, 255, 0.22)",
+            boxShadow: "0 0 6px rgba(0, 0, 0, 0.7)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onExtendDuration(-5);
+            }}
+            className="px-1.5 py-0.5 text-[10px] font-bold leading-none"
+            style={{ color: "var(--ios-text-secondary)" }}
+            aria-label="Shorten by 5 minutes"
+          >
+            −5
+          </button>
+          <span
+            className="px-2 py-0.5 text-[10px] font-bold tabular-nums leading-none"
+            style={{
+              color: "var(--ios-text)",
+              borderLeft: "1px solid rgba(255,255,255,0.12)",
+              borderRight: "1px solid rgba(255,255,255,0.12)",
+            }}
+          >
+            {durationMin}m
+          </span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onExtendDuration(5);
+            }}
+            className="px-1.5 py-0.5 text-[10px] font-bold leading-none"
+            style={{ color: "var(--ios-text-secondary)" }}
+            aria-label="Extend by 5 minutes"
+          >
+            +5
+          </button>
+        </div>
+      )}
     </div>
   );
 }
