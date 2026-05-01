@@ -168,7 +168,13 @@ export function collectDayItems(args: {
   // glow drops, but the slot remains so the user can see what's
   // already been done. The unscheduled bucket excludes completed
   // (they don't need slotting).
+  //
+  // Snoozed tasks are skipped entirely — once the user defers to
+  // tomorrow, today's slot disappears so it can't double up with the
+  // tomorrow instance. Same logic foundations and goals already use.
+  const nowMs = Date.now();
   for (const t of tasks) {
+    if (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > nowMs) continue;
     const done = t.status === "completed";
 
     if (t.scheduledFor) {

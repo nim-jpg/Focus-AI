@@ -44,6 +44,9 @@ interface IosShellProps {
   onSetScheduledFor: (taskId: string, iso: string) => void;
   /** Update estimatedMinutes on a task — used by the ±5 duration chip on lane cards. */
   onUpdateEstimatedMinutes: (taskId: string, minutes: number) => void;
+  /** Generic patch on a task — used by smart-snooze to move scheduledFor
+   *  on one-off tasks (one event, no duplication). */
+  onUpdateTask: (id: string, patch: Partial<Task>) => void;
   /** Mute a Google calendar event (adds to prefs.ignoredEventIds). */
   onMuteEvent: (eventId: string) => void;
   onAddGoal: (input: Omit<Goal, "id" | "createdAt" | "updatedAt" | "source">) => void;
@@ -298,6 +301,8 @@ export function IosShell(props: IosShellProps) {
           onDeferFoundation={props.onDeferFoundation}
           onIncrementCounter={props.onIncrementCounter}
           onSnooze={props.onSnooze}
+          onUpdateTask={props.onUpdateTask}
+          onRemoveTask={props.onRemoveTask}
           onSetScheduledFor={props.onSetScheduledFor}
           onUpdateEstimatedMinutes={props.onUpdateEstimatedMinutes}
           onMuteEvent={props.onMuteEvent}
@@ -1303,6 +1308,11 @@ interface HyperFocusProps {
   onIncrementCounter: (id: string, delta: number) => void;
   /** Snooze a task until iso. Used by the down-arrow defer on lane cards. */
   onSnooze: (id: string, untilIso: string) => void;
+  /** Update arbitrary task fields. Used by smart-snooze to shift scheduledFor
+   *  for one-off tasks (one event, no duplication). */
+  onUpdateTask: (id: string, patch: Partial<Task>) => void;
+  /** Delete a task entirely. Used by the Remove action on the defer sheet. */
+  onRemoveTask: (id: string) => void;
   /** Set the scheduledFor timestamp on a task. Used by ±15/±60 buttons and
    *  by auto-reschedule. The caller (App.tsx) routes this to updateTask. */
   onSetScheduledFor: (taskId: string, iso: string) => void;
@@ -1317,6 +1327,9 @@ interface HyperFocusProps {
 
 function HyperFocus(p: HyperFocusProps) {
   const [dayOffset, setDayOffset] = useState(0); // 0 = today, -1 = yesterday, +1 = tomorrow
+  // The item the user tapped the down-arrow on. Drives the DeferSheet —
+  // active when non-null, dismissed by clearing.
+  const [deferingItem, setDeferingItem] = useState<DayItem | null>(null);
   const targetDay = useMemo(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -1414,19 +1427,67 @@ function HyperFocus(p: HyperFocusProps) {
     p.onUpdateEstimatedMinutes(item.task.id, next);
   }
 
-  /** Defer / hide an item. Calendar events get muted via prefs (the same
-   *  channel desktop uses, so the change mirrors across surfaces). Tasks
-   *  get snoozed until tomorrow morning. Foundations same — back tomorrow. */
-  function handleDefer(item: DayItem) {
+  /**
+   * Smart snooze. Two semantics depending on task shape, picked to keep
+   * exactly ONE event on the calendar — never duplicates:
+   *
+   *   - Recurring task (daily/weekly/etc.): set snoozedUntil = end of today.
+   *     The recurrence engine surfaces tomorrow's instance naturally; we
+   *     just hide today's. No new event spawns.
+   *
+   *   - One-off task (no recurrence): MOVE scheduledFor (or dueDate) to
+   *     tomorrow morning. The same task carries forward; no second instance
+   *     gets created. snoozedUntil is cleared so the moved item shows up
+   *     on tomorrow's day plan as expected.
+   *
+   *   - Calendar event: mute via prefs.ignoredEventIds (mirrors desktop).
+   *     Single-occurrence muting on Google's side requires the per-instance
+   *     API which we don't fetch yet; muting the whole event is the
+   *     pragmatic fallback.
+   */
+  function handleSnoozeTomorrow(item: DayItem) {
+    if (item.source === "calendar" && item.event) {
+      p.onMuteEvent(item.event.id);
+      return;
+    }
+    if (!item.task) return;
+    const t = item.task;
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    const isRecurring = t.recurrence && t.recurrence !== "none";
+    if (isRecurring) {
+      const endOfToday = new Date();
+      endOfToday.setHours(23, 59, 59, 999);
+      p.onSnooze(t.id, endOfToday.toISOString());
+      return;
+    }
+    // One-off: move it forward; clear any old snooze so the moved
+    // instance appears on tomorrow's plan, not hidden.
+    const patch: Partial<Task> = { snoozedUntil: undefined };
+    if (t.scheduledFor) {
+      patch.scheduledFor = tomorrow.toISOString();
+    } else if (t.dueDate) {
+      patch.dueDate = tomorrow.toISOString();
+    } else {
+      patch.scheduledFor = tomorrow.toISOString();
+    }
+    p.onUpdateTask(t.id, patch);
+  }
+
+  /**
+   * Remove the item from view permanently. For tasks: delete (the user
+   * explicitly said this shouldn't be there). For Google events: mute
+   * (we can't delete from the user's calendar without permission, but
+   * we can hide it from Focus3).
+   */
+  function handleRemove(item: DayItem) {
     if (item.source === "calendar" && item.event) {
       p.onMuteEvent(item.event.id);
       return;
     }
     if (item.task) {
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      tomorrow.setHours(9, 0, 0, 0);
-      p.onSnooze(item.task.id, tomorrow.toISOString());
+      p.onRemoveTask(item.task.id);
     }
   }
 
@@ -1539,7 +1600,7 @@ function HyperFocus(p: HyperFocusProps) {
           onComplete={(taskId) => p.onComplete(taskId)}
           onReschedule={handleReschedule}
           onExtendDuration={handleExtendDuration}
-          onDefer={handleDefer}
+          onDefer={(item) => setDeferingItem(item)}
         />
 
         {dayOffset === 0 && (
@@ -1562,6 +1623,109 @@ function HyperFocus(p: HyperFocusProps) {
         }}
       >
         <QuickTray />
+      </div>
+
+      {deferingItem && (
+        <DeferSheet
+          item={deferingItem}
+          onClose={() => setDeferingItem(null)}
+          onSnoozeTomorrow={() => {
+            handleSnoozeTomorrow(deferingItem);
+            setDeferingItem(null);
+          }}
+          onRemove={() => {
+            handleRemove(deferingItem);
+            setDeferingItem(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Action sheet that opens when the user taps the down-arrow on a lane card.
+ * Two clear choices — snooze the item to tomorrow, or remove it. Smart
+ * routing happens in the parent (recurring → snoozedUntil tonight; one-off
+ * → scheduledFor moves; calendar event → mute via prefs).
+ *
+ * Cancel by tapping the backdrop or the explicit Cancel button.
+ */
+function DeferSheet({
+  item,
+  onClose,
+  onSnoozeTomorrow,
+  onRemove,
+}: {
+  item: DayItem;
+  onClose: () => void;
+  onSnoozeTomorrow: () => void;
+  onRemove: () => void;
+}) {
+  const isCalendar = item.source === "calendar";
+  const t = item.task;
+  const isRecurring = !!(t?.recurrence && t.recurrence !== "none");
+  return (
+    <div
+      className="ios-sheet-backdrop fixed inset-0 z-[55] flex items-end"
+      onClick={onClose}
+      style={{ background: "rgba(0, 0, 0, 0.6)" }}
+    >
+      <div
+        className="ios-sheet w-full"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--ios-surface)",
+          borderTopLeftRadius: "24px",
+          borderTopRightRadius: "24px",
+          padding: "12px 16px calc(env(safe-area-inset-bottom, 0) + 16px)",
+          borderTop: "1px solid var(--ios-border)",
+        }}
+      >
+        <div
+          className="mx-auto mb-3 h-1 w-10 rounded-full"
+          style={{ background: "var(--ios-border-strong)" }}
+        />
+        <div className="mb-3 px-1">
+          <div
+            className="text-[11px] font-semibold uppercase tracking-[0.08em]"
+            style={{ color: "var(--ios-text-secondary)" }}
+          >
+            What to do with this?
+          </div>
+          <div className="mt-0.5 text-[15px] font-bold leading-snug" style={{ color: "var(--ios-text)" }}>
+            {item.title}
+          </div>
+        </div>
+        <SheetButton
+          variant="primary"
+          onClick={onSnoozeTomorrow}
+          title={
+            isCalendar
+              ? "Mute on calendar"
+              : isRecurring
+                ? "Skip today (back tomorrow)"
+                : "Snooze to tomorrow"
+          }
+          subtitle={
+            isCalendar
+              ? "Hides the event everywhere; un-mute on Desktop"
+              : isRecurring
+                ? "Daily / weekly pattern keeps going as normal"
+                : "Moves the same task forward — no duplicates"
+          }
+        />
+        <SheetButton
+          variant="secondary"
+          onClick={onRemove}
+          title={isCalendar ? "Mute event" : "Remove task"}
+          subtitle={
+            isCalendar
+              ? "Same as above — calendar events can't be deleted from here"
+              : "Deletes the task entirely (not just today)"
+          }
+        />
+        <SheetButton variant="cancel" onClick={onClose} title="Cancel" />
       </div>
     </div>
   );
