@@ -162,11 +162,11 @@ export function IosShell(props: IosShellProps) {
           {tab === "focus" && (
             <FocusTab
               {...props}
-              onAskComplete={(id) => setCompletingId(id)}
+              onAskComplete={(id) => props.onToggleTask(id)}
             />
           )}
           {tab === "goals" && (
-            <GoalsTab {...props} onAskComplete={(id) => setCompletingId(id)} />
+            <GoalsTab {...props} onAskComplete={(id) => props.onToggleTask(id)} />
           )}
         </div>
       </main>
@@ -317,8 +317,8 @@ export function IosShell(props: IosShellProps) {
           --ios-surface: #16181F;
           --ios-surface-elev: #1C1F27;
           --ios-text: #F5F5F7;
-          --ios-text-secondary: #8B92A0;
-          --ios-text-muted: #5A6173;
+          --ios-text-secondary: #B0B6C2;
+          --ios-text-muted: #8089A0;
           --ios-border: rgba(255, 255, 255, 0.06);
           --ios-border-strong: rgba(255, 255, 255, 0.14);
           --ios-accent: #A78BFA;
@@ -1908,7 +1908,7 @@ function BasicsSection({
     return (
       <section className="text-center">
         <h2 className="text-[20px] font-bold tracking-tight" style={{ color: "var(--ios-text)", letterSpacing: "-0.02em" }}>
-          Foundational Items
+          Foundation
         </h2>
         <p className="mt-1 text-[13px]" style={{ color: "var(--ios-success)" }}>
           All ticked. Quiet day on the foundations front.
@@ -1923,7 +1923,7 @@ function BasicsSection({
         className="text-center text-[22px] font-bold tracking-tight"
         style={{ color: "var(--ios-text)", letterSpacing: "-0.02em" }}
       >
-        Foundational Items
+        Foundation
       </h2>
       <p
         className="mt-0.5 text-center text-[12px]"
@@ -2430,7 +2430,7 @@ function TomorrowPreview({
         className="mb-2 text-center text-[10px] font-semibold uppercase tracking-[0.16em]"
         style={{ color: "var(--ios-text-muted)" }}
       >
-        Tomorrow's first
+        Head Start
       </h3>
       <div
         className="rounded-xl px-3 py-2.5"
@@ -2442,26 +2442,26 @@ function TomorrowPreview({
         {previewItems.map((item, i) => (
           <div
             key={item.id}
-            className="flex items-center gap-2 py-1"
+            className="flex items-center justify-center gap-2 py-1"
             style={{
               borderTop: i === 0 ? undefined : "1px solid var(--ios-border)",
             }}
           >
             <span
-              className="flex-none text-[11px] font-bold tabular-nums"
+              className="text-[11px] font-bold tabular-nums"
               style={{ color: "var(--ios-text-secondary)" }}
             >
               {fmtTime(item.start)}
             </span>
             <span
-              className="min-w-0 flex-1 truncate text-[12px]"
+              className="text-[12px]"
               style={{ color: "var(--ios-text)" }}
             >
               {item.title}
             </span>
             {item.fixed && (
               <span
-                className="flex-none text-[9px]"
+                className="text-[9px]"
                 style={{ color: "var(--ios-text-muted)" }}
               >
                 fixed
@@ -2607,6 +2607,17 @@ function RiverGroup({
   if (group.items.length > 1) {
     const STAGGER_PX_PER_MIN = 0.6;
     const groupStartMs = group.start.getTime();
+    const total = group.items.length;
+    // Lane → align mapping: leftmost lanes lean RIGHT (toward centre
+    // spine), rightmost lanes lean LEFT, middle lanes centre. So the
+    // time labels gravitate toward the timeline running down the
+    // middle of the river.
+    const alignFor = (i: number): "right" | "centre" | "left" => {
+      if (total === 1) return "centre";
+      if (i === 0) return "right";
+      if (i === total - 1) return "left";
+      return "centre";
+    };
     return (
       <div className="relative my-1.5 flex items-stretch px-1">
         {group.items.map((item, i) => {
@@ -2632,6 +2643,7 @@ function RiverGroup({
                 onReschedule={() => onReschedule(item)}
                 onExtendDuration={(delta) => onExtendDuration(item, delta)}
                 onDefer={() => onDefer(item)}
+                align={alignFor(i)}
               />
             </div>
           );
@@ -2645,6 +2657,8 @@ function RiverGroup({
   //     the spine so it visually "anchors" the day. The user can't move
   //     it, so it acts as a structural beam everything else flows around.
   //   - Movable → alternate left/right of the spine for visual rhythm.
+  //     Left-side cards lean their content RIGHT (toward spine);
+  //     right-side cards lean their content LEFT (toward spine).
   const item = group.items[0];
   if (item.fixed) {
     return (
@@ -2657,6 +2671,7 @@ function RiverGroup({
           onReschedule={() => onReschedule(item)}
           onExtendDuration={(delta) => onExtendDuration(item, delta)}
           onDefer={() => onDefer(item)}
+          align="centre"
         />
       </div>
     );
@@ -2674,6 +2689,7 @@ function RiverGroup({
           onReschedule={() => onReschedule(item)}
           onExtendDuration={(delta) => onExtendDuration(item, delta)}
           onDefer={() => onDefer(item)}
+          align={right ? "left" : "right"}
         />
       </div>
       {!right && <div className="flex-1" aria-hidden />}
@@ -2693,6 +2709,7 @@ function LaneCard({
   onExtendDuration,
   onDefer,
   isCurrent,
+  align = "centre",
 }: {
   item: DayItem;
   onAdjust: (deltaMin: number) => void;
@@ -2706,6 +2723,13 @@ function LaneCard({
    *  desktop). Tasks get snoozed until tomorrow morning. */
   onDefer: () => void;
   isCurrent: boolean;
+  /** Where the card sits relative to the centre spine. Drives the
+   *  internal layout so the TIME label always lives close to the spine:
+   *    - "right" → card on the LEFT of spine, content right-aligned
+   *    - "left"  → card on the RIGHT of spine, content left-aligned
+   *    - "centre"→ centred / fixed full-width / single concurrent
+   */
+  align?: "right" | "centre" | "left";
 }) {
   const accent = item.accent || (item.fixed ? "#94A3B8" : "#A78BFA");
   const past = item.end.getTime() < Date.now();
@@ -2749,14 +2773,23 @@ function LaneCard({
       ? `1.5px solid ${accent}`
       : `1px solid ${accent}30`;
 
+  // Where the time/title content sits horizontally inside the card —
+  // pulls toward the centre spine so the "now line" reads cleanly.
+  const justify =
+    align === "right"
+      ? "flex-end"
+      : align === "left"
+        ? "flex-start"
+        : "center";
+  const textAlign =
+    align === "right" ? "right" : align === "left" ? "left" : "center";
+  const showShiftControls = !item.fixed && item.task && !(past && !done);
+  const showDurationAdjust = showShiftControls && item.source !== "foundation";
+
   return (
     <div
       className={`relative rounded-xl transition-shadow duration-200 ${liveClass}`}
       style={{
-        // Layered: the surface colour sits opaque underneath so the
-        // spine line is fully hidden where cards land; the accent
-        // gradient overlays it. Without the surface base, the spine
-        // would show through the semi-transparent gradient.
         background: item.fixed
           ? `linear-gradient(135deg, ${accent}10, ${accent}04), var(--ios-surface)`
           : `linear-gradient(135deg, ${accent}22, ${accent}0A), var(--ios-surface)`,
@@ -2765,41 +2798,92 @@ function LaneCard({
         boxShadow: cardGlow,
       }}
     >
-      <div className="px-2.5 py-2">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[11px] font-bold tabular-nums" style={{ color: "var(--ios-text)" }}>
-            {fmtTime(item.start)}
-          </span>
-          <span className="text-[10px]" style={{ color: "var(--ios-text-muted)" }}>
-            {durationMin}m
-          </span>
-          {/* Calendar items get an inline lock outline — outlined SVG looks
-              cleaner than a clock emoji and signals "this came from your
-              calendar". Foundations keep their unicode glyph (♾). */}
-          {item.source === "calendar" && (
-            <svg
-              width="11"
-              height="11"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              style={{ color: item.fixed ? "var(--ios-text-secondary)" : "var(--ios-text-muted)" }}
+      <div className="px-2.5 py-1.5">
+        {/* TOP — shift earlier (reduce start time). Subtle text controls,
+            justified toward the spine like the rest of the content. */}
+        {showShiftControls && (
+          <div className="flex" style={{ justifyContent: justify }}>
+            <FineTuneButton onClick={() => onAdjust(-60)} label="−60" />
+            <FineTuneButton onClick={() => onAdjust(-15)} label="−15" />
+          </div>
+        )}
+
+        {/* TIME row — time + ±5 duration cluster + actions. The action
+            cluster always sits on the side AWAY from the spine so the
+            tap targets don't crowd the centre line. */}
+        <div
+          className="mt-0.5 flex items-center gap-1.5"
+          style={{ flexDirection: align === "right" ? "row-reverse" : "row" }}
+        >
+          {/* Time + duration cluster (with ±5 hugging the duration) */}
+          <div className="flex items-center gap-1">
+            <span
+              className="text-[11px] font-bold tabular-nums"
+              style={{ color: "var(--ios-text)" }}
             >
-              <rect x="4" y="11" width="16" height="10" rx="2" />
-              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-            </svg>
-          )}
-          {item.source !== "calendar" && item.kindGlyph && (
-            <span className="text-[11px]">{item.kindGlyph}</span>
-          )}
+              {fmtTime(item.start)}
+            </span>
+            {showDurationAdjust ? (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onExtendDuration(-5);
+                  }}
+                  className="fine-tune px-0.5 text-[10px] font-semibold leading-none"
+                  style={{ color: "rgba(255, 255, 255, 0.45)" }}
+                  aria-label="Shorten by 5 minutes"
+                >
+                  −5
+                </button>
+                <span
+                  className="text-[11px] font-semibold tabular-nums"
+                  style={{ color: "var(--ios-text-secondary)" }}
+                >
+                  {durationMin}m
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onExtendDuration(5);
+                  }}
+                  className="fine-tune px-0.5 text-[10px] font-semibold leading-none"
+                  style={{ color: "rgba(255, 255, 255, 0.45)" }}
+                  aria-label="Extend by 5 minutes"
+                >
+                  +5
+                </button>
+              </>
+            ) : (
+              <span
+                className="text-[10px]"
+                style={{ color: "var(--ios-text-secondary)" }}
+              >
+                {durationMin}m
+              </span>
+            )}
+            {item.source === "calendar" && (
+              <svg
+                width="11"
+                height="11"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ color: "var(--ios-text-secondary)" }}
+              >
+                <rect x="4" y="11" width="16" height="10" rx="2" />
+                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+              </svg>
+            )}
+          </div>
+
+          {/* Action cluster — defer / pencil / tick or fixed pill */}
           <div className="ml-auto flex items-center gap-1">
-            {/* Defer / mute — down-arrow box. For calendar events this calls
-                onMuteEvent (same prefs.ignoredEventIds desktop uses, so the
-                state mirrors). For tasks it sets snoozedUntil to tomorrow
-                9am. Single tap, no menu. */}
             <button
               type="button"
               onClick={(e) => {
@@ -2809,11 +2893,11 @@ function LaneCard({
               className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[4px]"
               style={{
                 background: "rgba(255, 255, 255, 0.04)",
-                border: "1px solid rgba(255, 255, 255, 0.18)",
+                border: "1px solid rgba(255, 255, 255, 0.28)",
                 color: "var(--ios-text-secondary)",
               }}
-              title={item.source === "calendar" ? "Mute event" : "Defer to tomorrow"}
-              aria-label={item.source === "calendar" ? "Mute event" : "Defer to tomorrow"}
+              title={item.source === "calendar" ? "Mute event" : "Defer / remove"}
+              aria-label={item.source === "calendar" ? "Mute event" : "Defer / remove"}
             >
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M6 9l6 6 6-6" />
@@ -2829,7 +2913,7 @@ function LaneCard({
                 className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[4px]"
                 style={{
                   background: "rgba(255, 255, 255, 0.04)",
-                  border: "1px solid rgba(255, 255, 255, 0.18)",
+                  border: "1px solid rgba(255, 255, 255, 0.28)",
                   color: "var(--ios-text-secondary)",
                 }}
                 title="Edit in Google Calendar"
@@ -2846,7 +2930,7 @@ function LaneCard({
                 className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-[0.08em]"
                 style={{
                   background: "rgba(148, 163, 184, 0.18)",
-                  color: "var(--ios-text-muted)",
+                  color: "var(--ios-text-secondary)",
                 }}
                 title="Meeting / appointment — managed externally"
               >
@@ -2882,18 +2966,21 @@ function LaneCard({
           </div>
         </div>
 
+        {/* TITLE — same horizontal bias as the time. */}
         <div
           className="mt-1 text-[13px] font-bold leading-snug"
           style={{
             color: "var(--ios-text)",
             letterSpacing: "-0.01em",
+            textAlign,
           }}
         >
           {item.title}
         </div>
 
+        {/* Past + not done → reschedule pill replaces the shift controls. */}
         {!item.fixed && past && !done && (
-          <div className="mt-1.5 flex justify-center">
+          <div className="mt-1.5 flex" style={{ justifyContent: justify }}>
             <button
               type="button"
               onClick={onReschedule}
@@ -2909,60 +2996,15 @@ function LaneCard({
           </div>
         )}
 
-        {!item.fixed && !(past && !done) && (
-          <div className="mt-1.5 flex items-center gap-0.5">
-            <FineTuneButton onClick={() => onAdjust(-60)} label="−60" />
-            <FineTuneButton onClick={() => onAdjust(-15)} label="−15" />
-            <span className="flex-1" />
+        {/* BOTTOM — shift later (delay). Mirrors the top, justified the
+            same way so the eye reads it as a paired control. */}
+        {showShiftControls && (
+          <div className="mt-1 flex" style={{ justifyContent: justify }}>
             <FineTuneButton onClick={() => onAdjust(15)} label="+15" />
             <FineTuneButton onClick={() => onAdjust(60)} label="+60" />
           </div>
         )}
       </div>
-
-      {/* ±5 duration adjusters — live on the bottom-centre border so they
-          read as "stretch the slot" rather than "shift the start". Half-
-          protruding outside the card. Only on movable, non-foundation
-          tasks (foundations have a fixed implicit duration). */}
-      {!item.fixed && item.task && item.source !== "foundation" && (
-        <div
-          className="absolute bottom-0 left-1/2 z-10 flex -translate-x-1/2 translate-y-1/2 gap-0 overflow-hidden rounded"
-          style={{
-            background: "var(--ios-bg)",
-            border: "1px solid rgba(255, 255, 255, 0.18)",
-            boxShadow: "0 0 6px rgba(0, 0, 0, 0.6)",
-          }}
-        >
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onExtendDuration(-5);
-            }}
-            className="px-1.5 py-px text-[9px] font-bold leading-none"
-            style={{ color: "var(--ios-text-muted)" }}
-            aria-label="Shorten by 5 minutes"
-          >
-            −5
-          </button>
-          <span
-            className="self-stretch"
-            style={{ width: "1px", background: "rgba(255, 255, 255, 0.12)" }}
-          />
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onExtendDuration(5);
-            }}
-            className="px-1.5 py-px text-[9px] font-bold leading-none"
-            style={{ color: "var(--ios-text-muted)" }}
-            aria-label="Extend by 5 minutes"
-          >
-            +5
-          </button>
-        </div>
-      )}
     </div>
   );
 }
