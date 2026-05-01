@@ -447,6 +447,31 @@ const TIER_COLORS: Record<1 | 2 | 3 | 4, string> = {
 
 // ─── FOCUS ───────────────────────────────────────────────────────────
 function FocusTab(p: IosShellProps & { onAskComplete: (taskId: string) => void }) {
+  // Shared "defer to tomorrow" helper — called from any list row in the
+  // iOS app. Picks the right semantic:
+  //   - Recurring task → snoozedUntil = end of today (tomorrow's instance
+  //     surfaces naturally via recurrence).
+  //   - One-off task   → MOVE scheduledFor (or dueDate) to tomorrow 9am
+  //     and clear snoozedUntil. Same task forward, no duplicates.
+  // Identical to HyperFocus.handleSnoozeTomorrow; lifted here for re-use.
+  const deferTaskToTomorrow = (task: Task) => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    const isRecurring = task.recurrence && task.recurrence !== "none";
+    if (isRecurring) {
+      const endOfToday = new Date();
+      endOfToday.setHours(23, 59, 59, 999);
+      p.onSnooze(task.id, endOfToday.toISOString());
+      return;
+    }
+    const patch: Partial<Task> = { snoozedUntil: undefined };
+    if (task.scheduledFor) patch.scheduledFor = tomorrow.toISOString();
+    else if (task.dueDate) patch.dueDate = tomorrow.toISOString();
+    else patch.scheduledFor = tomorrow.toISOString();
+    p.onUpdateTask(task.id, patch);
+  };
+
   // Stretch = "doable work" by kind (action / follow-up / errand / decision /
   // communication). Appointments and habits drop out — appointments are
   // already booked (showing up IS the work), habits live in Hyper Focus
@@ -518,7 +543,7 @@ function FocusTab(p: IosShellProps & { onAskComplete: (taskId: string) => void }
                 goal={pickGoal(s.task, goalById)}
                 onComplete={() => p.onAskComplete(s.task.id)}
                 onEdit={() => p.onEditTask(s.task.id)}
-                onSchedule={() => p.onSchedule(s.task.id)}
+                onDefer={() => deferTaskToTomorrow(s.task)}
               />
             ))}
           </div>
@@ -820,38 +845,39 @@ function CompactTopCard({
 }
 
 // ─── STRETCH ROW ─────────────────────────────────────────────────────
+/**
+ * StretchRow — same design language as HyperFocus lane cards. White glow on
+ * pending, dims on done, square white-bordered tick box, down-arrow defer.
+ * No more separate "Schedule" pill (low-impact for stretch items; the
+ * Hyper day plan is where scheduling lives).
+ */
 function StretchRow({
   task,
   tier,
   goal,
   onComplete,
   onEdit,
-  onSchedule,
+  onDefer,
 }: {
   task: Task;
   tier: 1 | 2 | 3 | 4;
   goal?: Goal;
   onComplete: () => void;
   onEdit: () => void;
-  onSchedule: () => void;
+  onDefer: () => void;
 }) {
+  const done = task.status === "completed";
+  const accent = TIER_COLORS[tier];
   return (
     <div
-      className="flex items-center gap-2 rounded-xl px-2.5 py-2"
+      className="flex items-center gap-2 rounded-xl px-2.5 py-2 transition-shadow duration-200"
       style={{
-        background: "var(--ios-surface)",
-        border: "1px solid var(--ios-border)",
+        background: `linear-gradient(135deg, ${accent}14, ${accent}04), var(--ios-surface)`,
+        border: `1px solid ${accent}30`,
+        opacity: done ? 0.45 : 1,
+        boxShadow: done ? "none" : "0 0 12px rgba(255, 255, 255, 0.14)",
       }}
     >
-      <button
-        type="button"
-        onClick={onComplete}
-        className="flex h-6 w-6 flex-none items-center justify-center rounded-full"
-        style={{
-          border: `1.5px solid ${TIER_COLORS[tier]}`,
-        }}
-        aria-label="Complete"
-      />
       <button type="button" onClick={onEdit} className="min-w-0 flex-1 text-left">
         <div
           className="truncate text-[14px] font-medium"
@@ -883,14 +909,49 @@ function StretchRow({
           )}
         </div>
       </button>
-      <button
-        type="button"
-        onClick={onSchedule}
-        className="rounded-md px-2 py-1 text-[11px] font-medium"
-        style={{ color: "var(--ios-accent)", background: "var(--ios-accent-soft)" }}
-      >
-        {task.calendarEventId ? "Re-time" : "Schedule"}
-      </button>
+      <div className="flex flex-none items-center gap-1">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDefer();
+          }}
+          className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[4px]"
+          style={{
+            background: "rgba(255, 255, 255, 0.04)",
+            border: "1px solid rgba(255, 255, 255, 0.18)",
+            color: "var(--ios-text-secondary)",
+          }}
+          title="Defer to tomorrow"
+          aria-label="Defer to tomorrow"
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={onComplete}
+          className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[4px]"
+          style={{
+            background: done ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.04)",
+            border: done
+              ? "1px solid rgba(255, 255, 255, 0.95)"
+              : "1px solid rgba(255, 255, 255, 0.55)",
+            color: done ? "#0B0E13" : "var(--ios-text)",
+            boxShadow: done
+              ? "0 0 10px rgba(255, 255, 255, 0.45)"
+              : "0 0 6px rgba(255, 255, 255, 0.32)",
+          }}
+          aria-label={done ? "Done — tap to undo" : "Tick off"}
+        >
+          {done && (
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12l5 5L20 7" />
+            </svg>
+          )}
+        </button>
+      </div>
     </div>
   );
 }
@@ -979,6 +1040,29 @@ function QuickTray() {
 
 // ─── GOALS TAB ───────────────────────────────────────────────────────
 function GoalsTab(p: IosShellProps & { onAskComplete: (id: string) => void }) {
+  // Same smart-defer helper as FocusTab. Recurring → snoozedUntil tonight;
+  // one-off → move scheduledFor / dueDate to tomorrow 9am. Single source
+  // of truth for "defer to tomorrow" behaviour across all iOS surfaces.
+  const deferTaskToTomorrow = (taskId: string) => {
+    const task = p.tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    const isRecurring = task.recurrence && task.recurrence !== "none";
+    if (isRecurring) {
+      const endOfToday = new Date();
+      endOfToday.setHours(23, 59, 59, 999);
+      p.onSnooze(task.id, endOfToday.toISOString());
+      return;
+    }
+    const patch: Partial<Task> = { snoozedUntil: undefined };
+    if (task.scheduledFor) patch.scheduledFor = tomorrow.toISOString();
+    else if (task.dueDate) patch.dueDate = tomorrow.toISOString();
+    else patch.scheduledFor = tomorrow.toISOString();
+    p.onUpdateTask(task.id, patch);
+  };
+
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const ignoredEvents = useMemo(
@@ -1053,7 +1137,7 @@ function GoalsTab(p: IosShellProps & { onAskComplete: (id: string) => void }) {
             open={open}
             onToggle={() => toggle(g.id)}
             onCompleteTask={p.onAskComplete}
-            onScheduleTask={p.onSchedule}
+            onDeferTask={deferTaskToTomorrow}
             onEditTask={p.onEditTask}
           />
         );
@@ -1065,7 +1149,7 @@ function GoalsTab(p: IosShellProps & { onAskComplete: (id: string) => void }) {
           open={expanded.has("__unlinked")}
           onToggle={() => toggle("__unlinked")}
           onCompleteTask={p.onAskComplete}
-          onScheduleTask={p.onSchedule}
+          onDeferTask={deferTaskToTomorrow}
           onEditTask={p.onEditTask}
         />
       )}
@@ -1080,7 +1164,7 @@ function GoalCard({
   open,
   onToggle,
   onCompleteTask,
-  onScheduleTask,
+  onDeferTask,
   onEditTask,
 }: {
   goal: Goal;
@@ -1089,7 +1173,7 @@ function GoalCard({
   open: boolean;
   onToggle: () => void;
   onCompleteTask: (id: string) => void;
-  onScheduleTask: (id: string) => void;
+  onDeferTask: (id: string) => void;
   onEditTask: (id: string) => void;
 }) {
   return (
@@ -1167,7 +1251,7 @@ function GoalCard({
                 task={t}
                 onComplete={() => onCompleteTask(t.id)}
                 onEdit={() => onEditTask(t.id)}
-                onSchedule={() => onScheduleTask(t.id)}
+                onDefer={() => onDeferTask(t.id)}
               />
             ))
           )}
@@ -1182,14 +1266,14 @@ function UnlinkedCard({
   open,
   onToggle,
   onCompleteTask,
-  onScheduleTask,
+  onDeferTask,
   onEditTask,
 }: {
   tasks: Task[];
   open: boolean;
   onToggle: () => void;
   onCompleteTask: (id: string) => void;
-  onScheduleTask: (id: string) => void;
+  onDeferTask: (id: string) => void;
   onEditTask: (id: string) => void;
 }) {
   return (
@@ -1234,7 +1318,7 @@ function UnlinkedCard({
               task={t}
               onComplete={() => onCompleteTask(t.id)}
               onEdit={() => onEditTask(t.id)}
-              onSchedule={() => onScheduleTask(t.id)}
+              onDefer={() => onDeferTask(t.id)}
             />
           ))}
         </div>
@@ -1243,29 +1327,33 @@ function UnlinkedCard({
   );
 }
 
+/**
+ * GoalTaskRow — same design language as HyperFocus / StretchRow. Soft white
+ * glow on pending; dim + filled tick on done. Down-arrow defer + square
+ * tick box action cluster on the right. The Schedule pill is gone — Hyper
+ * is where time-blocking happens.
+ */
 function GoalTaskRow({
   task,
   onComplete,
   onEdit,
-  onSchedule,
+  onDefer,
 }: {
   task: Task;
   onComplete: () => void;
   onEdit: () => void;
-  onSchedule: () => void;
+  onDefer: () => void;
 }) {
+  const done = task.status === "completed";
   return (
     <div
-      className="flex items-center gap-2 rounded-lg px-2 py-1.5"
-      style={{ background: "var(--ios-surface-elev)" }}
+      className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-shadow duration-200"
+      style={{
+        background: "var(--ios-surface-elev)",
+        opacity: done ? 0.45 : 1,
+        boxShadow: done ? "none" : "0 0 10px rgba(255, 255, 255, 0.10)",
+      }}
     >
-      <button
-        type="button"
-        onClick={onComplete}
-        className="flex h-5 w-5 flex-none items-center justify-center rounded-full"
-        style={{ border: "1.5px solid var(--ios-border-strong)" }}
-        aria-label="Complete"
-      />
       <button type="button" onClick={onEdit} className="min-w-0 flex-1 text-left">
         <div className="truncate text-[13px] font-medium" style={{ color: "var(--ios-text)" }}>
           {task.title}
@@ -1285,11 +1373,44 @@ function GoalTaskRow({
       </button>
       <button
         type="button"
-        onClick={onSchedule}
-        className="rounded px-1.5 py-0.5 text-[10px] font-medium"
-        style={{ color: "var(--ios-accent)" }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDefer();
+        }}
+        className="flex h-[16px] w-[16px] flex-none items-center justify-center rounded-[3px]"
+        style={{
+          background: "rgba(255, 255, 255, 0.04)",
+          border: "1px solid rgba(255, 255, 255, 0.18)",
+          color: "var(--ios-text-secondary)",
+        }}
+        title="Defer to tomorrow"
+        aria-label="Defer to tomorrow"
       >
-        {task.calendarEventId ? "Re-time" : "Schedule"}
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        onClick={onComplete}
+        className="flex h-[16px] w-[16px] flex-none items-center justify-center rounded-[3px]"
+        style={{
+          background: done ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.04)",
+          border: done
+            ? "1px solid rgba(255, 255, 255, 0.95)"
+            : "1px solid rgba(255, 255, 255, 0.55)",
+          color: done ? "#0B0E13" : "var(--ios-text)",
+          boxShadow: done
+            ? "0 0 8px rgba(255, 255, 255, 0.45)"
+            : "0 0 4px rgba(255, 255, 255, 0.28)",
+        }}
+        aria-label={done ? "Done" : "Tick off"}
+      >
+        {done && (
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12l5 5L20 7" />
+          </svg>
+        )}
       </button>
     </div>
   );
@@ -1704,8 +1825,8 @@ function DeferSheet({
             isCalendar
               ? "Mute on calendar"
               : isRecurring
-                ? "Skip today (back tomorrow)"
-                : "Snooze to tomorrow"
+                ? "Defer today (back tomorrow)"
+                : "Defer to tomorrow"
           }
           subtitle={
             isCalendar
