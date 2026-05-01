@@ -134,7 +134,7 @@ export function IosShell(props: IosShellProps) {
             <button
               type="button"
               onClick={props.onExitIosLayout}
-              className="-mr-1 inline-flex h-8 items-center rounded-full px-3 text-[12px] font-medium"
+              className="-mr-1 inline-flex h-8 items-center rounded-md px-3 text-[12px] font-medium"
               style={{
                 color: "var(--ios-accent)",
                 background: "var(--ios-accent-soft)",
@@ -497,7 +497,7 @@ function HyperLaunchButton({ onClick }: { onClick: () => void }) {
       type="button"
       onClick={onClick}
       aria-label="Launch Hyperfocus"
-      className="hyper-launch inline-flex h-8 items-center rounded-full px-3 text-[11px] font-black"
+      className="hyper-launch inline-flex h-8 items-center rounded-md px-3 text-[11px] font-black"
       style={{
         background:
           "linear-gradient(135deg, rgba(0, 229, 255, 0.16), rgba(0, 119, 255, 0.16))",
@@ -542,7 +542,7 @@ function HyperCountdown({ onDone, onCancel }: { onDone: () => void; onCancel: ()
       <button
         type="button"
         onClick={onCancel}
-        className="absolute right-5 top-5 rounded-full px-3 py-1.5 text-[12px] font-medium"
+        className="absolute right-5 top-5 rounded-md px-3 py-1.5 text-[12px] font-medium"
         style={{
           background: "rgba(255,255,255,0.08)",
           color: "var(--ios-text-secondary)",
@@ -588,6 +588,16 @@ function HyperCountdown({ onDone, onCancel }: { onDone: () => void; onCancel: ()
           style={{ color: "var(--ios-text-secondary)" }}
         >
           Grab your coffee — get ready.
+        </div>
+        <div
+          className="mt-5 inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px]"
+          style={{
+            background: "rgba(255, 255, 255, 0.04)",
+            color: "var(--ios-text-muted)",
+            border: "1px solid rgba(255, 255, 255, 0.08)",
+          }}
+        >
+          🔇 swipe down → Focus / Do Not Disturb
         </div>
       </div>
     </div>
@@ -885,25 +895,30 @@ function QuickTray() {
 
   return (
     <section>
-      <SectionHeader title="Quick log" muted />
-      <div className="flex gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+      <h3
+        className="mb-2 text-center text-[10px] font-semibold uppercase tracking-[0.16em]"
+        style={{ color: "var(--ios-text-muted)" }}
+      >
+        Quick log
+      </h3>
+      <div className="flex w-full items-center justify-center gap-1">
         {QUICK_ITEMS.map((item) => (
           <button
             key={item.key}
             type="button"
             onClick={() => bump(item.key)}
-            className="flex flex-none items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium"
+            className="flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-md px-1 py-1.5 text-[10px] font-medium"
             style={{
               background: "var(--ios-surface)",
               border: "1px solid var(--ios-border)",
               color: "var(--ios-text-secondary)",
             }}
           >
-            <span className="text-[14px]">{item.emoji}</span>
-            <span>{item.label}</span>
+            <span className="text-[16px] leading-none">{item.emoji}</span>
+            <span className="truncate">{item.label}</span>
             {(counts[item.key] ?? 0) > 0 && (
               <span
-                className="ml-0.5 rounded-full px-1.5 text-[10px] font-bold"
+                className="rounded px-1 text-[9px] font-bold leading-none"
                 style={{ background: "var(--ios-accent-soft)", color: "var(--ios-accent)" }}
               >
                 {counts[item.key]}
@@ -1260,6 +1275,28 @@ function HyperFocus(p: HyperFocusProps) {
     return d;
   }, [dayOffset]);
 
+  // Wake Lock — best we can do from a web app on iOS. We CAN'T trigger
+  // DND / Focus mode programmatically (no API exposes that on Safari) so
+  // the countdown nudge tells the user to swipe down themselves. Wake
+  // Lock at least keeps the screen on while they're working through the
+  // day plan. iOS Safari 16.4+ supports it; older versions silently fail.
+  useEffect(() => {
+    let lock: { release: () => Promise<void> } | null = null;
+    (async () => {
+      try {
+        const wl = (navigator as Navigator & {
+          wakeLock?: { request: (type: "screen") => Promise<{ release: () => Promise<void> }> };
+        }).wakeLock;
+        if (wl?.request) lock = await wl.request("screen");
+      } catch {
+        // No Wake Lock support, or denied — silent fail; not critical.
+      }
+    })();
+    return () => {
+      void lock?.release().catch(() => undefined);
+    };
+  }, []);
+
   const events = useDayEvents(p.calendarConnected, targetDay);
   // Collect EVERYTHING that should appear on the day plan — Google
   // appointments + Focus3 tasks (scheduledFor today, sessionTimes today) +
@@ -1322,31 +1359,37 @@ function HyperFocus(p: HyperFocusProps) {
         paddingBottom: "env(safe-area-inset-bottom, 0)",
       }}
     >
+      {/* HYPERFOCUS top brand — bigger, presence-y, no oval container, the
+          letter-spacing + glow does the work. */}
       <div
-        className="flex items-center justify-center px-5 py-1.5"
+        className="flex items-center justify-center px-5 py-3"
         style={{
           background:
-            "linear-gradient(90deg, rgba(0, 229, 255, 0.06), rgba(0, 119, 255, 0.10), rgba(0, 229, 255, 0.06))",
+            "linear-gradient(90deg, rgba(0, 229, 255, 0.04), rgba(0, 119, 255, 0.10), rgba(0, 229, 255, 0.04))",
           borderBottom: "1px solid rgba(0, 229, 255, 0.18)",
         }}
       >
         <span
-          className="text-[10px] font-black"
+          className="text-[18px] font-black"
           style={{
             color: "#7CFFFF",
-            letterSpacing: "0.32em",
-            textShadow: "0 0 8px rgba(0, 220, 255, 0.55)",
+            letterSpacing: "0.36em",
+            textShadow:
+              "0 0 14px rgba(0, 220, 255, 0.7), 0 0 28px rgba(0, 140, 255, 0.35)",
           }}
         >
           HYPERFOCUS
         </span>
       </div>
-      <header className="flex items-center justify-between px-5 py-3" style={{ borderBottom: "1px solid var(--ios-border)" }}>
-        <div className="flex items-center gap-2">
+      <header
+        className="relative px-5 py-3"
+        style={{ borderBottom: "1px solid var(--ios-border)" }}
+      >
+        <div className="flex items-center justify-center gap-2">
           <button
             type="button"
             onClick={() => setDayOffset((d) => d - 1)}
-            className="flex h-8 w-8 items-center justify-center rounded-full"
+            className="flex h-8 w-8 items-center justify-center rounded-md"
             style={{ background: "var(--ios-surface)" }}
             aria-label="Previous day"
           >
@@ -1357,7 +1400,7 @@ function HyperFocus(p: HyperFocusProps) {
           <button
             type="button"
             onClick={() => setDayOffset(0)}
-            className="rounded-full px-3 py-1 text-[12px] font-medium"
+            className="rounded-md px-3 py-1 text-[12px] font-semibold"
             style={{
               background: dayOffset === 0 ? "var(--ios-accent-soft)" : "var(--ios-surface)",
               color: dayOffset === 0 ? "var(--ios-accent)" : "var(--ios-text-secondary)",
@@ -1368,7 +1411,7 @@ function HyperFocus(p: HyperFocusProps) {
           <button
             type="button"
             onClick={() => setDayOffset((d) => d + 1)}
-            className="flex h-8 w-8 items-center justify-center rounded-full"
+            className="flex h-8 w-8 items-center justify-center rounded-md"
             style={{ background: "var(--ios-surface)" }}
             aria-label="Next day"
           >
@@ -1380,7 +1423,7 @@ function HyperFocus(p: HyperFocusProps) {
         <button
           type="button"
           onClick={p.onClose}
-          className="flex h-8 items-center rounded-full px-3 text-[12px] font-medium"
+          className="absolute right-5 top-1/2 -translate-y-1/2 flex h-8 items-center rounded-md px-3 text-[12px] font-medium"
           style={{ background: "var(--ios-surface)", color: "var(--ios-text)" }}
         >
           Done
@@ -1451,9 +1494,9 @@ function BasicsSection({
 
   if (items.length === 0) {
     return (
-      <section>
+      <section className="text-center">
         <h2 className="text-[20px] font-bold tracking-tight" style={{ color: "var(--ios-text)", letterSpacing: "-0.02em" }}>
-          Today's basics
+          Today's foundations
         </h2>
         <p className="mt-1 text-[13px]" style={{ color: "var(--ios-success)" }}>
           All ticked. Quiet day on the foundations front.
@@ -1464,11 +1507,17 @@ function BasicsSection({
 
   return (
     <section>
-      <h2 className="text-[22px] font-bold tracking-tight" style={{ color: "var(--ios-text)", letterSpacing: "-0.02em" }}>
-        Today's basics
+      <h2
+        className="text-center text-[22px] font-bold tracking-tight"
+        style={{ color: "var(--ios-text)", letterSpacing: "-0.02em" }}
+      >
+        Today's foundations
       </h2>
-      <p className="mt-0.5 text-[12px]" style={{ color: dropoutSoon ? "var(--ios-warning)" : "var(--ios-text-secondary)" }}>
-        {dropoutSoon ? "Late in the day — incomplete basics will drop out tonight" : "Quick wins. Tap a tile, deeper outcomes happen on the timeline below."}
+      <p
+        className="mt-0.5 text-center text-[12px]"
+        style={{ color: dropoutSoon ? "var(--ios-warning)" : "var(--ios-text-secondary)" }}
+      >
+        {dropoutSoon ? "Late in the day — incomplete foundations will drop out tonight" : "Quick wins. Tap a tile, deeper outcomes happen on the timeline below."}
       </p>
       <div className="mt-3 grid grid-cols-2 gap-2.5">
         {items.map((f) => (
@@ -1628,12 +1677,17 @@ function BasicTile({
       </button>
 
       {done && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center" style={{ background: "rgba(16, 185, 129, 0.18)" }}>
-          <div className="flex h-12 w-12 items-center justify-center rounded-full" style={{ background: "var(--ios-success)", color: "white" }}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 12l5 5L20 7" />
-            </svg>
-          </div>
+        <div
+          className="pointer-events-none absolute right-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-[4px]"
+          style={{
+            background: "rgba(255, 255, 255, 0.95)",
+            color: "#0B0E13",
+            boxShadow: "0 0 12px rgba(255, 255, 255, 0.55)",
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12l5 5L20 7" />
+          </svg>
         </div>
       )}
     </div>
@@ -1751,12 +1805,18 @@ function DayRiver({
 
   return (
     <section>
-      <div className="flex items-end justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-[22px] font-bold tracking-tight" style={{ color: "var(--ios-text)", letterSpacing: "-0.02em" }}>
-            Day plan
+      <div className="relative">
+        <div className="text-center">
+          <h2
+            className="text-[22px] font-bold tracking-tight"
+            style={{ color: "var(--ios-text)", letterSpacing: "-0.02em" }}
+          >
+            Day's Focus
           </h2>
-          <p className="mt-0.5 text-[12px]" style={{ color: "var(--ios-text-secondary)" }}>
+          <p
+            className="mt-0.5 text-[12px]"
+            style={{ color: "var(--ios-text-secondary)" }}
+          >
             {items.length === 0 && unscheduled.length === 0
               ? calendarConnected
                 ? "Nothing on the day yet."
@@ -1768,7 +1828,7 @@ function DayRiver({
           <button
             type="button"
             onClick={onAutoReschedule}
-            className="flex-none rounded-full px-3 py-1.5 text-[12px] font-bold"
+            className="absolute right-0 top-0 rounded-md px-3 py-1.5 text-[11px] font-bold"
             style={{
               background:
                 "linear-gradient(135deg, var(--ios-accent-grad-from), var(--ios-accent-grad-to))",
@@ -1795,7 +1855,7 @@ function DayRiver({
             {unscheduled.map((u) => (
               <span
                 key={u.id}
-                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px]"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px]"
                 style={{
                   background: "var(--ios-surface)",
                   color: "var(--ios-text)",
@@ -1908,7 +1968,7 @@ function RiverConnector({ from, to }: { from: Date; to: Date }) {
     <div className="relative flex items-center justify-center" style={{ height: tight ? 12 : big ? 28 : 20 }}>
       {label && (
         <span
-          className="relative z-10 rounded-full px-2 py-0.5 text-[10px] font-medium"
+          className="relative z-10 rounded-md px-2 py-0.5 text-[10px] font-medium"
           style={{
             background: "var(--ios-surface-elev)",
             color: "var(--ios-text-muted)",
@@ -1937,12 +1997,12 @@ const NowBeam = forwardRef<HTMLDivElement, { now: Date; variant?: "between" | "i
           }}
         />
         <div
-          className="relative flex items-center gap-2 rounded-full px-3 py-1.5"
+          className="relative flex items-center gap-2 rounded-md px-3 py-1.5"
           style={{
             background:
               "linear-gradient(90deg, rgba(239,68,68,0.12) 0%, rgba(239,68,68,0.32) 50%, rgba(239,68,68,0.12) 100%)",
-            border: "1px solid rgba(239, 68, 68, 0.45)",
-            boxShadow: "0 0 18px rgba(239, 68, 68, 0.35)",
+            boxShadow:
+              "0 0 18px rgba(239, 68, 68, 0.45), 0 0 36px rgba(239, 68, 68, 0.18)",
           }}
         >
           <span
@@ -2086,7 +2146,7 @@ function LaneCard({
           {item.kindGlyph && <span className="text-[11px]">{item.kindGlyph}</span>}
           {item.fixed ? (
             <span
-              className="ml-auto inline-flex items-center gap-1 rounded-full px-1 py-0.5 text-[8px] font-bold uppercase tracking-[0.08em]"
+              className="ml-auto inline-flex items-center gap-1 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-[0.08em]"
               style={{
                 background: "rgba(148, 163, 184, 0.18)",
                 color: "var(--ios-text-muted)",
@@ -2102,18 +2162,16 @@ function LaneCard({
             <button
               type="button"
               onClick={onComplete}
-              className="ml-auto flex h-7 w-7 flex-none items-center justify-center rounded-full"
+              className="ml-auto flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[4px]"
               style={{
-                background: "rgba(16, 185, 129, 0.18)",
-                color: "var(--ios-success)",
-                boxShadow: "0 0 0 1px rgba(16, 185, 129, 0.35)",
+                background: "rgba(255, 255, 255, 0.04)",
+                border: "1px solid rgba(255, 255, 255, 0.55)",
+                color: "var(--ios-text)",
+                boxShadow:
+                  "0 0 8px rgba(255, 255, 255, 0.32), inset 0 0 4px rgba(255, 255, 255, 0.08)",
               }}
               aria-label="Tick off"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M5 12l5 5L20 7" />
-              </svg>
-            </button>
+            />
           )}
         </div>
 
@@ -2368,7 +2426,7 @@ function Tag({
   const s = styles[tone];
   return (
     <span
-      className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+      className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium"
       style={{ background: s.bg, color: s.fg }}
     >
       {children}
