@@ -1272,8 +1272,9 @@ function HyperFocus(p: HyperFocusProps) {
         tasks: p.tasks,
         foundations: p.foundations,
         events,
+        prefs: p.prefs,
       }),
-    [targetDay, p.tasks, p.foundations, events],
+    [targetDay, p.tasks, p.foundations, events, p.prefs],
   );
 
   function handleAutoReschedule() {
@@ -1721,16 +1722,22 @@ function DayRiver({
     return { kind: "after" as const };
   }, [groups, nowMs]);
 
-  // Auto-scroll the NOW beam into view on mount + whenever groups change.
+  // Auto-scroll the NOW beam into view on FIRST mount only. Once the user
+  // is interacting (ticking, ±15/±60), every state update would otherwise
+  // re-scroll and yank focus away from the cell they just touched. So we
+  // latch on a ref after the first successful scroll and never run again.
   const containerRef = useRef<HTMLDivElement | null>(null);
   const nowRef = useRef<HTMLDivElement | null>(null);
+  const hasScrolledToNowRef = useRef(false);
   useEffect(() => {
+    if (hasScrolledToNowRef.current) return;
     const c = containerRef.current;
     const n = nowRef.current;
     if (!c || !n) return;
     const cRect = c.getBoundingClientRect();
     const nRect = n.getBoundingClientRect();
     c.scrollTop += nRect.top - cRect.top - 80;
+    hasScrolledToNowRef.current = true;
   }, [groups, nowSlot]);
 
   const fixedCount = items.filter((i) => i.fixed).length;

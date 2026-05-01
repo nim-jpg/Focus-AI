@@ -121,16 +121,25 @@ export function collectDayItems(args: {
   tasks: Task[];
   foundations: Task[];
   events: CalendarEvent[];
+  /** User prefs — needed to honour ignoredEventIds + ignoredSeriesIds (the
+   *  desktop "mute / skip series" feature). When omitted nothing is filtered. */
+  prefs?: { ignoredEventIds?: string[]; ignoredSeriesIds?: string[] };
 }): { items: DayItem[]; unscheduled: UnscheduledItem[] } {
-  const { day, tasks, foundations, events } = args;
+  const { day, tasks, foundations, events, prefs } = args;
   const items: DayItem[] = [];
   const unscheduled: UnscheduledItem[] = [];
+  const ignoredEvents = new Set(prefs?.ignoredEventIds ?? []);
+  const ignoredSeries = new Set(prefs?.ignoredSeriesIds ?? []);
 
   // Calendar events — only meetings / external appointments lock as fixed.
   // Self-scheduled focus blocks on the calendar stay movable; the user can
   // shuffle them around like anything else.
+  // Items the user has muted on Desktop (whole series or one-off) are
+  // skipped so the day plan stays consistent across surfaces.
   for (const ev of events) {
     if (!ev.start || ev.allDay) continue;
+    if (ignoredEvents.has(ev.id)) continue;
+    if (ev.recurringEventId && ignoredSeries.has(ev.recurringEventId)) continue;
     const start = new Date(ev.start);
     if (Number.isNaN(start.getTime())) continue;
     const end = ev.end ? new Date(ev.end) : new Date(start.getTime() + 60 * 60_000);
@@ -376,11 +385,27 @@ export function autoReschedule(args: {
   return { updates, unplaced };
 }
 
+/** Round a Date to the nearest 15-min boundary. Keeps everything on a
+ *  predictable rhythm — a +15 on a 16:07 item lands on 16:15, not 16:22.
+ *  Same applies to cascaded items: they all settle on quarter-hours. */
+function snapTo15(date: Date): Date {
+  const out = new Date(date);
+  const total = out.getHours() * 60 + out.getMinutes();
+  const snapped = Math.round(total / 15) * 15;
+  out.setHours(0, 0, 0, 0);
+  out.setMinutes(snapped, 0, 0);
+  return out;
+}
+
 /**
  * Cascading shift — moving one item later (or earlier) bumps any movable
  * items that would now overlap with it. Fixed appointments stop the cascade
  * dead: anything booked to a calendar stays where it is. The overlapping
  * movable item gets pushed by the same delta the target moved by.
+ *
+ * All resulting start times snap to the nearest 15-min boundary so things
+ * line up cleanly — 16:00 / 16:15 / 16:30 — instead of drifting (16:07,
+ * 16:23, etc.) as misaligned items get adjusted.
  *
  * Pushing earlier (negative delta) does NOT pull subsequent items back —
  * "earlier" creates a gap, but yanking later items into it would surprise
@@ -402,20 +427,37 @@ export function cascadeShift(args: {
   if (!target.task || target.fixed) return [];
 
   const updates: Array<{ taskId: string; newScheduledForIso: string }> = [];
-  const targetNewStart = new Date(target.start.getTime() + deltaMin * 60_000);
-  const targetNewEnd = new Date(target.end.getTime() + deltaMin * 60_000);
-  updates.push({ taskId: target.task.id, newScheduledForIso: targetNewStart.toISOString() });
 
-  if (deltaMin > 0) {
+  const targetNewStart = snapTo15(new Date(target.start.getTime() + deltaMin * 60_000));
+  // Recompute the "effective" cascade delta from the snapped target so
+  // downstream items shift by the same actual offset the user sees.
+  const effectiveDeltaMs =
+    targetNewStart.getTime() - target.start.getTime();
+  const targetNewEnd = new Date(target.end.getTime() + effectiveDeltaMs);
+  updates.push({
+    taskId: target.task.id,
+    newScheduledForIso: targetNewStart.toISOString(),
+  });
+
+  if (effectiveDeltaMs > 0) {
     let cursor = targetNewEnd;
     for (let i = targetIdx + 1; i < sorted.length; i++) {
       const item = sorted[i];
       if (item.fixed) break; // hard stop — calendar appointments anchor everything after them
       if (!item.task) continue;
       if (item.start.getTime() >= cursor.getTime()) break; // gap — cascade ends
-      const newStart = new Date(item.start.getTime() + deltaMin * 60_000);
-      updates.push({ taskId: item.task.id, newScheduledForIso: newStart.toISOString() });
-      cursor = new Date(item.end.getTime() + deltaMin * 60_000);
+      const newStart = snapTo15(
+        new Date(item.start.getTime() + effectiveDeltaMs),
+      );
+      updates.push({
+        taskId: item.task.id,
+        newScheduledForIso: newStart.toISOString(),
+      });
+      // Use the snapped start to advance the cursor — keeps the
+      // overlap check honest in case the snap moved this item back/
+      // forward by a few minutes.
+      const itemDur = item.end.getTime() - item.start.getTime();
+      cursor = new Date(newStart.getTime() + itemDur);
     }
   }
 
