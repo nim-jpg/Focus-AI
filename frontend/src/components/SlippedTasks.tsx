@@ -5,7 +5,13 @@ interface Props {
   tasks: Task[];
   onComplete: (id: string) => void;
   onReschedule: (id: string) => void;
-  onSnooze: (id: string, untilIso: string) => void;
+  /**
+   * Defer a slipped task by N days. Implemented by the parent as a MOVE
+   * of scheduledFor / dueDate to (today + days, 9am or specificTime),
+   * with snoozedUntil cleared. One event, no duplication — replaces the
+   * old onSnooze that just hid the task without moving it forward.
+   */
+  onDefer: (id: string, days: number) => void;
 }
 
 /**
@@ -37,10 +43,10 @@ export function findSlippedTasks(tasks: Task[], now: Date = new Date()): Task[] 
   });
 }
 
-const SNOOZE_OPTIONS: Array<{ label: string; days: number }> = [
-  { label: "Tomorrow", days: 1 },
+const DEFER_OPTIONS: Array<{ label: string; days: number }> = [
+  { label: "tomorrow", days: 1 },
   { label: "3 days", days: 3 },
-  { label: "Next week", days: 7 },
+  { label: "1 week", days: 7 },
 ];
 
 function formatRelativePast(iso: string): string {
@@ -60,7 +66,7 @@ export function SlippedTasks({
   tasks,
   onComplete,
   onReschedule,
-  onSnooze,
+  onDefer,
 }: Props) {
   if (tasks.length === 0) return null;
   return (
@@ -106,18 +112,14 @@ export function SlippedTasks({
                 >
                   Re-schedule
                 </button>
-                {SNOOZE_OPTIONS.map((s) => (
+                {DEFER_OPTIONS.map((s) => (
                   <button
                     key={s.days}
                     type="button"
                     className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-slate-600 hover:border-slate-400"
-                    onClick={() => {
-                      const until = new Date();
-                      until.setDate(until.getDate() + s.days);
-                      onSnooze(t.id, until.toISOString());
-                    }}
+                    onClick={() => onDefer(t.id, s.days)}
                   >
-                    Snooze {s.label}
+                    Defer {s.label}
                   </button>
                 ))}
               </div>

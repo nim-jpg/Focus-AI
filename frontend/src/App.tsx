@@ -1171,7 +1171,28 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             tasks={findSlippedTasks(tasks)}
             onComplete={toggleComplete}
             onReschedule={openSchedulePicker}
-            onSnooze={(id, until) => updateTask(id, { snoozedUntil: until })}
+            onDefer={(id, days) => {
+              // Defer = MOVE the slipped target forward, not just hide it.
+              // Computes (today + days) at the task's specificTime if set,
+              // otherwise 9am. Clears any old snoozedUntil so the moved
+              // instance shows up as the canonical version.
+              const task = tasks.find((t) => t.id === id);
+              if (!task) return;
+              const target = new Date();
+              target.setDate(target.getDate() + days);
+              const m = task.specificTime
+                ? /^(\d{1,2}):(\d{2})$/.exec(task.specificTime)
+                : null;
+              if (m) {
+                target.setHours(parseInt(m[1], 10), parseInt(m[2], 10), 0, 0);
+              } else {
+                target.setHours(9, 0, 0, 0);
+              }
+              const patch: Partial<Task> = { snoozedUntil: undefined };
+              if (task.scheduledFor) patch.scheduledFor = target.toISOString();
+              else patch.dueDate = target.toISOString();
+              updateTask(id, patch);
+            }}
           />
 
           <Foundations
