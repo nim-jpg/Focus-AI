@@ -306,6 +306,7 @@ export function IosShell(props: IosShellProps) {
           onSetScheduledFor={props.onSetScheduledFor}
           onUpdateEstimatedMinutes={props.onUpdateEstimatedMinutes}
           onMuteEvent={props.onMuteEvent}
+          onSchedule={props.onSchedule}
           onClose={() => setHyperState("closed")}
         />
       )}
@@ -957,13 +958,70 @@ function StretchRow({
 }
 
 // ─── QUICK TRAY ──────────────────────────────────────────────────────
-const QUICK_ITEMS: { key: string; label: string; emoji: string }[] = [
-  { key: "water", label: "Water", emoji: "💧" },
-  { key: "coffee", label: "Coffee", emoji: "☕" },
-  { key: "snack", label: "Snack", emoji: "🍎" },
-  { key: "step", label: "Walk", emoji: "🚶" },
-  { key: "med", label: "Med", emoji: "💊" },
+type QuickIconKey = "water" | "coffee" | "snack" | "step" | "med";
+
+const QUICK_ITEMS: { key: QuickIconKey; label: string }[] = [
+  { key: "water", label: "Water" },
+  { key: "coffee", label: "Coffee" },
+  { key: "snack", label: "Snack" },
+  { key: "step", label: "Walk" },
+  { key: "med", label: "Med" },
 ];
+
+/** Outline SVG icons for the Quick log — replacing the previous emoji.
+ *  Single colour, 1.6 stroke, 18×18, scaled by parent. Designed to read
+ *  cleanly at small size and align to the same baseline as the labels. */
+function QuickIcon({ kind }: { kind: QuickIconKey }) {
+  const common = {
+    width: 18,
+    height: 18,
+    viewBox: "0 0 24 24" as const,
+    fill: "none" as const,
+    stroke: "currentColor" as const,
+    strokeWidth: 1.6,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+  switch (kind) {
+    case "water":
+      return (
+        <svg {...common}>
+          <path d="M12 3.5C12 3.5 6 10 6 14a6 6 0 0 0 12 0c0-4-6-10.5-6-10.5Z" />
+        </svg>
+      );
+    case "coffee":
+      return (
+        <svg {...common}>
+          <path d="M4 8h12v6a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8Z" />
+          <path d="M16 9h2a3 3 0 0 1 0 6h-2" />
+          <path d="M8 4v2M11 4v2M14 4v2" />
+        </svg>
+      );
+    case "snack":
+      return (
+        <svg {...common}>
+          <path d="M12 5a7 7 0 0 0-7 7v1a7 7 0 0 0 14 0v-1a7 7 0 0 0-7-7Z" />
+          <path d="M14 4c0 1.5-1 2.5-2.5 2.5" />
+          <path d="M9.5 4.5c0 1 0.5 1.5 1.5 1.5" />
+        </svg>
+      );
+    case "step":
+      return (
+        <svg {...common}>
+          <path d="M7 17l-1 4M14 18l1 3" />
+          <path d="M9 14l-2-3 4-2 3 3-2 3-3-1Z" />
+          <circle cx="13" cy="6" r="2" />
+        </svg>
+      );
+    case "med":
+      return (
+        <svg {...common}>
+          <rect x="4" y="9" width="16" height="6" rx="3" transform="rotate(-30 12 12)" />
+          <path d="M9.5 7l5 9" transform="rotate(-30 12 12)" />
+        </svg>
+      );
+  }
+}
 
 function quickKey() {
   const d = new Date();
@@ -1021,7 +1079,7 @@ function QuickTray() {
               color: "var(--ios-text-secondary)",
             }}
           >
-            <span className="text-[16px] leading-none">{item.emoji}</span>
+            <QuickIcon kind={item.key} />
             <span className="truncate">{item.label}</span>
             {(counts[item.key] ?? 0) > 0 && (
               <span
@@ -1443,6 +1501,8 @@ interface HyperFocusProps {
    *  what desktop's WeekSchedule context-menu does — single source of truth.
    *  Once muted on either surface, the event vanishes from both. */
   onMuteEvent: (eventId: string) => void;
+  /** Open the schedule picker for a task — used by the Plan section. */
+  onSchedule: (taskId: string) => void;
   onClose: () => void;
 }
 
@@ -1602,13 +1662,22 @@ function HyperFocus(p: HyperFocusProps) {
    * (we can't delete from the user's calendar without permission, but
    * we can hide it from Focus3).
    */
+  /**
+   * Ignore an item. NOT a delete — that destructive action stays
+   * desktop-only. For tasks we set snoozedUntil to a far-future date
+   * so it disappears from every iOS surface but the data stays
+   * intact (un-ignore on Desktop). For calendar events we mute via
+   * prefs.ignoredEventIds (same channel as before).
+   */
   function handleRemove(item: DayItem) {
     if (item.source === "calendar" && item.event) {
       p.onMuteEvent(item.event.id);
       return;
     }
     if (item.task) {
-      p.onRemoveTask(item.task.id);
+      const farFuture = new Date();
+      farFuture.setFullYear(farFuture.getFullYear() + 50);
+      p.onSnooze(item.task.id, farFuture.toISOString());
     }
   }
 
@@ -1730,6 +1799,28 @@ function HyperFocus(p: HyperFocusProps) {
             foundations={p.foundations}
             prefs={p.prefs}
             calendarConnected={p.calendarConnected}
+            onDefer={(taskId) => {
+              // Push tomorrow's item further forward — to the day after.
+              const t = p.tasks.find((x) => x.id === taskId);
+              if (!t) return;
+              const target = new Date();
+              target.setDate(target.getDate() + 2);
+              target.setHours(9, 0, 0, 0);
+              const patch: Partial<Task> = { snoozedUntil: undefined };
+              if (t.companyHouseNumber) {
+                patch.scheduledFor = target.toISOString();
+              } else if (t.scheduledFor) {
+                patch.scheduledFor = target.toISOString();
+              } else {
+                patch.dueDate = target.toISOString();
+              }
+              p.onUpdateTask(taskId, patch);
+            }}
+            onSchedule={(taskId) => {
+              // Reuse the desktop schedule picker via the existing
+              // IosShell prop chain (props.onSchedule handles opening).
+              p.onSchedule(taskId);
+            }}
           />
         )}
       </div>
@@ -1839,11 +1930,11 @@ function DeferSheet({
         <SheetButton
           variant="secondary"
           onClick={onRemove}
-          title={isCalendar ? "Mute event" : "Remove task"}
+          title={isCalendar ? "Ignore event" : "Ignore task"}
           subtitle={
             isCalendar
-              ? "Same as above — calendar events can't be deleted from here"
-              : "Deletes the task entirely (not just today)"
+              ? "Hides this event in Focus3. Permanent delete must happen in Google Calendar."
+              : "Hides this task. Permanent delete is on Desktop only."
           }
         />
         <SheetButton variant="cancel" onClick={onClose} title="Cancel" />
@@ -2391,11 +2482,17 @@ function TomorrowPreview({
   foundations,
   prefs,
   calendarConnected,
+  onDefer,
+  onSchedule,
 }: {
   tasks: Task[];
   foundations: Task[];
   prefs: UserPrefs;
   calendarConnected: boolean;
+  /** Push the task to the day after tomorrow (or further). */
+  onDefer: (taskId: string) => void;
+  /** Open the schedule picker for this task. */
+  onSchedule: (taskId: string) => void;
 }) {
   const tomorrow = useMemo(() => {
     const t = new Date();
@@ -2426,12 +2523,21 @@ function TomorrowPreview({
 
   return (
     <section className="mt-5">
-      <h3
-        className="mb-2 text-center text-[10px] font-semibold uppercase tracking-[0.16em]"
-        style={{ color: "var(--ios-text-muted)" }}
+      {/* Same weight + tracking as the "Focus" header on the day plan
+          so this section reads as the natural continuation, not a
+          subtitle. */}
+      <h2
+        className="mb-2 text-center text-[22px] font-bold tracking-tight"
+        style={{ color: "var(--ios-text)", letterSpacing: "-0.02em" }}
       >
-        Head Start
-      </h3>
+        Plan
+      </h2>
+      <p
+        className="mb-2 text-center text-[12px]"
+        style={{ color: "var(--ios-text-secondary)" }}
+      >
+        Tomorrow's first three. Defer or schedule from here.
+      </p>
       <div
         className="rounded-xl px-3 py-2.5"
         style={{
@@ -2442,30 +2548,62 @@ function TomorrowPreview({
         {previewItems.map((item, i) => (
           <div
             key={item.id}
-            className="flex items-center justify-center gap-2 py-1"
+            className="flex items-center justify-between gap-2 py-1.5"
             style={{
               borderTop: i === 0 ? undefined : "1px solid var(--ios-border)",
             }}
           >
-            <span
-              className="text-[11px] font-bold tabular-nums"
-              style={{ color: "var(--ios-text-secondary)" }}
-            >
-              {fmtTime(item.start)}
-            </span>
-            <span
-              className="text-[12px]"
-              style={{ color: "var(--ios-text)" }}
-            >
-              {item.title}
-            </span>
-            {item.fixed && (
+            <div className="flex min-w-0 items-center gap-2">
               <span
-                className="text-[9px]"
-                style={{ color: "var(--ios-text-muted)" }}
+                className="flex-none text-[11px] font-bold tabular-nums"
+                style={{ color: "var(--ios-text-secondary)" }}
               >
-                fixed
+                {fmtTime(item.start)}
               </span>
+              <span
+                className="truncate text-[12px]"
+                style={{ color: "var(--ios-text)" }}
+              >
+                {item.title}
+              </span>
+              {item.fixed && (
+                <span
+                  className="flex-none text-[9px]"
+                  style={{ color: "var(--ios-text-muted)" }}
+                >
+                  fixed
+                </span>
+              )}
+            </div>
+            {!item.fixed && item.task && (
+              <div className="flex flex-none items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => onDefer(item.task!.id)}
+                  className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold"
+                  style={{
+                    background: "rgba(245, 158, 11, 0.18)",
+                    color: "var(--ios-warning)",
+                    border: "1px solid rgba(245, 158, 11, 0.32)",
+                  }}
+                  title="Defer further"
+                >
+                  Defer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSchedule(item.task!.id)}
+                  className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold"
+                  style={{
+                    background: "var(--ios-accent-soft)",
+                    color: "var(--ios-accent)",
+                    border: "1px solid rgba(167, 139, 250, 0.32)",
+                  }}
+                  title="Schedule a time"
+                >
+                  Schedule
+                </button>
+              </div>
             )}
           </div>
         ))}
