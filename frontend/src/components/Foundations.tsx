@@ -121,11 +121,14 @@ export function Foundations({
                       <button
                         type="button"
                         onClick={() => onDefer(task.id)}
-                        className="text-xs text-slate-400 hover:text-slate-700"
-                        aria-label={`Defer ${task.title} 1 day`}
-                        title="Defer 1 day"
+                        className="ml-1 inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800 hover:border-amber-500 hover:bg-amber-100"
+                        aria-label={`Defer ${task.title} to tomorrow`}
+                        title="Defer to tomorrow"
                       >
-                        ⏭
+                        Defer
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M5 12h14M13 6l6 6-6 6" />
+                        </svg>
                       </button>
                     )}
                     {onEdit && (
