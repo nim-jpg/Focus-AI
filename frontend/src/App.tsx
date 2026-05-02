@@ -1176,6 +1176,13 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               // Computes (today + days) at the task's specificTime if set,
               // otherwise 9am. Clears any old snoozedUntil so the moved
               // instance shows up as the canonical version.
+              //
+              // Companies-House tasks (statutory deadlines) get special
+              // treatment: the deadline (dueDate) STAYS PUT — that's
+              // immovable from our side. Only the "do" date (scheduledFor)
+              // moves. If no scheduledFor existed, we set one for the
+              // first time so the user has a planning slot ahead of the
+              // hard deadline.
               const task = tasks.find((t) => t.id === id);
               if (!task) return;
               const target = new Date();
@@ -1189,8 +1196,14 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
                 target.setHours(9, 0, 0, 0);
               }
               const patch: Partial<Task> = { snoozedUntil: undefined };
-              if (task.scheduledFor) patch.scheduledFor = target.toISOString();
-              else patch.dueDate = target.toISOString();
+              if (task.companyHouseNumber) {
+                // Statutory deadline — never touch dueDate.
+                patch.scheduledFor = target.toISOString();
+              } else if (task.scheduledFor) {
+                patch.scheduledFor = target.toISOString();
+              } else {
+                patch.dueDate = target.toISOString();
+              }
               updateTask(id, patch);
             }}
           />
