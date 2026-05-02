@@ -350,14 +350,37 @@ export function TaskList({
                   <p className="mt-1 text-sm text-slate-600">{task.description}</p>
                 )}
                 <p className="mt-1 text-xs text-slate-500">
-                  {/* Imported-from-Google tasks show the time too — the
-                      dueDate carries the event's start time, and seeing
-                      it inline answers "when was this scheduled" without
-                      jumping to Google. Plain tasks keep date-only. */}
-                  {task.calendarEventId ? "When " : "Due "}
-                  {formatDue(task.dueDate, Boolean(task.calendarEventId))} ·{" "}
-                  {task.urgency} urgency · {task.estimatedMinutes ?? 30} min ·{" "}
-                  {task.recurrence}
+                  {/* Companies-House tasks (statutory filings) get TWO
+                      dates surfaced — the statutory deadline (dueDate,
+                      hard) and the planned schedule date (scheduledFor,
+                      when you'll actually do it). Other tasks show one
+                      date as before. */}
+                  {task.companyHouseNumber && task.dueDate ? (
+                    <>
+                      <span className="font-semibold text-rose-700">
+                        Deadline {formatDue(task.dueDate, false)}
+                      </span>
+                      {" · "}
+                      {task.scheduledFor ? (
+                        <span className="font-medium text-emerald-700">
+                          Scheduled {formatDue(task.scheduledFor, true)}
+                        </span>
+                      ) : (
+                        <span className="font-medium text-amber-700">
+                          No schedule date — pick one →
+                        </span>
+                      )}
+                      {" · "}
+                      {task.urgency} · {task.estimatedMinutes ?? 30} min
+                    </>
+                  ) : (
+                    <>
+                      {task.calendarEventId ? "When " : "Due "}
+                      {formatDue(task.dueDate, Boolean(task.calendarEventId))} ·{" "}
+                      {task.urgency} urgency · {task.estimatedMinutes ?? 30} min ·{" "}
+                      {task.recurrence}
+                    </>
+                  )}
                 </p>
               </div>
 
