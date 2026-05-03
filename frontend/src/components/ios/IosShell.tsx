@@ -2358,7 +2358,10 @@ function basicTileGlyph(t: Task): string {
     case "projects":
       return "🎯";
     default:
-      return "✓";
+      // Empty — a misleading tick used to live here. The tick-in-box at
+      // the corner is the real "is it done?" signal; the glyph is
+      // category, not state.
+      return "";
   }
 }
 
@@ -2487,6 +2490,28 @@ function BasicTile({
           </div>
         </div>
       </button>
+
+      {/* Tick-in-box — sits top-right. EMPTY box when pending; filled
+          white box with a check when done. The user explicitly asked
+          for this exact behaviour: no tick at rest, only when ticked. */}
+      <span
+        className="pointer-events-none absolute right-2 top-2 z-10 flex h-[16px] w-[16px] items-center justify-center rounded-[3px]"
+        style={{
+          background: done ? "rgba(255, 255, 255, 0.95)" : "transparent",
+          border: done
+            ? "1px solid rgba(255, 255, 255, 0.95)"
+            : "1px solid rgba(255, 255, 255, 0.40)",
+          color: "#0B0E13",
+          boxShadow: done ? "0 0 8px rgba(255, 255, 255, 0.45)" : "none",
+        }}
+        aria-hidden
+      >
+        {done && (
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12l5 5L20 7" />
+          </svg>
+        )}
+      </span>
 
       {/* Defer — tiny corner chip. */}
       <button
