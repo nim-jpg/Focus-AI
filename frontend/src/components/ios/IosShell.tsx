@@ -329,6 +329,7 @@ export function IosShell(props: IosShellProps) {
           tasks={props.tasks}
           foundations={props.foundations}
           goals={props.goals}
+          prioritized={props.prioritized}
           prefs={props.prefs}
           calendarConnected={props.calendarConnected}
           onComplete={props.onComplete}
@@ -1151,10 +1152,19 @@ function QuickTray() {
 }
 
 // ─── GOALS TAB ───────────────────────────────────────────────────────
+/**
+ * Goals tab — tabbed view across goals + uncategorized + create-new.
+ * Tab bar at top scrolls horizontally on mobile. Selected tab shows
+ * its task list with bigger fonts than before. Each task row has a
+ * ⋯ menu opening MoveToGoalSheet for quick goal assignment.
+ *
+ * Tasks are sorted to prioritise the goal-linked ones (with due dates
+ * weighted) so the user sees what's most important per goal up top.
+ *
+ * "+ New" tab opens NewGoalForm (modal) — title + horizon. The new
+ * goal becomes the selected tab afterwards.
+ */
 function GoalsTab(p: IosShellProps & { onAskComplete: (id: string) => void }) {
-  // Same smart-defer helper as FocusTab. Recurring → snoozedUntil tonight;
-  // one-off → move scheduledFor / dueDate to tomorrow 9am. Single source
-  // of truth for "defer to tomorrow" behaviour across all iOS surfaces.
   const deferTaskToTomorrow = (taskId: string) => {
     const task = p.tasks.find((t) => t.id === taskId);
     if (!task) return;
@@ -1175,355 +1185,538 @@ function GoalsTab(p: IosShellProps & { onAskComplete: (id: string) => void }) {
     p.onUpdateTask(task.id, patch);
   };
 
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Selected tab: "all" | goal id | "none" (uncategorised)
+  type Tab = "all" | "none" | string; // a goal id
+  const [tab, setTab] = useState<Tab>("all");
+  const [showNewGoal, setShowNewGoal] = useState(false);
+  const [movingTaskId, setMovingTaskId] = useState<string | null>(null);
 
   const ignoredEvents = useMemo(
     () => new Set(p.prefs.ignoredEventIds ?? []),
     [p.prefs.ignoredEventIds],
   );
 
-  const tasksByGoal = useMemo(() => {
-    const m = new Map<string, Task[]>();
-    for (const g of p.goals) m.set(g.id, []);
-    const unlinked: Task[] = [];
-    for (const t of p.tasks) {
-      if (t.status === "completed") continue;
-      if (t.calendarEventId && ignoredEvents.has(t.calendarEventId)) continue;
-      if (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now()) continue;
-      const ids = t.goalIds ?? [];
-      if (ids.length === 0) {
-        unlinked.push(t);
-        continue;
-      }
-      for (const gid of ids) {
-        if (m.has(gid)) m.get(gid)!.push(t);
-      }
-    }
-    for (const [, list] of m) {
-      list.sort((a, b) => {
-        const da = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
-        const db = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
-        return da - db;
-      });
-    }
-    unlinked.sort((a, b) => {
+  const visibleTasks = useMemo(() => {
+    return p.tasks.filter((t) => {
+      if (t.status === "completed") return false;
+      if (t.calendarEventId && ignoredEvents.has(t.calendarEventId)) return false;
+      if (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now()) return false;
+      return true;
+    });
+  }, [p.tasks, ignoredEvents]);
+
+  const sortByPriority = (list: Task[]) => {
+    return [...list].sort((a, b) => {
+      // Goal-linked → first (in case "all" tab mixes both)
+      const ag = (a.goalIds ?? []).length > 0 ? 0 : 1;
+      const bg = (b.goalIds ?? []).length > 0 ? 0 : 1;
+      if (ag !== bg) return ag - bg;
+      // Then by due date
       const da = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
       const db = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
-      return da - db;
+      if (da !== db) return da - db;
+      // Then by urgency
+      const order: Record<string, number> = {
+        critical: 0, high: 1, normal: 2, low: 3,
+      };
+      return (order[a.urgency] ?? 4) - (order[b.urgency] ?? 4);
     });
-    return { byGoal: m, unlinked };
-  }, [p.tasks, p.goals, ignoredEvents]);
+  };
 
-  function toggle(id: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  if (p.goals.length === 0 && tasksByGoal.unlinked.length === 0) {
-    return (
-      <div className="pt-3">
-        <Empty
-          title="No goals yet"
-          body="Open Desktop to set up goals — iOS reads from there. Once goals exist, every task can ladder up."
-        />
-      </div>
+  const tasksForTab = useMemo(() => {
+    if (tab === "all") return sortByPriority(visibleTasks);
+    if (tab === "none") {
+      return sortByPriority(
+        visibleTasks.filter((t) => (t.goalIds ?? []).length === 0),
+      );
+    }
+    return sortByPriority(
+      visibleTasks.filter((t) => (t.goalIds ?? []).includes(tab)),
     );
-  }
+  }, [tab, visibleTasks]);
+
+  const counts = useMemo(() => {
+    const byGoal = new Map<string, number>();
+    let none = 0;
+    for (const t of visibleTasks) {
+      const ids = t.goalIds ?? [];
+      if (ids.length === 0) none += 1;
+      for (const gid of ids) byGoal.set(gid, (byGoal.get(gid) ?? 0) + 1);
+    }
+    return { byGoal, none, all: visibleTasks.length };
+  }, [visibleTasks]);
+
+  const handleMoveTask = (taskId: string, goalId: string | null) => {
+    const task = p.tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    const newGoalIds = goalId ? [goalId] : [];
+    p.onUpdateTask(taskId, { goalIds: newGoalIds });
+    setMovingTaskId(null);
+  };
 
   return (
-    <div className="space-y-3 pt-3">
-      {p.goals.map((g) => {
-        const tasks = tasksByGoal.byGoal.get(g.id) ?? [];
-        const open = expanded.has(g.id);
-        const progress = p.goalProgress.get(g.id);
-        return (
-          <GoalCard
-            key={g.id}
-            goal={g}
-            tasks={tasks}
-            doneLast30={progress?.doneLast30 ?? 0}
-            open={open}
-            onToggle={() => toggle(g.id)}
-            onCompleteTask={p.onAskComplete}
-            onDeferTask={deferTaskToTomorrow}
-            onEditTask={p.onEditTask}
-          />
-        );
-      })}
+    <div className="space-y-3 pt-2">
+      <GoalsTabBar
+        tab={tab}
+        goals={p.goals}
+        counts={counts}
+        onSelect={setTab}
+        onNew={() => setShowNewGoal(true)}
+      />
 
-      {tasksByGoal.unlinked.length > 0 && (
-        <UnlinkedCard
-          tasks={tasksByGoal.unlinked}
-          open={expanded.has("__unlinked")}
-          onToggle={() => toggle("__unlinked")}
-          onCompleteTask={p.onAskComplete}
-          onDeferTask={deferTaskToTomorrow}
-          onEditTask={p.onEditTask}
+      {p.goals.length === 0 && counts.all === 0 ? (
+        <Empty
+          title="No goals or tasks yet"
+          body="Tap + New to add a goal, or use the FAB to add a task. Anything you add can be moved into a goal later."
         />
-      )}
-    </div>
-  );
-}
-
-function GoalCard({
-  goal,
-  tasks,
-  doneLast30,
-  open,
-  onToggle,
-  onCompleteTask,
-  onDeferTask,
-  onEditTask,
-}: {
-  goal: Goal;
-  tasks: Task[];
-  doneLast30: number;
-  open: boolean;
-  onToggle: () => void;
-  onCompleteTask: (id: string) => void;
-  onDeferTask: (id: string) => void;
-  onEditTask: (id: string) => void;
-}) {
-  return (
-    <div
-      className="overflow-hidden rounded-2xl"
-      style={{
-        background: "var(--ios-surface)",
-        border: "1px solid var(--ios-border)",
-      }}
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-3 px-4 py-3.5 text-left"
-      >
-        <div
-          className="flex h-10 w-10 flex-none items-center justify-center rounded-xl text-[16px]"
-          style={{
-            background: "var(--ios-accent-soft)",
-            color: "var(--ios-accent)",
-          }}
-        >
-          {goalEmoji(goal)}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div
-            className="truncate text-[18px] font-bold leading-tight"
-            style={{ color: "var(--ios-text)", letterSpacing: "-0.01em" }}
-          >
-            {goal.title}
-          </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px]" style={{ color: "var(--ios-text-secondary)" }}>
-            <span>{tasks.length} open</span>
-            {doneLast30 > 0 && (
-              <>
-                <span>·</span>
-                <span style={{ color: "var(--ios-success)" }}>{doneLast30} done in 30d</span>
-              </>
-            )}
-            {goal.horizon && (
-              <>
-                <span>·</span>
-                <span>{goal.horizon}</span>
-              </>
-            )}
-          </div>
-        </div>
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          style={{
-            color: "var(--ios-text-muted)",
-            transform: open ? "rotate(90deg)" : "rotate(0)",
-            transition: "transform 180ms cubic-bezier(0.32, 0.72, 0, 1)",
-          }}
-        >
-          <path d="M9 6l6 6-6 6" />
-        </svg>
-      </button>
-      {open && (
-        <div className="border-t px-3 pb-3 pt-2 space-y-1.5" style={{ borderColor: "var(--ios-border)" }}>
-          {tasks.length === 0 ? (
-            <p className="px-1 py-2 text-[12px] italic" style={{ color: "var(--ios-text-muted)" }}>
-              Nothing open under this goal — well done.
-            </p>
-          ) : (
-            tasks.map((t) => (
-              <GoalTaskRow
-                key={t.id}
-                task={t}
-                onComplete={() => onCompleteTask(t.id)}
-                onEdit={() => onEditTask(t.id)}
-                onDefer={() => onDeferTask(t.id)}
-              />
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function UnlinkedCard({
-  tasks,
-  open,
-  onToggle,
-  onCompleteTask,
-  onDeferTask,
-  onEditTask,
-}: {
-  tasks: Task[];
-  open: boolean;
-  onToggle: () => void;
-  onCompleteTask: (id: string) => void;
-  onDeferTask: (id: string) => void;
-  onEditTask: (id: string) => void;
-}) {
-  return (
-    <div
-      className="overflow-hidden rounded-2xl"
-      style={{
-        background: "rgba(245, 158, 11, 0.08)",
-        border: "1px solid rgba(245, 158, 11, 0.24)",
-      }}
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left"
-      >
-        <div
-          className="flex h-9 w-9 flex-none items-center justify-center rounded-xl text-[16px]"
-          style={{ background: "rgba(245, 158, 11, 0.18)" }}
-        >
-          🌀
-        </div>
-        <div className="min-w-0 flex-1">
-          <div
-            className="truncate text-[15px] font-bold"
-            style={{ color: "var(--ios-warning)" }}
-          >
-            Not linked to a goal
-          </div>
-          <div className="text-[12px]" style={{ color: "var(--ios-text-secondary)" }}>
-            {tasks.length} task{tasks.length === 1 ? "" : "s"} drifting — tap one to add a goal on Desktop
-          </div>
-        </div>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ color: "var(--ios-warning)", transform: open ? "rotate(90deg)" : "rotate(0)", transition: "transform 180ms" }}>
-          <path d="M9 6l6 6-6 6" />
-        </svg>
-      </button>
-      {open && (
-        <div className="border-t px-3 pb-3 pt-2 space-y-1.5" style={{ borderColor: "rgba(245, 158, 11, 0.24)" }}>
-          {tasks.map((t) => (
+      ) : tasksForTab.length === 0 ? (
+        <p className="px-2 py-4 text-center text-[13px]" style={{ color: "var(--ios-text-muted)" }}>
+          {tab === "none"
+            ? "No drifting tasks — every open task is laddered up to a goal."
+            : tab === "all"
+              ? "Nothing open."
+              : "Nothing open under this goal — well done."}
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {tasksForTab.map((t) => (
             <GoalTaskRow
               key={t.id}
               task={t}
-              onComplete={() => onCompleteTask(t.id)}
-              onEdit={() => onEditTask(t.id)}
-              onDefer={() => onDeferTask(t.id)}
+              goal={p.goals.find((g) => (t.goalIds ?? []).includes(g.id))}
+              onComplete={() => p.onAskComplete(t.id)}
+              onEdit={() => p.onEditTask(t.id)}
+              onDefer={() => deferTaskToTomorrow(t.id)}
+              onMove={() => setMovingTaskId(t.id)}
             />
           ))}
         </div>
+      )}
+
+      {showNewGoal && (
+        <NewGoalForm
+          onClose={() => setShowNewGoal(false)}
+          onCreate={(input) => {
+            p.onAddGoal(input);
+            setShowNewGoal(false);
+          }}
+        />
+      )}
+
+      {movingTaskId && (
+        <MoveToGoalSheet
+          task={p.tasks.find((t) => t.id === movingTaskId)!}
+          goals={p.goals}
+          onClose={() => setMovingTaskId(null)}
+          onMove={(goalId) => handleMoveTask(movingTaskId, goalId)}
+        />
       )}
     </div>
   );
 }
 
 /**
- * GoalTaskRow — same design language as HyperFocus / StretchRow. Soft white
- * glow on pending; dim + filled tick on done. Down-arrow defer + square
- * tick box action cluster on the right. The Schedule pill is gone — Hyper
- * is where time-blocking happens.
+ * Horizontal scrolling tab bar. Pills for All / each goal / Uncategorized
+ * / + New. The active tab is filled; others sit muted. Counts on each pill
+ * tell the user how many open tasks live under each.
+ */
+function GoalsTabBar({
+  tab,
+  goals,
+  counts,
+  onSelect,
+  onNew,
+}: {
+  tab: "all" | "none" | string;
+  goals: Goal[];
+  counts: { byGoal: Map<string, number>; none: number; all: number };
+  onSelect: (tab: "all" | "none" | string) => void;
+  onNew: () => void;
+}) {
+  return (
+    <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" style={{ scrollbarWidth: "none" }}>
+      <GoalsTabPill active={tab === "all"} onClick={() => onSelect("all")}>
+        All <span style={{ opacity: 0.6, marginLeft: 4 }}>{counts.all}</span>
+      </GoalsTabPill>
+      {goals.map((g) => (
+        <GoalsTabPill
+          key={g.id}
+          active={tab === g.id}
+          onClick={() => onSelect(g.id)}
+        >
+          {g.title}
+          <span style={{ opacity: 0.6, marginLeft: 4 }}>
+            {counts.byGoal.get(g.id) ?? 0}
+          </span>
+        </GoalsTabPill>
+      ))}
+      {counts.none > 0 && (
+        <GoalsTabPill
+          active={tab === "none"}
+          onClick={() => onSelect("none")}
+          tone="warning"
+        >
+          No goal <span style={{ opacity: 0.6, marginLeft: 4 }}>{counts.none}</span>
+        </GoalsTabPill>
+      )}
+      <GoalsTabPill onClick={onNew} tone="accent">
+        + New
+      </GoalsTabPill>
+    </div>
+  );
+}
+
+function GoalsTabPill({
+  active,
+  onClick,
+  children,
+  tone = "default",
+}: {
+  active?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  tone?: "default" | "warning" | "accent";
+}) {
+  const colours = active
+    ? {
+        bg: "var(--ios-text)",
+        fg: "var(--ios-bg)",
+        border: "var(--ios-text)",
+      }
+    : tone === "warning"
+      ? {
+          bg: "rgba(245, 158, 11, 0.10)",
+          fg: "var(--ios-warning)",
+          border: "rgba(245, 158, 11, 0.32)",
+        }
+      : tone === "accent"
+        ? {
+            bg: "var(--ios-accent-soft)",
+            fg: "var(--ios-accent)",
+            border: "rgba(167, 139, 250, 0.40)",
+          }
+        : {
+            bg: "var(--ios-surface)",
+            fg: "var(--ios-text-secondary)",
+            border: "var(--ios-border)",
+          };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex flex-none items-center rounded-md px-3 py-1.5 text-[12px] font-semibold whitespace-nowrap"
+      style={{
+        background: colours.bg,
+        color: colours.fg,
+        border: `1px solid ${colours.border}`,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Inline modal to create a new goal. Title + horizon (6m / 1y / 5y / 10y).
+ * Theme defaults to "personal" — the user can refine on Desktop where the
+ * full goal editor lives.
+ */
+function NewGoalForm({
+  onClose,
+  onCreate,
+}: {
+  onClose: () => void;
+  onCreate: (input: Omit<Goal, "id" | "createdAt" | "updatedAt" | "source">) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [horizon, setHorizon] = useState<Goal["horizon"]>("1y");
+
+  return (
+    <div
+      className="ios-sheet-backdrop fixed inset-0 z-40 flex items-end"
+      onClick={onClose}
+      style={{ background: "rgba(0, 0, 0, 0.6)" }}
+    >
+      <div
+        className="ios-sheet w-full"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--ios-surface)",
+          borderTopLeftRadius: "24px",
+          borderTopRightRadius: "24px",
+          padding: "12px 16px calc(env(safe-area-inset-bottom, 0) + 16px)",
+          borderTop: "1px solid var(--ios-border)",
+        }}
+      >
+        <div
+          className="mx-auto mb-3 h-1 w-10 rounded-full"
+          style={{ background: "var(--ios-border-strong)" }}
+        />
+        <div className="mb-3 px-1 text-[16px] font-bold" style={{ color: "var(--ios-text)" }}>
+          New goal
+        </div>
+        <input
+          type="text"
+          autoFocus
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="e.g. Run a sub-22 5k"
+          className="mb-3 w-full rounded-xl px-3 py-3 text-[15px] outline-none"
+          style={{
+            background: "var(--ios-surface-elev)",
+            color: "var(--ios-text)",
+            border: "1px solid var(--ios-border)",
+          }}
+        />
+        <div
+          className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em]"
+          style={{ color: "var(--ios-text-secondary)" }}
+        >
+          Horizon
+        </div>
+        <div className="mb-4 flex gap-1.5">
+          {(["6m", "1y", "5y", "10y"] as const).map((h) => (
+            <button
+              key={h}
+              type="button"
+              onClick={() => setHorizon(h)}
+              className="flex-1 rounded-md px-2 py-2 text-[12px] font-semibold"
+              style={{
+                background: horizon === h ? "var(--ios-text)" : "var(--ios-surface-elev)",
+                color: horizon === h ? "var(--ios-bg)" : "var(--ios-text-secondary)",
+                border: `1px solid ${horizon === h ? "var(--ios-text)" : "var(--ios-border)"}`,
+              }}
+            >
+              {h}
+            </button>
+          ))}
+        </div>
+        <SheetButton
+          variant="primary"
+          onClick={() => {
+            const t = title.trim();
+            if (!t) return;
+            onCreate({
+              title: t,
+              horizon,
+              theme: "personal",
+            });
+          }}
+          title="Create goal"
+        />
+        <SheetButton variant="cancel" onClick={onClose} title="Cancel" />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Bottom sheet to assign a task to a goal. Lists each goal as a tappable
+ * row (with current selection check), plus "Remove from any goal" at the
+ * bottom for unlinking. Single-tap selects + closes.
+ */
+function MoveToGoalSheet({
+  task,
+  goals,
+  onClose,
+  onMove,
+}: {
+  task: Task;
+  goals: Goal[];
+  onClose: () => void;
+  onMove: (goalId: string | null) => void;
+}) {
+  const currentGoalIds = new Set(task.goalIds ?? []);
+  return (
+    <div
+      className="ios-sheet-backdrop fixed inset-0 z-40 flex items-end"
+      onClick={onClose}
+      style={{ background: "rgba(0, 0, 0, 0.6)" }}
+    >
+      <div
+        className="ios-sheet w-full"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--ios-surface)",
+          borderTopLeftRadius: "24px",
+          borderTopRightRadius: "24px",
+          padding: "12px 16px calc(env(safe-area-inset-bottom, 0) + 16px)",
+          borderTop: "1px solid var(--ios-border)",
+        }}
+      >
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full" style={{ background: "var(--ios-border-strong)" }} />
+        <div className="mb-3 px-1">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--ios-text-secondary)" }}>
+            Move task
+          </div>
+          <div className="mt-0.5 text-[15px] font-bold leading-snug" style={{ color: "var(--ios-text)" }}>
+            {task.title}
+          </div>
+        </div>
+        {goals.length === 0 ? (
+          <div className="px-1 py-3 text-center text-[12px]" style={{ color: "var(--ios-text-muted)" }}>
+            No goals yet — tap + New on the tab bar to create one.
+          </div>
+        ) : (
+          <div className="mb-2 space-y-1">
+            {goals.map((g) => {
+              const selected = currentGoalIds.has(g.id);
+              return (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => onMove(g.id)}
+                  className="flex w-full items-center justify-between rounded-md px-3 py-3 text-left"
+                  style={{
+                    background: selected ? "var(--ios-accent-soft)" : "var(--ios-surface-elev)",
+                    color: "var(--ios-text)",
+                    border: `1px solid ${selected ? "rgba(167, 139, 250, 0.32)" : "var(--ios-border)"}`,
+                  }}
+                >
+                  <span className="text-[14px] font-semibold">{g.title}</span>
+                  {selected && (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--ios-accent)" }}>
+                      <path d="M5 12l5 5L20 7" />
+                    </svg>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <SheetButton variant="secondary" onClick={() => onMove(null)} title="Remove from any goal" />
+        <SheetButton variant="cancel" onClick={onClose} title="Cancel" />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * GoalTaskRow — bigger fonts, full-width row with goal pill, defer + tick
+ * + ⋯ menu on the right. The ⋯ opens MoveToGoalSheet for cross-goal
+ * assignment. Title is 16px so the row reads like a real list item rather
+ * than a chip.
  */
 function GoalTaskRow({
   task,
+  goal,
   onComplete,
   onEdit,
   onDefer,
+  onMove,
 }: {
   task: Task;
+  goal?: Goal;
   onComplete: () => void;
   onEdit: () => void;
   onDefer: () => void;
+  onMove: () => void;
 }) {
   const done = task.status === "completed";
   return (
     <div
-      className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-shadow duration-200"
+      className="flex items-center gap-2 rounded-xl px-3 py-2.5 transition-shadow duration-200"
       style={{
-        background: "var(--ios-surface-elev)",
+        background: "var(--ios-surface)",
+        border: "1px solid var(--ios-border)",
         opacity: done ? 0.45 : 1,
-        boxShadow: done ? "none" : "0 0 10px rgba(255, 255, 255, 0.10)",
+        boxShadow: done ? "none" : "0 0 12px rgba(255, 255, 255, 0.10)",
       }}
     >
       <button type="button" onClick={onEdit} className="min-w-0 flex-1 text-left">
-        <div className="truncate text-[13px] font-medium" style={{ color: "var(--ios-text)" }}>
+        <div className="truncate text-[16px] font-bold leading-tight" style={{ color: "var(--ios-text)", letterSpacing: "-0.01em" }}>
           {task.title}
         </div>
-        {task.dueDate && (
-          <div
-            className="text-[10px]"
-            style={{
-              color: isOverdue(task.dueDate)
-                ? "var(--ios-danger)"
-                : "var(--ios-text-muted)",
-            }}
-          >
-            {fmtDate(task.dueDate)}
-          </div>
-        )}
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]" style={{ color: "var(--ios-text-muted)" }}>
+          <span>{kindGlyph(inferTaskKind(task))} {kindLabel(inferTaskKind(task))}</span>
+          {task.theme && task.theme !== "personal" && (
+            <>
+              <span>·</span>
+              <span>{task.theme}</span>
+            </>
+          )}
+          {task.dueDate && (
+            <>
+              <span>·</span>
+              <span style={{ color: isOverdue(task.dueDate) ? "var(--ios-danger)" : undefined }}>
+                {fmtDate(task.dueDate)}
+              </span>
+            </>
+          )}
+          {goal && (
+            <span
+              className="rounded px-1.5 py-0.5"
+              style={{ background: "var(--ios-accent-soft)", color: "var(--ios-accent)" }}
+            >
+              {goal.title.length > 14 ? goal.title.slice(0, 12) + "…" : goal.title}
+            </span>
+          )}
+        </div>
       </button>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onDefer();
-        }}
-        className="flex h-[16px] w-[16px] flex-none items-center justify-center rounded-[3px]"
-        style={{
-          background: "rgba(255, 255, 255, 0.04)",
-          border: "1px solid rgba(255, 255, 255, 0.18)",
-          color: "var(--ios-text-secondary)",
-        }}
-        title="Defer to tomorrow"
-        aria-label="Defer to tomorrow"
-      >
-        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M6 9l6 6 6-6" />
-        </svg>
-      </button>
-      <button
-        type="button"
-        onClick={onComplete}
-        className="flex h-[16px] w-[16px] flex-none items-center justify-center rounded-[3px]"
-        style={{
-          background: done ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.04)",
-          border: done
-            ? "1px solid rgba(255, 255, 255, 0.95)"
-            : "1px solid rgba(255, 255, 255, 0.55)",
-          color: done ? "#0B0E13" : "var(--ios-text)",
-          boxShadow: done
-            ? "0 0 8px rgba(255, 255, 255, 0.45)"
-            : "0 0 4px rgba(255, 255, 255, 0.28)",
-        }}
-        aria-label={done ? "Done" : "Tick off"}
-      >
-        {done && (
-          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12l5 5L20 7" />
+      <div className="flex flex-none items-center gap-1.5">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onMove();
+          }}
+          className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-md"
+          style={{
+            background: "var(--ios-surface-elev)",
+            border: "1px solid var(--ios-border)",
+            color: "var(--ios-text-secondary)",
+          }}
+          title="Move to goal"
+          aria-label="Move to goal"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="5" cy="12" r="1.5" />
+            <circle cx="12" cy="12" r="1.5" />
+            <circle cx="19" cy="12" r="1.5" />
           </svg>
-        )}
-      </button>
+        </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDefer();
+          }}
+          className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-md"
+          style={{
+            background: "var(--ios-surface-elev)",
+            border: "1px solid var(--ios-border)",
+            color: "var(--ios-text-secondary)",
+          }}
+          title="Defer to tomorrow"
+          aria-label="Defer to tomorrow"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={onComplete}
+          className="flex h-6 w-6 flex-none items-center justify-center rounded-[5px]"
+          style={{
+            background: done ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.04)",
+            border: done
+              ? "1px solid rgba(255, 255, 255, 0.95)"
+              : "1.5px solid rgba(255, 255, 255, 0.65)",
+            color: done ? "#0B0E13" : "var(--ios-text)",
+            boxShadow: done
+              ? "0 0 12px rgba(255, 255, 255, 0.55)"
+              : "0 0 8px rgba(255, 255, 255, 0.32)",
+          }}
+          aria-label={done ? "Done" : "Tick off"}
+        >
+          {done && (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12l5 5L20 7" />
+            </svg>
+          )}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1533,6 +1726,9 @@ interface HyperFocusProps {
   tasks: Task[];
   foundations: Task[];
   goals: Goal[];
+  /** Top-three priority tasks — used to suggest slotting them into
+   *  empty gaps on the day plan. */
+  prioritized: PrioritizedTask[];
   prefs: UserPrefs;
   calendarConnected: boolean;
   onComplete: (id: string) => void;
@@ -1839,12 +2035,48 @@ function HyperFocus(p: HyperFocusProps) {
           unscheduled={unscheduled}
           isToday={dayOffset === 0}
           calendarConnected={p.calendarConnected}
+          // Top-3 candidates for slotting into open gaps. Filter out the
+          // ones already on today's plan so we only suggest tasks that
+          // genuinely need a home.
+          slotCandidates={p.prioritized
+            .filter((pt) => {
+              if (pt.task.scheduledFor) {
+                const d = new Date(pt.task.scheduledFor);
+                if (!Number.isNaN(d.getTime()) && sameYearMonthDay(d, targetDay)) {
+                  return false;
+                }
+              }
+              return !pt.task.calendarEventId;
+            })
+            .map((pt) => pt.task)}
           onAdjust={handleAdjustTime}
           onAutoReschedule={handleAutoReschedule}
           onComplete={(taskId) => p.onComplete(taskId)}
           onReschedule={handleReschedule}
           onExtendDuration={handleExtendDuration}
           onDefer={(item) => setDeferingItem(item)}
+          onSlotIntoGap={(taskId, startIso) => {
+            p.onSetScheduledFor(taskId, startIso);
+          }}
+          onDeferCandidate={(taskId) => {
+            const task = p.tasks.find((t) => t.id === taskId);
+            if (!task) return;
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setHours(9, 0, 0, 0);
+            const isRecurring = task.recurrence && task.recurrence !== "none";
+            if (isRecurring) {
+              const endOfToday = new Date();
+              endOfToday.setHours(23, 59, 59, 999);
+              p.onSnooze(task.id, endOfToday.toISOString());
+              return;
+            }
+            const patch: Partial<Task> = { snoozedUntil: undefined };
+            if (task.scheduledFor) patch.scheduledFor = tomorrow.toISOString();
+            else if (task.dueDate) patch.dueDate = tomorrow.toISOString();
+            else patch.scheduledFor = tomorrow.toISOString();
+            p.onUpdateTask(task.id, patch);
+          }}
         />
 
         {dayOffset === 0 && (
@@ -2323,25 +2555,53 @@ function DayRiver({
   unscheduled,
   isToday,
   calendarConnected,
+  slotCandidates,
   onAdjust,
   onAutoReschedule,
   onComplete,
   onReschedule,
   onExtendDuration,
   onDefer,
+  onSlotIntoGap,
+  onDeferCandidate,
 }: {
   items: DayItem[];
   unscheduled: UnscheduledItem[];
   isToday: boolean;
   calendarConnected: boolean;
+  /** Top-3 tasks the user might slot into open gaps. */
+  slotCandidates: Task[];
   onAdjust: (item: DayItem, deltaMin: number) => void;
   onAutoReschedule: () => void;
   onComplete: (taskId: string) => void;
   onReschedule: (item: DayItem) => void;
   onExtendDuration: (item: DayItem, deltaMin: number) => void;
   onDefer: (item: DayItem) => void;
+  /** Place this candidate task at startIso. */
+  onSlotIntoGap: (taskId: string, startIso: string) => void;
+  /** Defer this candidate task to tomorrow. */
+  onDeferCandidate: (taskId: string) => void;
 }) {
   const groups = useMemo(() => groupConcurrent(items), [items]);
+
+  // Slot top-3 candidates into open gaps between groups. Walk the gaps in
+  // chronological order; if a gap is 30-180 min and we still have a
+  // candidate to place, attach it to that gap. Each candidate appears
+  // exactly once.
+  const gapSlots = useMemo(() => {
+    const out = new Map<number, Task>();
+    let ci = 0;
+    for (let i = 0; i < groups.length - 1; i++) {
+      if (ci >= slotCandidates.length) break;
+      const gapMin =
+        (groups[i + 1].start.getTime() - groups[i].end.getTime()) / 60_000;
+      if (gapMin >= 30 && gapMin <= 180) {
+        out.set(i, slotCandidates[ci]);
+        ci += 1;
+      }
+    }
+    return out;
+  }, [groups, slotCandidates]);
 
   // Live ticker — re-evaluates "now" every minute so the NOW beam and
   // current-group highlights update without a refresh. Cheap (one render
@@ -2511,10 +2771,20 @@ function DayRiver({
                       isCurrent={isCurrentGroup}
                     />
                     {idx < groups.length - 1 && (
-                      <RiverConnector
-                        from={group.end}
-                        to={groups[idx + 1].start}
-                      />
+                      <>
+                        <RiverConnector
+                          from={group.end}
+                          to={groups[idx + 1].start}
+                        />
+                        {gapSlots.has(idx) && (
+                          <SlotSuggestion
+                            task={gapSlots.get(idx)!}
+                            suggestedStart={snapTo15Forward(group.end)}
+                            onSlot={(taskId, iso) => onSlotIntoGap(taskId, iso)}
+                            onDefer={(taskId) => onDeferCandidate(taskId)}
+                          />
+                        )}
+                      </>
                     )}
                     {showNowAfter && nowDate && idx === groups.length - 1 && (
                       <NowBeam now={nowDate} ref={nowRef} />
@@ -2708,6 +2978,86 @@ function RiverSpine() {
 
 /** Connector between two groups — sits over the centre spine. Shows a
  *  "Nh gap" pill if the spread is meaningful (>30 min). */
+/** Snap forward to the next 15-min boundary. Used when slotting a top-3
+ *  candidate into an open gap so it lands on a clean quarter-hour. */
+function snapTo15Forward(d: Date): Date {
+  const out = new Date(d);
+  const min = out.getMinutes();
+  const snapped = Math.ceil(min / 15) * 15;
+  out.setMinutes(snapped, 0, 0);
+  return out;
+}
+
+/** Inline gap-slot suggestion. Renders inside an empty stretch on the day
+ *  river: "Slot [Task] at HH:MM" with Slot + Defer actions. Tap Slot to
+ *  schedule it; tap Defer to push it to tomorrow. */
+function SlotSuggestion({
+  task,
+  suggestedStart,
+  onSlot,
+  onDefer,
+}: {
+  task: Task;
+  suggestedStart: Date;
+  onSlot: (taskId: string, iso: string) => void;
+  onDefer: (taskId: string) => void;
+}) {
+  return (
+    <div
+      className="my-2 mx-1 flex items-center gap-2 rounded-xl px-3 py-2"
+      style={{
+        background:
+          "linear-gradient(135deg, rgba(167,139,250,0.10), rgba(167,139,250,0.04))",
+        border: "1px dashed rgba(167, 139, 250, 0.45)",
+      }}
+    >
+      <div className="min-w-0 flex-1">
+        <div
+          className="text-[10px] font-bold uppercase tracking-[0.08em]"
+          style={{ color: "var(--ios-accent)" }}
+        >
+          Top three · slot here?
+        </div>
+        <div
+          className="mt-0.5 truncate text-[13px] font-bold"
+          style={{ color: "var(--ios-text)" }}
+        >
+          {task.title}
+        </div>
+        <div className="text-[10px]" style={{ color: "var(--ios-text-secondary)" }}>
+          would land at {fmtTime(suggestedStart)}
+        </div>
+      </div>
+      <div className="flex flex-none items-center gap-1">
+        <button
+          type="button"
+          onClick={() => onDefer(task.id)}
+          className="rounded-md px-2 py-1 text-[10px] font-bold"
+          style={{
+            background: "rgba(245, 158, 11, 0.18)",
+            color: "var(--ios-warning)",
+            border: "1px solid rgba(245, 158, 11, 0.32)",
+          }}
+        >
+          Defer
+        </button>
+        <button
+          type="button"
+          onClick={() => onSlot(task.id, suggestedStart.toISOString())}
+          className="rounded-md px-2 py-1 text-[10px] font-bold"
+          style={{
+            background:
+              "linear-gradient(135deg, var(--ios-accent-grad-from), var(--ios-accent-grad-to))",
+            color: "white",
+          }}
+        >
+          Slot it
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function RiverConnector({ from, to }: { from: Date; to: Date }) {
   const gapMin = Math.max(0, Math.round((to.getTime() - from.getTime()) / 60_000));
   const big = gapMin >= 120;
@@ -3179,28 +3529,56 @@ function LaneCard({
                 <path d="M6 9l6 6 6-6" />
               </svg>
             </button>
-            {item.source === "calendar" && item.event?.htmlLink && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  window.open(item.event!.htmlLink!, "_blank", "noopener,noreferrer");
-                }}
-                className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[4px]"
-                style={{
-                  background: "rgba(255, 255, 255, 0.04)",
-                  border: "1px solid rgba(255, 255, 255, 0.28)",
-                  color: "var(--ios-text-secondary)",
-                }}
-                title="Edit in Google Calendar"
-                aria-label="Edit in Google Calendar"
-              >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 20h9" />
-                  <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z" />
-                </svg>
-              </button>
-            )}
+            {item.source === "calendar" && item.event && (() => {
+              // Pull the venue phone (📞 +44 …) out of the description if
+              // the location-enrichment writer added it. Falls back to
+              // null when no recognisable phone is in the text.
+              const phone = extractVenuePhone(item.event.description);
+              return (
+                <>
+                  {phone && (
+                    <a
+                      href={`tel:${phone.replace(/\s+/g, "")}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[4px]"
+                      style={{
+                        background: "rgba(16, 185, 129, 0.18)",
+                        border: "1px solid rgba(16, 185, 129, 0.45)",
+                        color: "var(--ios-success)",
+                      }}
+                      title={`Call venue · ${phone}`}
+                      aria-label={`Call venue at ${phone}`}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.72 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.35 1.85.59 2.81.72A2 2 0 0 1 22 16.92z" />
+                      </svg>
+                    </a>
+                  )}
+                  {item.event.htmlLink && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        window.open(item.event!.htmlLink!, "_blank", "noopener,noreferrer");
+                      }}
+                      className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[4px]"
+                      style={{
+                        background: "rgba(255, 255, 255, 0.04)",
+                        border: "1px solid rgba(255, 255, 255, 0.28)",
+                        color: "var(--ios-text-secondary)",
+                      }}
+                      title="Edit in Google Calendar"
+                      aria-label="Edit in Google Calendar"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z" />
+                      </svg>
+                    </button>
+                  )}
+                </>
+              );
+            })()}
             {item.fixed && (
               <span
                 className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-[0.08em]"
@@ -3738,17 +4116,6 @@ function shortGoalLabel(g: Goal): string {
   return g.title.slice(0, 16) + "…";
 }
 
-function goalEmoji(g: Goal): string {
-  const t = (g.theme ?? "").toLowerCase();
-  if (t === "fitness" || t === "health" || t === "medication") return "💪";
-  if (t === "finance") return "💰";
-  if (t === "work" || t === "career") return "💼";
-  if (t === "school" || t === "development") return "📚";
-  if (t === "projects") return "🎯";
-  if (t === "family") return "👨‍👩‍👧";
-  return "⭐";
-}
-
 function fmtTime(d: Date): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -3772,6 +4139,30 @@ function fmtDate(iso: string): string {
 function isOverdue(iso: string): boolean {
   const d = new Date(iso);
   return !Number.isNaN(d.getTime()) && d.getTime() < Date.now();
+}
+
+/**
+ * Extract a venue phone number from an event description. Looks for the
+ * 📞 prefix the location-enrichment writer adds, then falls back to a
+ * generic E.164 / international pattern. Returns null when nothing
+ * recognisable is found.
+ */
+function extractVenuePhone(description: string | null | undefined): string | null {
+  if (!description) return null;
+  // Preferred — phone explicitly tagged with the 📞 emoji we wrote
+  const tagged = /📞\s*(\+?[\d\s().-]{6,})/.exec(description);
+  if (tagged) return tagged[1].trim();
+  // Fallback — first plausible international/long phone number in the text
+  const generic = /(\+\d[\d\s().-]{6,}\d)/.exec(description);
+  return generic ? generic[1].trim() : null;
+}
+
+function sameYearMonthDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
 }
 
 function pad(n: number): string {
