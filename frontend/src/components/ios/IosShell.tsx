@@ -506,6 +506,17 @@ export function IosShell(props: IosShellProps) {
           --ios-success: #10B981;
           --ios-warning: #F59E0B;
           --ios-danger: #EF4444;
+          /* Hyperfocus brand — cyan glow on dark, deeper teal on light. */
+          --hyper-bg-from: #0B0E13;
+          --hyper-bg-to: #131520;
+          --hyper-brand: #7CFFFF;
+          --hyper-brand-glow: 0 0 12px rgba(0, 220, 255, 0.6);
+          --hyper-brand-soft: rgba(0, 229, 255, 0.18);
+          --hyper-button-bg: linear-gradient(135deg, rgba(0, 229, 255, 0.16), rgba(0, 119, 255, 0.16));
+          --hyper-button-border: rgba(0, 229, 255, 0.55);
+          --hyper-button-shadow: 0 0 8px rgba(0, 229, 255, 0.55);
+          --hyper-countdown-bg: radial-gradient(ellipse at center, #001932 0%, #0B0E13 80%);
+          --hyper-supporting: #A8D5FF;
           background: var(--ios-bg);
           color: var(--ios-text);
         }
@@ -526,6 +537,18 @@ export function IosShell(props: IosShellProps) {
           --ios-success: #059669;
           --ios-warning: #D97706;
           --ios-danger: #DC2626;
+          /* Hyperfocus brand on light — deeper teal so the cyan signature
+             stays recognisable but isn't blinding-white-on-white. */
+          --hyper-bg-from: #F0FBFE;
+          --hyper-bg-to: #E0F2FE;
+          --hyper-brand: #0891B2;
+          --hyper-brand-glow: 0 0 6px rgba(8, 145, 178, 0.25);
+          --hyper-brand-soft: rgba(8, 145, 178, 0.12);
+          --hyper-button-bg: linear-gradient(135deg, rgba(6, 182, 212, 0.12), rgba(8, 145, 178, 0.16));
+          --hyper-button-border: rgba(8, 145, 178, 0.45);
+          --hyper-button-shadow: 0 0 6px rgba(8, 145, 178, 0.30);
+          --hyper-countdown-bg: radial-gradient(ellipse at center, #DBF4FB 0%, #F5F6FA 80%);
+          --hyper-supporting: #0E7490;
         }
         .ios-fade-in { animation: iosFade 220ms cubic-bezier(0.32, 0.72, 0, 1); }
         .ios-sheet { animation: iosSheet 280ms cubic-bezier(0.32, 0.72, 0, 1); }
@@ -794,12 +817,11 @@ function HyperLaunchButton({ onClick }: { onClick: () => void }) {
       aria-label="Launch Hyperfocus"
       className="hyper-launch inline-flex h-8 items-center rounded-md px-3 text-[11px] font-black"
       style={{
-        background:
-          "linear-gradient(135deg, rgba(0, 229, 255, 0.16), rgba(0, 119, 255, 0.16))",
-        color: "#7CFFFF",
-        border: "1px solid rgba(0, 229, 255, 0.55)",
+        background: "var(--hyper-button-bg)",
+        color: "var(--hyper-button-text, var(--hyper-brand))",
+        border: "1px solid var(--hyper-button-border)",
         letterSpacing: "0.18em",
-        textShadow: "0 0 8px rgba(0, 229, 255, 0.55)",
+        textShadow: "var(--hyper-button-shadow)",
       }}
     >
       HYPER
@@ -829,8 +851,7 @@ function HyperCountdown({ onDone, onCancel }: { onDone: () => void; onCancel: ()
     <div
       className="fixed inset-0 z-[60] flex flex-col items-center justify-center px-6"
       style={{
-        background:
-          "radial-gradient(ellipse at center, #001932 0%, #0B0E13 80%)",
+        background: "var(--hyper-countdown-bg)",
         paddingTop: "env(safe-area-inset-top, 0)",
       }}
     >
@@ -839,8 +860,9 @@ function HyperCountdown({ onDone, onCancel }: { onDone: () => void; onCancel: ()
         onClick={onCancel}
         className="absolute right-5 top-5 rounded-md px-3 py-1.5 text-[12px] font-medium"
         style={{
-          background: "rgba(255,255,255,0.08)",
+          background: "var(--ios-surface-elev)",
           color: "var(--ios-text-secondary)",
+          border: "1px solid var(--ios-border)",
         }}
       >
         Cancel
@@ -850,9 +872,9 @@ function HyperCountdown({ onDone, onCancel }: { onDone: () => void; onCancel: ()
         <div
           className="mb-4 text-[14px] font-black"
           style={{
-            color: "#7CFFFF",
+            color: "var(--hyper-brand)",
             letterSpacing: "0.32em",
-            textShadow: "0 0 12px rgba(0, 220, 255, 0.6)",
+            textShadow: "var(--hyper-brand-glow)",
           }}
         >
           HYPERFOCUS
@@ -864,17 +886,16 @@ function HyperCountdown({ onDone, onCancel }: { onDone: () => void; onCancel: ()
             fontSize: n >= 0 ? "220px" : "120px",
             fontWeight: 900,
             lineHeight: 1,
-            color: "#7CFFFF",
+            color: "var(--hyper-brand)",
             letterSpacing: "-0.04em",
-            textShadow:
-              "0 0 40px rgba(0, 220, 255, 0.85), 0 0 80px rgba(0, 140, 255, 0.55)",
+            textShadow: "var(--hyper-brand-glow)",
           }}
         >
           {n > 0 ? n : "GO"}
         </div>
         <div
           className="mt-6 text-[18px] font-semibold"
-          style={{ color: "#A8D5FF", letterSpacing: "-0.01em" }}
+          style={{ color: "var(--hyper-supporting)", letterSpacing: "-0.01em" }}
         >
           Engaging…
         </div>
@@ -887,9 +908,9 @@ function HyperCountdown({ onDone, onCancel }: { onDone: () => void; onCancel: ()
         <div
           className="mt-5 inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px]"
           style={{
-            background: "rgba(255, 255, 255, 0.04)",
+            background: "var(--ios-surface-elev)",
             color: "var(--ios-text-muted)",
-            border: "1px solid rgba(255, 255, 255, 0.08)",
+            border: "1px solid var(--ios-border)",
           }}
         >
           🔇 swipe down → Focus / Do Not Disturb
@@ -2367,7 +2388,8 @@ function HyperFocus(p: HyperFocusProps) {
     <div
       className="hyper-enter fixed inset-0 z-50 flex flex-col"
       style={{
-        background: "linear-gradient(180deg, #0B0E13 0%, #131520 100%)",
+        background:
+          "linear-gradient(180deg, var(--hyper-bg-from) 0%, var(--hyper-bg-to) 100%)",
         paddingTop: "env(safe-area-inset-top, 0)",
         paddingBottom: "env(safe-area-inset-bottom, 0)",
       }}
@@ -2377,16 +2399,16 @@ function HyperFocus(p: HyperFocusProps) {
       <div
         className="flex items-center justify-center px-5 py-3"
         style={{
-          background:
-            "linear-gradient(90deg, rgba(0, 229, 255, 0.04), rgba(0, 119, 255, 0.10), rgba(0, 229, 255, 0.04))",
-          borderBottom: "1px solid rgba(0, 229, 255, 0.18)",
+          background: "var(--hyper-brand-soft)",
+          borderBottom: "1px solid var(--hyper-button-border)",
         }}
       >
         <span
           className="hyper-ribbon-pulse text-[18px] font-black"
           style={{
-            color: "#7CFFFF",
+            color: "var(--hyper-brand)",
             letterSpacing: "0.36em",
+            textShadow: "var(--hyper-brand-glow)",
           }}
         >
           HYPERFOCUS

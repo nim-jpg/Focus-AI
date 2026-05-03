@@ -68,9 +68,10 @@ export function UnmappedTasks({
         continue;
       }
       const macros = inferMacroThemes(task);
-      // Calendar-derived tasks always carry the "events" macro; skip
-      // them only if they have NO macros at all (rare).
-      if (macros.length === 0 && !task.calendarEventId) continue;
+      // Show every unlinked task — even those without inferred macros
+      // — so the user can see EVERYTHING that isn't bucketed. Tasks
+      // without macros render with an "Other" chip rather than
+      // disappearing silently.
       const goal = task.calendarEventId
         ? null // events stay out of goal buckets
         : pickGoalForTask(task, goals);
@@ -123,22 +124,28 @@ export function UnmappedTasks({
                   {task.title}
                 </span>
                 <ThemeBadge theme={task.theme} />
-                {macros.map((m) => (
-                  <span
-                    key={m}
-                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-                      m === "stress"
-                        ? "bg-rose-100 text-rose-800"
-                        : m === "admin"
-                          ? "bg-amber-100 text-amber-800"
-                          : m === "events"
-                            ? "bg-sky-100 text-sky-800"
-                            : "bg-slate-100 text-slate-700"
-                    }`}
-                  >
-                    {MACRO_THEME_LABELS[m]}
+                {macros.length === 0 ? (
+                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                    Other
                   </span>
-                ))}
+                ) : (
+                  macros.map((m) => (
+                    <span
+                      key={m}
+                      className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                        m === "stress"
+                          ? "bg-rose-100 text-rose-800"
+                          : m === "admin"
+                            ? "bg-amber-100 text-amber-800"
+                            : m === "events"
+                              ? "bg-sky-100 text-sky-800"
+                              : "bg-slate-100 text-slate-700"
+                      }`}
+                    >
+                      {MACRO_THEME_LABELS[m]}
+                    </span>
+                  ))
+                )}
               </div>
               {goal && (
                 <div className="text-[11px] text-slate-500">

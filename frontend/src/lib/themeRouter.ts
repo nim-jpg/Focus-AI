@@ -1,4 +1,42 @@
-import type { Goal, MacroTheme, Task } from "@/types/task";
+import type { Goal, MacroTheme, Task, Theme } from "@/types/task";
+
+/**
+ * Theme → macro-theme fallback. The legacy single-Theme enum (work,
+ * projects, personal, school, fitness, finance, diet, medication,
+ * development, household) maps to one or two macros each. Used when
+ * neither title keywords nor explicit macroThemes give us a signal —
+ * stops the matcher from returning [] on goals like "Save money"
+ * or tasks like "review notes" whose titles don't trigger the regex
+ * router but whose theme is unambiguous.
+ *
+ * `personal` and `household` deliberately return [] — those aren't
+ * MEANINGFUL macro buckets (every task could be "personal"), so
+ * they fall through cleanly when the title also has no signal.
+ */
+function themeToMacros(theme: Theme): MacroTheme[] {
+  switch (theme) {
+    case "work":
+      return ["career"];
+    case "projects":
+      return ["creativity"];
+    case "school":
+      return ["learning"];
+    case "fitness":
+      return ["health"];
+    case "diet":
+      return ["health"];
+    case "medication":
+      return ["health"];
+    case "finance":
+      return ["financial"];
+    case "development":
+      return ["learning", "creativity"];
+    case "household":
+    case "personal":
+    default:
+      return [];
+  }
+}
 
 /**
  * Multi-target keyword router for tasks → macro-themes.
@@ -29,6 +67,14 @@ export function inferMacroThemes(
 ): MacroTheme[] {
   const haystack = `${task.title} ${task.description ?? ""}`.toLowerCase();
   const out = new Set<MacroTheme>();
+
+  // Theme-derived macros first — every task gets at least its theme's
+  // implied bucket(s) before keyword routes pile on more. Stops the
+  // matcher from returning [] on tasks/goals whose titles don't
+  // trigger any keyword (e.g. "review notes" with theme=school still
+  // ends up as "learning"). `personal` / `household` map to nothing
+  // because they're catch-all buckets that wouldn't add useful signal.
+  for (const m of themeToMacros(task.theme)) out.add(m);
 
   // ─── EVENTS ─────────────────────────────────────────────────────────
   // Calendar-derived tasks are events by definition. Bare-title heuristics
@@ -197,6 +243,31 @@ export function inferMacroThemes(
     out.add("career");
   }
   if (/\bproposal\b|\bpitch\b|\bdeck\b|\bclient (call|meeting|review)/.test(haystack)) {
+    out.add("career");
+  }
+  // Business / entrepreneurial — covers self-employment, side-hustles,
+  // founders. Picks up both "career" (it's their work) AND "financial"
+  // (revenue/monetisation goals).
+  if (
+    /\bbusiness\b|\brevenue\b|\bsales\b|\bmrr\b|\barr\b|\bsubscription\b/.test(
+      haystack,
+    )
+  ) {
+    out.add("career");
+    out.add("financial");
+  }
+  if (
+    /\bcustomer(s)?\b|\bclient(s)?\b|\blead(s)?\b|\bpipeline\b|\bmarketing\b/.test(
+      haystack,
+    )
+  ) {
+    out.add("career");
+  }
+  if (
+    /\bproduct\b|\blaunch\b|\bgo.?to.?market\b|\bgtm\b|\bstartup\b/.test(
+      haystack,
+    )
+  ) {
     out.add("career");
   }
 
