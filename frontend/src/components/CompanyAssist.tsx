@@ -171,19 +171,54 @@ export function CompanyAssist({ tasks, onUpdateTask, onAddTask }: Props) {
     );
   };
 
+  /** Find an existing live filing task for this company + filing type so we
+   *  don't keep adding duplicates every time the user re-runs Company
+   *  Assist. Match on companyHouseNumber + title prefix; ignore completed
+   *  ones (they're historical). */
+  const findExistingFiling = (
+    companyNumber: string | undefined,
+    titlePrefix: string,
+  ) => {
+    if (!companyNumber) return undefined;
+    return tasks.find(
+      (t) =>
+        t.companyHouseNumber === companyNumber &&
+        t.status !== "completed" &&
+        t.title.toLowerCase().startsWith(titlePrefix),
+    );
+  };
+
   const addConfirmationStatement = (row: Row, idx: number) => {
     const date = row.result?.confirmationStatement?.nextDue;
+    const companyNumber = row.result?.company?.number;
     if (!date) return;
-    onAddTask({
-      ...emptyTask(),
-      title: `File confirmation statement for ${row.companyName}`,
-      description: `Companies House #${row.result?.company?.number}`,
-      dueDate: new Date(date).toISOString(),
-      theme: "finance",
-      urgency: "high",
-      recurrence: "yearly",
-      companyHouseNumber: row.result?.company?.number,
-    });
+    const newDeadlineIso = new Date(date).toISOString();
+
+    // Dedup: if an open confirmation-statement task for this company
+    // already exists, update its deadline (dueDate) instead of spawning
+    // a sibling. The "do" date (scheduledFor) is left untouched — the
+    // user's plan to act on it stays put.
+    const existing = findExistingFiling(
+      companyNumber,
+      "file confirmation statement",
+    );
+    if (existing) {
+      if (existing.dueDate !== newDeadlineIso) {
+        onUpdateTask(existing.id, { dueDate: newDeadlineIso });
+      }
+    } else {
+      onAddTask({
+        ...emptyTask(),
+        title: `File confirmation statement for ${row.companyName}`,
+        description: `Companies House #${companyNumber}`,
+        dueDate: newDeadlineIso,
+        theme: "finance",
+        urgency: "high",
+        recurrence: "yearly",
+        companyHouseNumber: companyNumber,
+      });
+    }
+
     setRows((prev) =>
       prev.map((r, i) =>
         i === idx ? { ...r, applied: { ...r.applied, addedConfirmation: true } } : r,
@@ -193,17 +228,32 @@ export function CompanyAssist({ tasks, onUpdateTask, onAddTask }: Props) {
 
   const addAnnualAccounts = (row: Row, idx: number) => {
     const date = row.result?.accounts?.nextDue;
+    const companyNumber = row.result?.company?.number;
     if (!date) return;
-    onAddTask({
-      ...emptyTask(),
-      title: `File annual accounts for ${row.companyName}`,
-      description: `Companies House #${row.result?.company?.number}`,
-      dueDate: new Date(date).toISOString(),
-      theme: "finance",
-      urgency: "high",
-      recurrence: "yearly",
-      companyHouseNumber: row.result?.company?.number,
-    });
+    const newDeadlineIso = new Date(date).toISOString();
+
+    // Same dedup story for annual accounts.
+    const existing = findExistingFiling(
+      companyNumber,
+      "file annual accounts",
+    );
+    if (existing) {
+      if (existing.dueDate !== newDeadlineIso) {
+        onUpdateTask(existing.id, { dueDate: newDeadlineIso });
+      }
+    } else {
+      onAddTask({
+        ...emptyTask(),
+        title: `File annual accounts for ${row.companyName}`,
+        description: `Companies House #${companyNumber}`,
+        dueDate: newDeadlineIso,
+        theme: "finance",
+        urgency: "high",
+        recurrence: "yearly",
+        companyHouseNumber: companyNumber,
+      });
+    }
+
     setRows((prev) =>
       prev.map((r, i) =>
         i === idx ? { ...r, applied: { ...r.applied, addedAccounts: true } } : r,

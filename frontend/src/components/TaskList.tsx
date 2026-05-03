@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { THEMES, type Task, type Theme, type UserType } from "@/types/task";
 import { ThemeBadge } from "./ThemeBadge";
 import { isInWorkMode } from "@/lib/modeFilter";
+import { lookupCompany } from "@/lib/companiesHouse";
 
 interface Props {
   tasks: Task[];
@@ -27,6 +28,9 @@ interface Props {
    *  TaskList auto-switches its sort to AI rank so the user immediately
    *  sees the new ranking applied. */
   aiRefreshTick?: number;
+  /** Used by the "Look up deadline" button on Companies-House tasks
+   *  missing a dueDate — applies the fetched nextDue date. */
+  onUpdateTask?: (id: string, patch: Partial<Task>) => void;
 }
 
 type StatusFilter = "open" | "all" | "completed" | "snoozed";
@@ -44,6 +48,57 @@ const THEME_LABELS: Record<Theme, string> = {
   development: "Dev",
   household: "Household",
 };
+
+/** Inline "Look up deadline" button for Companies-House tasks that came in
+ *  without a dueDate (the AI didn't fill one when the task was created).
+ *  One click hits Companies House, picks the soonest of the confirmation-
+ *  statement / accounts nextDue dates, and applies it via onUpdateTask. */
+function LookupDeadlineButton({
+  number,
+  onApply,
+}: {
+  number: string;
+  onApply: (iso: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={async (e) => {
+        e.stopPropagation();
+        setBusy(true);
+        setError(null);
+        try {
+          const result = await lookupCompany({ number });
+          // Pick the soonest upcoming deadline of the two filings.
+          const candidates: string[] = [];
+          if (result.confirmationStatement?.nextDue) {
+            candidates.push(result.confirmationStatement.nextDue);
+          }
+          if (result.accounts?.nextDue) {
+            candidates.push(result.accounts.nextDue);
+          }
+          if (candidates.length === 0) {
+            setError("No deadline returned");
+            return;
+          }
+          candidates.sort();
+          onApply(new Date(candidates[0]).toISOString());
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Lookup failed");
+        } finally {
+          setBusy(false);
+        }
+      }}
+      className="ml-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 hover:bg-amber-200 disabled:opacity-50"
+      title={`Fetch this company's filing deadlines from Companies House and set the earliest as the due date`}
+    >
+      {busy ? "looking up…" : error ? `! ${error}` : "Look up deadline"}
+    </button>
+  );
+}
 
 function formatDue(iso?: string, includeTime = false): string {
   if (!iso) return "—";
@@ -78,6 +133,7 @@ export function TaskList({
   onRefreshAi,
   aiBusy = false,
   aiRefreshTick = 0,
+  onUpdateTask,
 }: Props) {
   const ignoredEventIdSet = useMemo(
     () => new Set(ignoredEventIds),
@@ -114,7 +170,16 @@ export function TaskList({
         return false;
       }
       if (selectedThemes.size > 0 && !selectedThemes.has(t.theme)) return false;
-      if (statusFilter === "open" && t.status === "completed") return false;
+      if (statusFilter === "open") {
+        if (t.status === "completed") return false;
+        // Deferred / ignored (snoozedUntil in the future) hide from the
+        // default "open" view — they're still in the system but not
+        // cluttering the list. Switch the status filter to "snoozed" to
+        // see them.
+        if (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > now) {
+          return false;
+        }
+      }
       if (statusFilter === "completed" && t.status !== "completed") return false;
       if (statusFilter === "snoozed") {
         if (!t.snoozedUntil) return false;
@@ -310,15 +375,26 @@ export function TaskList({
                 task.status === "completed" ? "opacity-60" : ""
               }`}
             >
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={task.status === "completed"}
-                onChange={() => onToggle(task.id)}
-                aria-label={`Mark ${task.title} ${
-                  task.status === "completed" ? "incomplete" : "complete"
-                }`}
-              />
+              {/* Bigger, clearer checkbox with cursor pointer + tooltip
+                  so users see they're marking the task complete. */}
+              <label
+                className="mt-0.5 inline-flex cursor-pointer items-center"
+                title={
+                  task.status === "completed"
+                    ? "Mark not done"
+                    : "Mark done"
+                }
+              >
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 cursor-pointer accent-emerald-600"
+                  checked={task.status === "completed"}
+                  onChange={() => onToggle(task.id)}
+                  aria-label={`Mark ${task.title} ${
+                    task.status === "completed" ? "incomplete" : "complete"
+                  }`}
+                />
+              </label>
 
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -350,14 +426,46 @@ export function TaskList({
                   <p className="mt-1 text-sm text-slate-600">{task.description}</p>
                 )}
                 <p className="mt-1 text-xs text-slate-500">
-                  {/* Imported-from-Google tasks show the time too — the
-                      dueDate carries the event's start time, and seeing
-                      it inline answers "when was this scheduled" without
-                      jumping to Google. Plain tasks keep date-only. */}
-                  {task.calendarEventId ? "When " : "Due "}
-                  {formatDue(task.dueDate, Boolean(task.calendarEventId))} ·{" "}
-                  {task.urgency} urgency · {task.estimatedMinutes ?? 30} min ·{" "}
-                  {task.recurrence}
+                  {/* Companies-House tasks (statutory filings) get TWO
+                      dates surfaced — the statutory deadline (dueDate,
+                      hard) and the planned schedule date (scheduledFor,
+                      when you'll actually do it). Other tasks show one
+                      date as before. */}
+                  {task.companyHouseNumber && task.dueDate ? (
+                    <>
+                      <span className="font-semibold text-rose-700">
+                        Deadline {formatDue(task.dueDate, false)}
+                      </span>
+                      {" · "}
+                      {task.scheduledFor ? (
+                        <span className="font-medium text-emerald-700">
+                          Scheduled {formatDue(task.scheduledFor, true)}
+                        </span>
+                      ) : (
+                        <span className="font-medium text-amber-700">
+                          No schedule date — pick one →
+                        </span>
+                      )}
+                      {" · "}
+                      {task.urgency} · {task.estimatedMinutes ?? 30} min
+                    </>
+                  ) : (
+                    <>
+                      {task.calendarEventId ? "When " : "Due "}
+                      {formatDue(task.dueDate, Boolean(task.calendarEventId))}
+                      {task.companyHouseNumber && !task.dueDate && onUpdateTask && (
+                        <LookupDeadlineButton
+                          number={task.companyHouseNumber}
+                          onApply={(iso) =>
+                            onUpdateTask(task.id, { dueDate: iso })
+                          }
+                        />
+                      )}
+                      {" · "}
+                      {task.urgency} urgency · {task.estimatedMinutes ?? 30} min ·{" "}
+                      {task.recurrence}
+                    </>
+                  )}
                 </p>
               </div>
 
@@ -403,16 +511,19 @@ export function TaskList({
                     </button>
                   )}
                 {task.calendarEventId ? (
-                  // Imported tasks can't be deleted from Focus3 — the
-                  // source of truth is Google. Direct the user there.
+                  // Calendar-derived tasks can't be deleted from Focus3 —
+                  // delete the source event in Google and the task drops
+                  // on next sync. Show a struck-through "Delete" so the
+                  // affordance is visible-but-unavailable, with the hover
+                  // hint explaining what to do.
                   <a
                     href="https://calendar.google.com/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-slate-400 hover:text-slate-700"
-                    title="This task is linked to a Google Calendar event. Delete it in Google Calendar — Focus3 will drop the task on the next sync."
+                    className="text-slate-400 line-through hover:text-slate-600"
+                    title="Delete this event in Google Calendar first — Focus3 drops the task on the next sync."
                   >
-                    Open in Google
+                    Delete
                   </a>
                 ) : (
                   <button

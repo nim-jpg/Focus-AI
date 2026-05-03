@@ -226,6 +226,47 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     }
   };
 
+  /**
+   * Outcome-aware close. Records resolution metadata on the task and, when
+   * course-correcting, spawns a follow-up that inherits the original's goal
+   * links + theme. The follow-up holds a backref via followUpToTaskId so we
+   * can build a "perseverance lineage" view later.
+   *
+   * Note: we deliberately set resolution BEFORE toggling complete, so the
+   * resolved task carries the metadata at the moment of completion. Recurring
+   * tasks get the resolution applied to the current instance's snapshot.
+   */
+  const handleResolveTask = (
+    id: string,
+    resolution: "achieved" | "course-corrected" | "accepted",
+    opts?: { note?: string; followUp?: { title: string } },
+  ) => {
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+    updateTask(id, {
+      resolution,
+      resolutionNote: opts?.note,
+      resolutionAt: new Date().toISOString(),
+    });
+    if (resolution === "course-corrected" && opts?.followUp?.title) {
+      const followUp = addTask({
+        title: opts.followUp.title,
+        theme: task.theme,
+        urgency: task.urgency,
+        privacy: task.privacy,
+        isWork: task.isWork,
+        isBlocker: false,
+        recurrence: "none",
+        status: "pending",
+        goalIds: task.goalIds ? [...task.goalIds] : undefined,
+        kind: "follow-up",
+        followUpToTaskId: id,
+      });
+      updateTask(id, { followUpTaskIds: [...(task.followUpTaskIds ?? []), followUp.id] });
+    }
+    handleTopThreeComplete(id);
+  };
+
   // Notification ticker — runs every minute when the user has opted in.
   useEffect(() => {
     if (!prefs.notificationsEnabled) return;
@@ -236,6 +277,18 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     checkAndNotify(tasks);
     return () => clearInterval(id);
   }, [tasks, prefs.notificationsEnabled]);
+
+  // Theme — write data-theme on <html> so the dark-mode override block in
+  // index.css can flip the desktop palette (and browser color-scheme adjusts
+  // form controls + scrollbars). Defaults to light when no pref is set so
+  // existing users don't get an unexpected dark surprise; explicit "dark"
+  // flips. The iOS shell scopes its own theme on .ios-root[data-theme=...]
+  // independently.
+  useEffect(() => {
+    const theme = prefs.theme === "dark" ? "dark" : "light";
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+  }, [prefs.theme]);
 
   useEffect(() => {
     fetchGoogleStatus().then(setGoogleStatus).catch(() => setGoogleStatus(null));
@@ -929,6 +982,15 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         foundations={foundations}
         aiTierMap={aiTierMap}
         onComplete={(id) => handleTopThreeComplete(id)}
+        onResolve={handleResolveTask}
+        onSetScheduledFor={(taskId, iso) => updateTask(taskId, { scheduledFor: iso })}
+        onUpdateEstimatedMinutes={(taskId, minutes) => updateTask(taskId, { estimatedMinutes: minutes })}
+        onUpdateTask={updateTask}
+        onMuteEvent={(eventId) => {
+          const cur = prefs.ignoredEventIds ?? [];
+          if (cur.includes(eventId)) return;
+          setPrefs({ ignoredEventIds: [...cur, eventId] });
+        }}
         onToggleTask={toggleComplete}
         onRemoveTask={removeTask}
         onEditTask={startEdit}
@@ -941,6 +1003,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           until.setDate(until.getDate() + 1);
           updateTask(id, { snoozedUntil: until.toISOString() });
         }}
+        onUpdatePrefs={setPrefs}
         onAddGoal={addGoal}
         onUpdateGoal={updateGoal}
         onRemoveGoal={removeGoal}
@@ -1023,6 +1086,51 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             userType={prefs.userType}
             onChange={(mode) => setPrefs({ mode })}
           />
+          {/* Theme toggle — sun/moon icon, mirrors the iOS shell control.
+              Persists on prefs so the choice follows the user across
+              surfaces. Currently only the iOS shell honours the theme
+              fully; the desktop layout tracks it for future work. */}
+          <button
+            type="button"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:border-slate-400 hover:text-slate-900"
+            onClick={() =>
+              setPrefs({
+                theme: prefs.theme === "light" ? "dark" : "light",
+              })
+            }
+            title={
+              prefs.theme === "light"
+                ? "Switch to dark theme"
+                : "Switch to light theme"
+            }
+            aria-label="Toggle theme"
+          >
+            {prefs.theme === "light" ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+              </svg>
+            )}
+          </button>
+          {/* Mobile button — flips the iosLayout pref so the page renders
+              the iOS shell. Mirrors the "Desktop" pill on the mobile
+              header so the round-trip is symmetric. */}
+          <button
+            type="button"
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-violet-300 bg-violet-50 px-2 text-xs font-semibold text-violet-700 hover:border-violet-500 hover:bg-violet-100"
+            onClick={() => setPrefs({ iosLayout: true })}
+            title="Switch to the iOS view"
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="6" y="2" width="12" height="20" rx="2" />
+              <path d="M11 18h2" />
+            </svg>
+            Mobile
+          </button>
           <button
             type="button"
             className="text-xs text-slate-500 hover:text-slate-900"
@@ -1121,7 +1229,41 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             tasks={findSlippedTasks(tasks)}
             onComplete={toggleComplete}
             onReschedule={openSchedulePicker}
-            onSnooze={(id, until) => updateTask(id, { snoozedUntil: until })}
+            onDefer={(id, days) => {
+              // Defer = MOVE the slipped target forward, not just hide it.
+              // Computes (today + days) at the task's specificTime if set,
+              // otherwise 9am. Clears any old snoozedUntil so the moved
+              // instance shows up as the canonical version.
+              //
+              // Companies-House tasks (statutory deadlines) get special
+              // treatment: the deadline (dueDate) STAYS PUT — that's
+              // immovable from our side. Only the "do" date (scheduledFor)
+              // moves. If no scheduledFor existed, we set one for the
+              // first time so the user has a planning slot ahead of the
+              // hard deadline.
+              const task = tasks.find((t) => t.id === id);
+              if (!task) return;
+              const target = new Date();
+              target.setDate(target.getDate() + days);
+              const m = task.specificTime
+                ? /^(\d{1,2}):(\d{2})$/.exec(task.specificTime)
+                : null;
+              if (m) {
+                target.setHours(parseInt(m[1], 10), parseInt(m[2], 10), 0, 0);
+              } else {
+                target.setHours(9, 0, 0, 0);
+              }
+              const patch: Partial<Task> = { snoozedUntil: undefined };
+              if (task.companyHouseNumber) {
+                // Statutory deadline — never touch dueDate.
+                patch.scheduledFor = target.toISOString();
+              } else if (task.scheduledFor) {
+                patch.scheduledFor = target.toISOString();
+              } else {
+                patch.dueDate = target.toISOString();
+              }
+              updateTask(id, patch);
+            }}
           />
 
           <Foundations
@@ -1179,10 +1321,10 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
                   {loading
                     ? "Asking Claude…"
                     : aiStaleCount > 0
-                      ? `Refresh AI · ${aiStaleCount} stale`
+                      ? `Re-rank Top 3 · ${aiStaleCount} stale`
                       : source === "claude" && aiCache.size > 0
-                        ? "Refresh AI (incremental)"
-                        : "Refresh with AI"}
+                        ? "Re-rank Top 3"
+                        : "Re-rank Top 3 with AI"}
                 </button>
               </div>
             </div>
@@ -1337,7 +1479,20 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       )}
 
       {view === "tasks" && (
-        <section>
+        <section className="space-y-4">
+          {/* Sync from Google here too — same surface as Today, but the
+              user often manages tasks while looking at the full list and
+              shouldn't have to jump tabs to pull in calendar items. */}
+          {googleStatus?.connected && (
+            <SyncFromGoogleButton
+              onAutoSync={handleAutoSync}
+              onSkipEvent={(eventId) => {
+                const cur = prefs.enrichmentSkippedEventIds ?? [];
+                if (cur.includes(eventId)) return;
+                setPrefs({ enrichmentSkippedEventIds: [...cur, eventId] });
+              }}
+            />
+          )}
           <h2 className="mb-3 text-lg font-semibold">All tasks</h2>
           <TaskList
             tasks={tasks}
@@ -1353,6 +1508,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             onRefreshAi={handleAiRefresh}
             aiBusy={loading}
             aiRefreshTick={aiRefreshTick}
+            onUpdateTask={updateTask}
           />
         </section>
       )}

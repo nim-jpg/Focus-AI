@@ -373,6 +373,11 @@ googleRouter.get("/events", async (req, res) => {
         // True if this event came from the user's primary calendar — used
         // by the Focus-only view filter on the schedule.
         calendarPrimary: c.primary ?? false,
+        // Description + location surface to the iOS lane card so it can
+        // extract a 📞 venue phone line (added by location enrichment) and
+        // show a "Call" button alongside the pencil.
+        description: ev.description ?? null,
+        location: ev.location ?? null,
       })),
     );
 
@@ -901,6 +906,15 @@ ${JSON.stringify(
     }> = [];
     const now = new Date().toISOString();
     let imported = 0;
+    // Capture the imported tasks' display info so the frontend can show
+    // a "here's what just came in" preview popup before the user hits
+    // refresh — they should know exactly what landed in their list.
+    const importedTasks: Array<{
+      title: string;
+      theme: string;
+      dueDate?: string;
+      calendarName?: string;
+    }> = [];
     for (const ev of candidates) {
       const d = decisionById.get(ev.id);
       if (!d || !d.isTask) continue;
@@ -932,6 +946,12 @@ ${JSON.stringify(
         user_id: req.userId!,
         payload: taskPayload,
         updated_at: now,
+      });
+      importedTasks.push({
+        title: ev.summary,
+        theme,
+        dueDate: ev.start ?? undefined,
+        calendarName: ev.calendarName,
       });
       imported += 1;
     }
@@ -971,6 +991,7 @@ ${JSON.stringify(
       const d = decisionById.get(ev.id);
       let chosenAddress: string | null = null;
       let chosenConfidence: "high" | "medium" | "low" = "low";
+      let venuePhone: string | null = null;
       if (d?.proposedAddress && d.confidence === "high") {
         chosenAddress = d.proposedAddress;
         chosenConfidence = "high";
@@ -987,6 +1008,7 @@ ${JSON.stringify(
         if (places) {
           chosenAddress = places.address;
           chosenConfidence = places.confidence;
+          venuePhone = places.phone;
         } else if (d?.proposedAddress) {
           chosenAddress = d.proposedAddress;
           chosenConfidence = d.confidence;
@@ -994,10 +1016,26 @@ ${JSON.stringify(
       }
       if (chosenAddress && chosenConfidence === "high") {
         try {
+          // If we got a venue phone number, append it to the description
+          // so the user can call directly from the event without leaving
+          // the calendar / Focus3.
+          const patchBody: { location: string; description?: string } = {
+            location: chosenAddress,
+          };
+          if (venuePhone) {
+            const phoneLine = `📞 ${venuePhone}`;
+            const existingDesc = ev.description ?? "";
+            // Only add the line if it isn't already there from a prior run.
+            if (!existingDesc.includes(venuePhone)) {
+              patchBody.description = existingDesc
+                ? `${existingDesc}\n\n${phoneLine}`
+                : phoneLine;
+            }
+          }
           await calendar.events.patch({
             calendarId: ev.calendarId,
             eventId: ev.id,
-            requestBody: { location: chosenAddress },
+            requestBody: patchBody,
           });
           enrichedAuto += 1;
         } catch (err) {
@@ -1026,6 +1064,7 @@ ${JSON.stringify(
       scanned: totalScanned,
       calendars: writable.length,
       imported,
+      importedTasks,
       enrichedAuto,
       enrichmentNeedsReview,
     });
@@ -1164,14 +1203,17 @@ googleRouter.get("/duplicates", async (req, res) => {
 async function lookupPlaceOnce(
   query: string,
   apiKey: string,
-): Promise<string | null> {
+): Promise<{ address: string; phone: string | null } | null> {
   try {
     const r = await fetch("https://places.googleapis.com/v1/places:searchText", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "places.formattedAddress,places.displayName",
+        // Also pull the phone number for the venue so the user can
+        // call ahead / chase a delay without leaving Focus3.
+        "X-Goog-FieldMask":
+          "places.formattedAddress,places.displayName,places.internationalPhoneNumber,places.nationalPhoneNumber",
       },
       body: JSON.stringify({ textQuery: query }),
     });
@@ -1183,13 +1225,24 @@ async function lookupPlaceOnce(
       return null;
     }
     const data = (await r.json()) as {
-      places?: Array<{ formattedAddress?: string; displayName?: { text?: string } }>;
+      places?: Array<{
+        formattedAddress?: string;
+        displayName?: { text?: string };
+        internationalPhoneNumber?: string;
+        nationalPhoneNumber?: string;
+      }>;
     };
-    const hit = data.places?.[0]?.formattedAddress ?? null;
+    const place = data.places?.[0];
+    if (!place?.formattedAddress) {
+      console.log(`[places] query="${query}" → (no result)`);
+      return null;
+    }
+    const phone =
+      place.internationalPhoneNumber ?? place.nationalPhoneNumber ?? null;
     console.log(
-      `[places] query="${query}" → ${hit ? `"${hit}"` : "(no result)"}`,
+      `[places] query="${query}" → "${place.formattedAddress}"${phone ? ` · ${phone}` : ""}`,
     );
-    return hit;
+    return { address: place.formattedAddress, phone };
   } catch (err) {
     console.warn(
       `[places] error query="${query}":`,
@@ -1210,7 +1263,7 @@ async function lookupPlaceOnce(
 async function lookupPlace(
   title: string,
   locationOrSeed: string,
-): Promise<{ address: string; confidence: "high" } | null> {
+): Promise<{ address: string; phone: string | null; confidence: "high" } | null> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) {
     console.warn(
@@ -1218,8 +1271,6 @@ async function lookupPlace(
     );
     return null;
   }
-  // Build a deduped fallback chain — short enough to bail fast, broad
-  // enough to catch venue-only and title-only cases.
   const queries: string[] = [];
   const t = title.trim();
   const l = locationOrSeed.trim();
@@ -1228,7 +1279,7 @@ async function lookupPlace(
   if (t) queries.push(t);
   for (const q of new Set(queries)) {
     const hit = await lookupPlaceOnce(q, apiKey);
-    if (hit) return { address: hit, confidence: "high" };
+    if (hit) return { address: hit.address, phone: hit.phone, confidence: "high" };
   }
   return null;
 }

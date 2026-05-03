@@ -967,8 +967,9 @@ export function WeekSchedule({
               className="ml-1 text-slate-500 hover:text-slate-900"
               onClick={() => void refresh()}
               disabled={loading}
+              title="Re-fetch the calendar events shown here. Different from Sync (which IMPORTS events as tasks) and Re-rank Top 3 (which re-prioritises)."
             >
-              {loading ? "refreshing…" : "refresh"}
+              {loading ? "reloading…" : "Reload events"}
             </button>
           )}
           {((prefs.ignoredEventIds?.length ?? 0) > 0 ||

@@ -56,6 +56,11 @@ export interface CalendarEvent {
   calendarColor?: string | null;
   /** True when the event came from the user's primary calendar. */
   calendarPrimary?: boolean;
+  /** Event description text — used to extract a venue phone (📞 line)
+   *  for the "Call venue" affordance on lane cards. */
+  description?: string | null;
+  /** Event location (street address / venue name) when set. */
+  location?: string | null;
 }
 
 export async function deleteEvent(
@@ -226,10 +231,18 @@ export interface AutoSyncReviewItem {
   confidence: "medium" | "low";
 }
 
+export interface AutoSyncImportedTask {
+  title: string;
+  theme: string;
+  dueDate?: string;
+  calendarName?: string;
+}
+
 export interface AutoSyncResult {
   scanned: number;
   calendars: number;
   imported: number;
+  importedTasks?: AutoSyncImportedTask[];
   enrichedAuto: number;
   enrichmentNeedsReview: AutoSyncReviewItem[];
 }
