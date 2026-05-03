@@ -1179,7 +1179,15 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             </button>
           );
         })}
-        <div className="ml-auto flex flex-wrap items-center gap-1.5 pr-1">
+      </nav>
+
+      {/* Action bar — two stacked rows on the right side. AI + Google
+          (the high-frequency / high-impact actions) on top so they read
+          first; Export / Scan / Brain dump / +Task underneath as the
+          secondary row. Stacks vertically inside the right column so
+          neither row crowds the other on narrow viewports. */}
+      <div className="flex flex-col items-end gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
           <SmartActionsBar
             tasks={tasks}
             goals={goals}
@@ -1199,6 +1207,8 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             }}
             aiBusy={loading}
           />
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
           <button
             type="button"
             className="btn-secondary text-xs"
@@ -1236,7 +1246,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             + <span className="hidden sm:inline">Task</span>
           </button>
         </div>
-      </nav>
+      </div>
 
       {calendarMsg && (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
