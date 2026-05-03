@@ -1157,30 +1157,16 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           adders) and row 2 (mode + AI/Google), overriding the parent
           space-y-6/8 that's used for the bigger content blocks. */}
       <div className="flex flex-col gap-2">
-      <nav className="flex flex-wrap items-center gap-x-1 gap-y-1.5 border-b border-slate-200/70 pb-1">
-        {TAB_DEFS.map((t) => {
-          const active = view === t.key;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setView(t.key)}
-              className={`relative px-3 py-2 text-sm font-medium transition-colors ${
-                active
-                  ? "text-slate-900"
-                  : "text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              {t.label}
-              {active && (
-                <span
-                  aria-hidden
-                  className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-slate-900 via-slate-700 to-slate-900"
-                />
-              )}
-            </button>
-          );
-        })}
+      {/* Row 1 — Mode switch (Both / Projects / Personal) LEFT ·
+          Task-adders RIGHT (Brain dump / Scan / Export PDF / +Task). */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <ModeSwitch
+            mode={prefs.mode}
+            userType={prefs.userType}
+            onChange={(mode) => setPrefs({ mode })}
+          />
+        </div>
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <button
             type="button"
@@ -1219,19 +1205,35 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             + <span className="hidden sm:inline">Task</span>
           </button>
         </div>
-      </nav>
+      </div>
 
-      {/* Row 2 — Mode switch (Both / Projects / Personal) LEFT · AI +
-          Google chips RIGHT. Tightened with mt-0 (no extra gap above
-          the row 1 underline). */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <ModeSwitch
-            mode={prefs.mode}
-            userType={prefs.userType}
-            onChange={(mode) => setPrefs({ mode })}
-          />
-        </div>
+      {/* Row 2 — Tabs (Today / Tasks / Insights / Goals) LEFT ·
+          AI Smart organise + Google Sync RIGHT. Tab nav keeps the
+          underline so the active tab is unambiguous. */}
+      <nav className="flex flex-wrap items-center gap-x-1 gap-y-1.5 border-b border-slate-200/70 pb-1">
+        {TAB_DEFS.map((t) => {
+          const active = view === t.key;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setView(t.key)}
+              className={`relative px-3 py-2 text-sm font-medium transition-colors ${
+                active
+                  ? "text-slate-900"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              {t.label}
+              {active && (
+                <span
+                  aria-hidden
+                  className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-slate-900 via-slate-700 to-slate-900"
+                />
+              )}
+            </button>
+          );
+        })}
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <SmartActionsBar
             tasks={tasks}
@@ -1253,7 +1255,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             aiBusy={loading}
           />
         </div>
-      </div>
+      </nav>
       </div>
 
       {calendarMsg && (
