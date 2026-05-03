@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { TaskFormModal } from "@/components/TaskFormModal";
 import { TaskList } from "@/components/TaskList";
 import { SuggestedGoalLinks } from "@/components/SuggestedGoalLinks";
+import { UnmappedTasks } from "@/components/UnmappedTasks";
 import { TopThree } from "@/components/TopThree";
 import { SlippedTasks, findSlippedTasks } from "@/components/SlippedTasks";
 import { ModeSwitch } from "@/components/ModeSwitch";
@@ -1533,6 +1534,23 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       {view === "goals" && (
         <>
           <SuggestedGoalLinks
+            tasks={tasks}
+            goals={goals}
+            dismissedTaskIds={prefs.dismissedGoalSuggestions ?? []}
+            onLink={(taskId, goalId) => {
+              const t = tasks.find((x) => x.id === taskId);
+              if (!t) return;
+              const cur = t.goalIds ?? [];
+              if (cur.includes(goalId)) return;
+              updateTask(taskId, { goalIds: [...cur, goalId] });
+            }}
+            onDismiss={(taskId) => {
+              const cur = prefs.dismissedGoalSuggestions ?? [];
+              if (cur.includes(taskId)) return;
+              setPrefs({ dismissedGoalSuggestions: [...cur, taskId] });
+            }}
+          />
+          <UnmappedTasks
             tasks={tasks}
             goals={goals}
             dismissedTaskIds={prefs.dismissedGoalSuggestions ?? []}

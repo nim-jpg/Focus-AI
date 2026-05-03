@@ -174,6 +174,16 @@ export interface Goal {
   title: string;
   horizon: GoalHorizon;
   theme: Theme;
+  /** Macro-theme buckets this goal belongs to. Multi-tag because real
+   *  goals are rarely single-bucket: a "save £30k" goal is BOTH financial
+   *  and stress-reducing; "finish degree" is BOTH learning and career.
+   *  When set, the goal-matching engine routes tasks via macroThemes
+   *  overlap rather than the strict `theme` enum equality — so a task
+   *  classified as ["learning"] lands on a goal tagged with "learning"
+   *  even when the task's theme is "personal".
+   *  Optional / additive — existing goals fall back to the legacy
+   *  single-theme equality if macroThemes is empty. */
+  macroThemes?: MacroTheme[];
   /** Free-form note about why this matters / target metric. */
   notes?: string;
   /** Internal — hidden from UI. Defaults to "manual". */
@@ -181,6 +191,46 @@ export interface Goal {
   createdAt: string;
   updatedAt: string;
 }
+
+/** Macro-theme buckets — the LIFE-LEVEL categories most users think in
+ *  when organising goals + tasks. A superset of priorityFocus (which
+ *  is what the user picks in Settings as "what to prioritise") plus
+ *  the auto-classification labels admin + events.
+ *
+ *  Tasks are inferred to one or more macroThemes via the keyword router
+ *  in `themeRouter.ts`. Goals carry an explicit `macroThemes` list so
+ *  the user controls which buckets a goal lives in. */
+export const MACRO_THEMES = [
+  "financial",
+  "health",
+  "stress",
+  "family",
+  "career",
+  "learning",
+  "creativity",
+  /** Auto-classification — paperwork, filings, deadlines, statutory
+   *  obligations. Often overlaps with "stress" (admin you've been
+   *  avoiding) so the router emits both. */
+  "admin",
+  /** Auto-classification — appointments, meetings, social events.
+   *  Excluded from the goal-matcher because they live in the calendar,
+   *  but surfaced as a label on the Unmapped panel so the user sees
+   *  "here are all the events on your plate". */
+  "events",
+] as const;
+export type MacroTheme = (typeof MACRO_THEMES)[number];
+
+export const MACRO_THEME_LABELS: Record<MacroTheme, string> = {
+  financial: "Money",
+  health: "Health",
+  stress: "Stress",
+  family: "Family",
+  career: "Work",
+  learning: "Learning",
+  creativity: "Creative",
+  admin: "Admin",
+  events: "Events",
+};
 
 export const USER_TYPES = [
   "employee",

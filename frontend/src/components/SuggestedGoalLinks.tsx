@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import type { Goal, Task } from "@/types/task";
+import { MACRO_THEME_LABELS } from "@/types/task";
 import { ThemeBadge } from "./ThemeBadge";
-import { inferTaskTheme, pickGoalForTask } from "@/lib/themeRouter";
+import { inferMacroThemes, pickGoalForTask } from "@/lib/themeRouter";
 
 /**
  * Auto-suggested goal links — surfaces the bucket the user keeps asking
@@ -70,11 +71,14 @@ export function SuggestedGoalLinks({
       const goal = pickGoalForTask(task, goals);
       if (!goal) continue;
 
-      const inferredTheme = inferTaskTheme(task);
+      const macros = inferMacroThemes(task);
+      const overlap = (goal.macroThemes ?? []).filter((m) =>
+        macros.includes(m),
+      );
       const reason =
-        inferredTheme !== task.theme
-          ? `${task.theme} → keyword routes to ${inferredTheme}`
-          : `theme: ${inferredTheme}`;
+        overlap.length > 0
+          ? overlap.map((m) => MACRO_THEME_LABELS[m]).join(" + ")
+          : `theme: ${task.theme}`;
       out.push({ task, goal, reason });
     }
     return out;
