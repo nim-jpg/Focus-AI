@@ -3,6 +3,7 @@ import type { Goal, PrioritizedTask, Task, UserPrefs } from "@/types/task";
 import { prioritize } from "@/lib/prioritize";
 import { fetchEvents, type CalendarEvent } from "@/lib/googleCalendar";
 import { inferTaskKind, isActionable, kindGlyph, kindLabel } from "@/lib/taskKind";
+import { wasCompletedToday } from "@/lib/recurrence";
 import {
   autoReschedule,
   cascadeShift,
@@ -2027,9 +2028,11 @@ function BasicsSection({
       const i = order.indexOf(theme);
       return i === -1 ? order.length : i;
     };
+    const nowD = new Date();
     const isFoundationDone = (f: Task) =>
       f.status === "completed" ||
-      (f.counter ? f.counter.count >= f.counter.target : false);
+      (f.counter ? f.counter.count >= f.counter.target : false) ||
+      wasCompletedToday(f, nowD);
     return [...allActive].sort((a, b) => {
       // Done items sink to the bottom
       const aDone = isFoundationDone(a) ? 1 : 0;
@@ -2179,7 +2182,14 @@ function BasicTile({
   const pct = isCounter && target > 0 ? Math.min(100, Math.round((count / target) * 100)) : 0;
   const accent = basicTileAccent(foundation);
   const glyph = basicTileGlyph(foundation);
-  const done = isCounter ? count >= target : foundation.status === "completed";
+  // Recurring foundations don't keep status:"completed" forever — they
+  // reset for the next instance. Use wasCompletedToday so the dim +
+  // tick reflects today's truth, not a stale flag.
+  const done = isCounter
+    ? count >= target
+    : foundation.status === "completed"
+      ? true
+      : wasCompletedToday(foundation, new Date());
 
   return (
     <div

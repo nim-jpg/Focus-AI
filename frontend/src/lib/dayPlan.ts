@@ -1,6 +1,7 @@
 import type { Task, UserPrefs } from "@/types/task";
 import type { CalendarEvent } from "@/lib/googleCalendar";
 import { inferTaskKind } from "@/lib/taskKind";
+import { wasCompletedToday } from "@/lib/recurrence";
 
 /**
  * DayItem is the unified shape rendered on the day-timeline brick stack —
@@ -251,6 +252,13 @@ export function collectDayItems(args: {
     const dur = (f.estimatedMinutes ?? DEFAULT_FOUNDATION_MINUTES) * 60_000;
     const counterDone =
       !!f.counter && f.counter.count >= f.counter.target;
+    // Recurring foundations reset to status:"pending" each instance, so
+    // we also check wasCompletedToday so the day plan reflects today's
+    // truth not last week's.
+    const done =
+      f.status === "completed" ||
+      counterDone ||
+      wasCompletedToday(f, day);
     items.push({
       id: `foundation:${f.id}`,
       source: "foundation",
@@ -261,7 +269,7 @@ export function collectDayItems(args: {
       task: f,
       accent: "#F59E0B",
       kindGlyph: "♾",
-      done: f.status === "completed" || counterDone,
+      done,
     });
   }
 
