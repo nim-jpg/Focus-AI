@@ -86,15 +86,18 @@ const TIER_LABELS: Record<1 | 2 | 3 | 4, string> = {
   4: "Later",
 };
 
-// Tier visuals: each tier gets a subtle gradient + soft tinted shadow so the
-// card lifts off the canvas. The accent border on the left edge is rendered
-// via a box-shadow inset trick (set in `style`) — keeps the tint identifiable
-// at a glance without screaming.
+// Tier visuals: flat surface + tier-coloured left edge. Used to lean on a
+// pastel gradient (from-rose-50 via-white to-rose-50/30) but Tailwind's
+// gradient stops don't dark-override cleanly — `via-white` injected white
+// into the middle of every card and titles disappeared in dark mode.
+// Flat surface + the inset-stripe accent (TIER_ACCENTS below) gives the
+// same scannability in both light AND dark; closer to Spotify / Revolut
+// in feel than the prior pastel-tinted look.
 const TIER_CLASSES: Record<1 | 2 | 3 | 4, string> = {
-  1: "border-rose-200/70 bg-gradient-to-br from-rose-50 via-white to-rose-50/30 shadow-rose-100",
-  2: "border-sky-200/70 bg-gradient-to-br from-sky-50 via-white to-sky-50/30 shadow-sky-100",
-  3: "border-violet-200/70 bg-gradient-to-br from-violet-50 via-white to-violet-50/30 shadow-violet-100",
-  4: "border-slate-200/70 bg-gradient-to-br from-slate-50 via-white to-slate-50/30 shadow-slate-100",
+  1: "border-slate-200/70 bg-white",
+  2: "border-slate-200/70 bg-white",
+  3: "border-slate-200/70 bg-white",
+  4: "border-slate-200/70 bg-white",
 };
 
 const TIER_ACCENTS: Record<1 | 2 | 3 | 4, string> = {
@@ -151,7 +154,9 @@ export function TopThree({
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <h3 className="truncate text-sm font-semibold">{task.title}</h3>
+                  <h3 className="truncate text-sm font-semibold text-slate-900">
+                    {task.title}
+                  </h3>
                   <ThemeBadge theme={task.theme} />
                 </div>
                 <p className="mt-0.5 line-clamp-2 text-xs text-slate-600">

@@ -4,6 +4,7 @@ import { prioritize } from "@/lib/prioritize";
 import { fetchEvents, type CalendarEvent } from "@/lib/googleCalendar";
 import { inferTaskKind, isActionable, kindGlyph, kindLabel } from "@/lib/taskKind";
 import { wasCompletedToday } from "@/lib/recurrence";
+import { SuggestedGoalLinks } from "@/components/SuggestedGoalLinks";
 import {
   autoReschedule,
   cascadeShift,
@@ -1476,6 +1477,28 @@ function GoalsTab(
         counts={counts}
         onSelect={setTab}
         onNew={() => setShowNewGoal(true)}
+      />
+
+      {/* Auto-suggest panel — uses the same component the desktop renders.
+          Empty result returns null so this is a no-op when there's nothing
+          to bucket. Calendar appointments are excluded inside the
+          component (already-known-about). */}
+      <SuggestedGoalLinks
+        tasks={p.tasks}
+        goals={p.goals}
+        dismissedTaskIds={p.prefs.dismissedGoalSuggestions ?? []}
+        onLink={(taskId, goalId) => {
+          const t = p.tasks.find((x) => x.id === taskId);
+          if (!t) return;
+          const cur = t.goalIds ?? [];
+          if (cur.includes(goalId)) return;
+          p.onUpdateTask(taskId, { goalIds: [...cur, goalId] });
+        }}
+        onDismiss={(taskId) => {
+          const cur = p.prefs.dismissedGoalSuggestions ?? [];
+          if (cur.includes(taskId)) return;
+          p.onUpdatePrefs({ dismissedGoalSuggestions: [...cur, taskId] });
+        }}
       />
 
       {p.goals.length === 0 && counts.all === 0 ? (

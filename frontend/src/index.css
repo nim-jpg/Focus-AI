@@ -48,36 +48,45 @@
 
    The iOS shell's data-theme on .ios-root is independent — it has its
    own scoped vars (see IosShell.tsx). */
+/* Spotify / Revolut-style dark palette.
+   - Page bg #121212 (Spotify's exact charcoal — neither pure black nor
+     blue-grey; reads as a calm canvas)
+   - Card surface #181818 (just one step up from page so cards don't
+     feel like cut-outs)
+   - Elevated surface #282828 (hover / pressed / inputs — Spotify's
+     accent for "I'm interactive")
+   - Text #FFFFFF primary, #B3B3B3 secondary (Spotify exactly), #6A6A6A
+     muted */
 html[data-theme="dark"] {
   color-scheme: dark;
-  background: #0B0E13;
+  background: #121212;
 }
 html[data-theme="dark"] body {
-  background: #0B0E13;
-  color: #F5F5F7;
+  background: #121212;
+  color: #FFFFFF;
 }
 html[data-theme="dark"] #root {
-  background: #0B0E13;
-  color: #F5F5F7;
+  background: #121212;
+  color: #FFFFFF;
   min-height: 100vh;
 }
-[data-theme="dark"] .bg-white { background-color: #16181F !important; }
-[data-theme="dark"] .bg-slate-50 { background-color: #0F1218 !important; }
-[data-theme="dark"] .bg-slate-100 { background-color: #1C1F27 !important; }
-[data-theme="dark"] .bg-slate-200 { background-color: #1F2329 !important; }
+[data-theme="dark"] .bg-white { background-color: #181818 !important; }
+[data-theme="dark"] .bg-slate-50 { background-color: #121212 !important; }
+[data-theme="dark"] .bg-slate-100 { background-color: #282828 !important; }
+[data-theme="dark"] .bg-slate-200 { background-color: #2A2A2A !important; }
 [data-theme="dark"] .bg-slate-50\/40,
 [data-theme="dark"] .bg-slate-50\/50,
 [data-theme="dark"] .bg-slate-50\/60,
 [data-theme="dark"] .bg-slate-50\/80,
-[data-theme="dark"] .bg-white\/80 { background-color: rgba(22, 24, 31, 0.8) !important; }
+[data-theme="dark"] .bg-white\/80 { background-color: rgba(24, 24, 24, 0.8) !important; }
 
-[data-theme="dark"] .text-slate-900 { color: #F5F5F7 !important; }
-[data-theme="dark"] .text-slate-800 { color: #E5E7EB !important; }
-[data-theme="dark"] .text-slate-700 { color: #D1D5DB !important; }
-[data-theme="dark"] .text-slate-600 { color: #B0B6C2 !important; }
-[data-theme="dark"] .text-slate-500 { color: #8089A0 !important; }
-[data-theme="dark"] .text-slate-400 { color: #6B7280 !important; }
-[data-theme="dark"] .text-slate-300 { color: #4B5563 !important; }
+[data-theme="dark"] .text-slate-900 { color: #FFFFFF !important; }
+[data-theme="dark"] .text-slate-800 { color: #F5F5F5 !important; }
+[data-theme="dark"] .text-slate-700 { color: #E0E0E0 !important; }
+[data-theme="dark"] .text-slate-600 { color: #B3B3B3 !important; } /* Spotify secondary */
+[data-theme="dark"] .text-slate-500 { color: #8E8E8E !important; }
+[data-theme="dark"] .text-slate-400 { color: #6A6A6A !important; }
+[data-theme="dark"] .text-slate-300 { color: #535353 !important; }
 
 [data-theme="dark"] .border-slate-200 { border-color: rgba(255, 255, 255, 0.08) !important; }
 [data-theme="dark"] .border-slate-300 { border-color: rgba(255, 255, 255, 0.14) !important; }
@@ -100,43 +109,43 @@ html[data-theme="dark"] #root {
 [data-theme="dark"] .bg-indigo-100 { background-color: rgba(99, 102, 241, 0.18) !important; }
 [data-theme="dark"] .bg-orange-100 { background-color: rgba(249, 115, 22, 0.18) !important; }
 
-/* Buttons (.btn-* defined below) flip to dark surface variants. */
+/* Buttons (.btn-* defined below) flip to Spotify-style dark variants —
+   #282828 for elevated/interactive surfaces. */
 [data-theme="dark"] .btn-secondary {
-  background-color: #1C1F27 !important;
-  border-color: rgba(255, 255, 255, 0.14) !important;
-  color: #E5E7EB !important;
+  background-color: #282828 !important;
+  border-color: rgba(255, 255, 255, 0.10) !important;
+  color: #FFFFFF !important;
 }
 [data-theme="dark"] .btn-secondary:hover {
-  background-color: #232730 !important;
-  border-color: rgba(255, 255, 255, 0.22) !important;
-  color: #F5F5F7 !important;
+  background-color: #3A3A3A !important;
+  border-color: rgba(255, 255, 255, 0.20) !important;
+  color: #FFFFFF !important;
 }
 [data-theme="dark"] .input {
-  background-color: #16181F !important;
+  background-color: #181818 !important;
   border-color: rgba(255, 255, 255, 0.10) !important;
-  color: #F5F5F7 !important;
+  color: #FFFFFF !important;
 }
 [data-theme="dark"] .card {
-  background-color: #16181F !important;
-  border-color: rgba(255, 255, 255, 0.08) !important;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.02) !important;
+  background-color: #181818 !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
+  box-shadow: none !important;
 }
 
-/* The Focus3 brand title uses a slate-900→slate-700 gradient — needs
-   inverting in dark mode so it reads as white→slate. */
-[data-theme="dark"] .from-slate-900 { --tw-gradient-from: #F5F5F7 var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(245, 245, 247, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-[data-theme="dark"] .to-slate-700 { --tw-gradient-to: #B0B6C2 var(--tw-gradient-to-position) !important; }
+/* The Focus3 brand title uses a slate-900→slate-700 gradient — its
+   inversion lives further down (consolidated with the gradient-nuke
+   exemption) so the title reads white→slate in dark mode. */
 
 /* Strong-bg buttons (slate-900) are already dark — invert to white surface
    so they pop on the new dark background. */
 [data-theme="dark"] .bg-slate-900 {
   background-color: #FFFFFF !important;
-  color: #0B0E13 !important;
+  color: #121212 !important;
 }
 
 /* Additional surface + state coverage */
-[data-theme="dark"] .hover\:bg-slate-50:hover { background-color: #1C1F27 !important; }
-[data-theme="dark"] .hover\:bg-slate-100:hover { background-color: #232730 !important; }
+[data-theme="dark"] .hover\:bg-slate-50:hover { background-color: #282828 !important; }
+[data-theme="dark"] .hover\:bg-slate-100:hover { background-color: #3A3A3A !important; }
 [data-theme="dark"] .hover\:border-slate-300:hover { border-color: rgba(255, 255, 255, 0.18) !important; }
 [data-theme="dark"] .hover\:border-slate-400:hover { border-color: rgba(255, 255, 255, 0.24) !important; }
 [data-theme="dark"] .hover\:border-slate-500:hover { border-color: rgba(255, 255, 255, 0.32) !important; }
@@ -148,34 +157,32 @@ html[data-theme="dark"] #root {
 [data-theme="dark"] .divide-slate-200 > * + * { border-color: rgba(255, 255, 255, 0.08) !important; }
 [data-theme="dark"] .ring-slate-200 { --tw-ring-color: rgba(255, 255, 255, 0.10) !important; }
 
-/* Tailwind gradient stops use CSS variables (--tw-gradient-from, -via, -to)
-   set by the from-* / via-* / to-* utility classes. Plain bg-* overrides
-   above don't touch them, so a card like
-     bg-gradient-to-br from-rose-50 via-white to-rose-50/30
-   still renders mostly WHITE in dark mode → white text invisible. The
-   Top Three tiles hit this. Map the soft palette stops to dark-tinted
-   versions so the gradient still carries semantic colour but reads
-   against #0B0E13. */
-[data-theme="dark"] .from-rose-50 { --tw-gradient-from: rgba(244, 63, 94, 0.14) var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(244, 63, 94, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-[data-theme="dark"] .from-sky-50 { --tw-gradient-from: rgba(14, 165, 233, 0.14) var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(14, 165, 233, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-[data-theme="dark"] .from-violet-50 { --tw-gradient-from: rgba(167, 139, 250, 0.14) var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(167, 139, 250, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-[data-theme="dark"] .from-slate-50 { --tw-gradient-from: rgba(255, 255, 255, 0.04) var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(255, 255, 255, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-[data-theme="dark"] .from-emerald-50 { --tw-gradient-from: rgba(16, 185, 129, 0.14) var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(16, 185, 129, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-[data-theme="dark"] .from-amber-50 { --tw-gradient-from: rgba(245, 158, 11, 0.14) var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(245, 158, 11, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-[data-theme="dark"] .via-white { --tw-gradient-via: #16181F !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-via), var(--tw-gradient-to) !important; }
-[data-theme="dark"] .to-rose-50\/30 { --tw-gradient-to: rgba(244, 63, 94, 0.05) var(--tw-gradient-to-position) !important; }
-[data-theme="dark"] .to-sky-50\/30 { --tw-gradient-to: rgba(14, 165, 233, 0.05) var(--tw-gradient-to-position) !important; }
-[data-theme="dark"] .to-violet-50\/30 { --tw-gradient-to: rgba(167, 139, 250, 0.05) var(--tw-gradient-to-position) !important; }
-[data-theme="dark"] .to-slate-50\/30 { --tw-gradient-to: rgba(255, 255, 255, 0.02) var(--tw-gradient-to-position) !important; }
+/* Belt-and-braces nuke for any soft-palette gradient still in the tree.
+   Tailwind v3's via-white compiles to a literal `#fff` in the gradient
+   stop list (NOT a CSS variable), so per-utility overrides are flaky.
+   Cleaner approach: any `bg-gradient-to-*` element in dark mode falls
+   back to flat surface — the gradient is a light-mode-only flourish.
+   Cards that NEED a coloured tint get it via the tier-stripe inset
+   shadow (see below) which still reads. */
+[data-theme="dark"] [class*="bg-gradient-to-"] {
+  background-image: none !important;
+  background-color: #181818 !important;
+}
+/* Buttons explicitly want their gradients (e.g. .btn-primary uses
+   from-slate-800 to-slate-900 which we WANT in dark) — un-nuke those. */
+[data-theme="dark"] .btn-primary,
+[data-theme="dark"] .from-slate-900.to-slate-700 {
+  background-image: revert !important;
+  background-color: revert !important;
+}
+[data-theme="dark"] .from-slate-900 { --tw-gradient-from: #FFFFFF var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(255, 255, 255, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+[data-theme="dark"] .to-slate-700 { --tw-gradient-to: #B3B3B3 var(--tw-gradient-to-position) !important; }
 
-/* Top-Three tier accents render the left-edge stripe via inset box-shadow
-   on the card. The gradient override above replaces shadow rules, so we
-   need to keep those inset stripes alive in dark mode by re-asserting
-   them at higher specificity. */
-[data-theme="dark"] .shadow-\[inset_4px_0_0_0_rgb\(244_63_94\)\] { box-shadow: inset 4px 0 0 0 rgb(244 63 94), 0 1px 2px 0 rgba(0, 0, 0, 0.4) !important; }
-[data-theme="dark"] .shadow-\[inset_4px_0_0_0_rgb\(14_165_233\)\] { box-shadow: inset 4px 0 0 0 rgb(14 165 233), 0 1px 2px 0 rgba(0, 0, 0, 0.4) !important; }
-[data-theme="dark"] .shadow-\[inset_4px_0_0_0_rgb\(139_92_246\)\] { box-shadow: inset 4px 0 0 0 rgb(139 92 246), 0 1px 2px 0 rgba(0, 0, 0, 0.4) !important; }
-[data-theme="dark"] .shadow-\[inset_4px_0_0_0_rgb\(100_116_139\)\] { box-shadow: inset 4px 0 0 0 rgb(100 116 139), 0 1px 2px 0 rgba(0, 0, 0, 0.4) !important; }
+/* Tier-accent inset stripe on Top Three cards still reads in dark. */
+[data-theme="dark"] .shadow-\[inset_4px_0_0_0_rgb\(244_63_94\)\] { box-shadow: inset 4px 0 0 0 rgb(244 63 94), 0 1px 2px 0 rgba(0, 0, 0, 0.5) !important; }
+[data-theme="dark"] .shadow-\[inset_4px_0_0_0_rgb\(14_165_233\)\] { box-shadow: inset 4px 0 0 0 rgb(14 165 233), 0 1px 2px 0 rgba(0, 0, 0, 0.5) !important; }
+[data-theme="dark"] .shadow-\[inset_4px_0_0_0_rgb\(139_92_246\)\] { box-shadow: inset 4px 0 0 0 rgb(139 92 246), 0 1px 2px 0 rgba(0, 0, 0, 0.5) !important; }
+[data-theme="dark"] .shadow-\[inset_4px_0_0_0_rgb\(100_116_139\)\] { box-shadow: inset 4px 0 0 0 rgb(100 116 139), 0 1px 2px 0 rgba(0, 0, 0, 0.5) !important; }
 
 /* Shadows look terrible on dark — soften them so they don't look like
    bright halos around cards. */
