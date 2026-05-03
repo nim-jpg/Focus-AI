@@ -3,6 +3,7 @@ import type { Goal, Task, MacroTheme } from "@/types/task";
 import { MACRO_THEME_LABELS } from "@/types/task";
 import { ThemeBadge } from "./ThemeBadge";
 import { inferMacroThemes, pickGoalForTask } from "@/lib/themeRouter";
+import { isFoundation } from "@/lib/recurrence";
 
 /**
  * "Unmapped tasks" panel — surfaces every open task that isn't linked
@@ -59,6 +60,11 @@ export function UnmappedTasks({
     }> = [];
     for (const task of tasks) {
       if (task.status === "completed") continue;
+      // Foundations (recurring habits — tablets, creams, walks) live on
+      // the Foundation rail, not the Goals tab. Excluding them keeps
+      // the Unmapped panel focused on outcome-driven work that needs
+      // a goal home.
+      if (isFoundation(task)) continue;
       if ((task.goalIds ?? []).length > 0) continue; // already linked
       if (dismissed.has(task.id)) continue;
       if (

@@ -1,5 +1,7 @@
 import { Fragment, forwardRef, useEffect, useMemo, useRef, useState } from "react";
-import type { Goal, PrioritizedTask, Task, Theme, UserPrefs } from "@/types/task";
+import type { Goal, MacroTheme, PrioritizedTask, Task, Theme, UserPrefs } from "@/types/task";
+import { MACRO_THEMES, MACRO_THEME_LABELS } from "@/types/task";
+import { inferMacroThemes, resolveGoalMacroThemes } from "@/lib/themeRouter";
 import { prioritize } from "@/lib/prioritize";
 import { fetchEvents, type CalendarEvent } from "@/lib/googleCalendar";
 import { inferTaskKind, isActionable, kindGlyph, kindLabel } from "@/lib/taskKind";
@@ -1427,19 +1429,24 @@ function GoalsTab(
   const [tab, setTab] = useState<Tab>("all");
   const [showNewGoal, setShowNewGoal] = useState(false);
   const [movingTaskId, setMovingTaskId] = useState<string | null>(null);
-  // Theme bucket filter — top-level pill row above the per-goal tab bar.
-  // null = all themes show. Filtering by theme constrains BOTH the goal
-  // tabs (only goals of this theme appear) and the All/None defaults
-  // (tasks are filtered to ones whose theme matches).
-  const [themeFilter, setThemeFilter] = useState<Theme | null>(null);
+  // Macro filter — top-level pill row above the per-goal tab bar.
+  // null = all macros show. Filtering by macro constrains both the goal
+  // tabs (only goals of this macro appear) and the All / None defaults.
+  const [macroFilter, setMacroFilter] = useState<MacroTheme | null>(null);
 
-  const themeCounts = useMemo(() => {
-    const m = new Map<Theme, number>();
-    for (const g of p.goals) m.set(g.theme, (m.get(g.theme) ?? 0) + 1);
+  const macroCounts = useMemo(() => {
+    const m = new Map<MacroTheme, number>();
+    for (const g of p.goals) {
+      for (const macro of resolveGoalMacroThemes(g)) {
+        m.set(macro, (m.get(macro) ?? 0) + 1);
+      }
+    }
     return m;
   }, [p.goals]);
-  const visibleGoals = themeFilter
-    ? p.goals.filter((g) => g.theme === themeFilter)
+  const visibleGoals = macroFilter
+    ? p.goals.filter((g) =>
+        resolveGoalMacroThemes(g).includes(macroFilter),
+      )
     : p.goals;
 
   const ignoredEvents = useMemo(
@@ -1475,12 +1482,15 @@ function GoalsTab(
   };
 
   const tasksForTab = useMemo(() => {
-    // Theme filter narrows the task list to ones whose theme matches —
-    // applied BEFORE the All / None / per-goal slice so the counts
-    // beneath stay coherent.
+    // Macro filter narrows to tasks whose inferred macros include the
+    // selected bucket — applied BEFORE the All / None / per-goal slice
+    // so the counts stay coherent. Foundations (recurring habits) and
+    // calendar events are excluded from goal-bucket views entirely.
     let pool = visibleTasks;
-    if (themeFilter) {
-      pool = pool.filter((t) => t.theme === themeFilter);
+    if (macroFilter) {
+      pool = pool.filter((t) =>
+        inferMacroThemes(t).includes(macroFilter),
+      );
     }
     if (tab === "all") return sortByPriority(pool);
     if (tab === "none") {
@@ -1489,7 +1499,7 @@ function GoalsTab(
       );
     }
     return sortByPriority(pool.filter((t) => (t.goalIds ?? []).includes(tab)));
-  }, [tab, visibleTasks, themeFilter]);
+  }, [tab, visibleTasks, macroFilter]);
 
   const counts = useMemo(() => {
     const byGoal = new Map<string, number>();
@@ -1512,38 +1522,39 @@ function GoalsTab(
 
   return (
     <div className="space-y-3 pt-2">
-      {/* Theme bucket pills — top-level filter row above the per-goal
-          tab bar. Only renders when there are 2+ goal themes; single-
-          theme users don't need redundant chrome. */}
-      {themeCounts.size >= 2 && (
+      {/* Macro pills — top-level filter row above the per-goal tab bar.
+          Pills filter goals by life bucket (Money / Learning / Stress /
+          Health / Career / Family / Creative / Admin). Hidden until at
+          least 2 macros have any goals. */}
+      {macroCounts.size >= 2 && (
         <div className="-mx-1 flex flex-nowrap gap-1.5 overflow-x-auto pb-1">
           <button
             type="button"
-            onClick={() => setThemeFilter(null)}
+            onClick={() => setMacroFilter(null)}
             className="flex-none whitespace-nowrap rounded-full px-3 py-1 text-[12px] font-semibold"
             style={{
               background:
-                themeFilter === null
+                macroFilter === null
                   ? "var(--ios-text)"
                   : "var(--ios-surface-elev)",
               color:
-                themeFilter === null
+                macroFilter === null
                   ? "var(--ios-bg)"
                   : "var(--ios-text-secondary)",
-              border: `1px solid ${themeFilter === null ? "var(--ios-text)" : "var(--ios-border)"}`,
+              border: `1px solid ${macroFilter === null ? "var(--ios-text)" : "var(--ios-border)"}`,
             }}
           >
             All · {p.goals.length}
           </button>
-          {Array.from(themeCounts.entries())
-            .sort((a, b) => b[1] - a[1])
-            .map(([th, count]) => {
-              const active = themeFilter === th;
-              return (
+          {MACRO_THEMES.filter((m) => m !== "events").map((m) => {
+            const count = macroCounts.get(m) ?? 0;
+            if (count === 0) return null;
+            const active = macroFilter === m;
+            return (
                 <button
-                  key={th}
+                  key={m}
                   type="button"
-                  onClick={() => setThemeFilter(active ? null : th)}
+                  onClick={() => setMacroFilter(active ? null : m)}
                   className="flex-none whitespace-nowrap rounded-full px-3 py-1 text-[12px] font-semibold"
                   style={{
                     background: active
@@ -1555,7 +1566,7 @@ function GoalsTab(
                     border: `1px solid ${active ? "var(--ios-text)" : "var(--ios-border)"}`,
                   }}
                 >
-                  {th} · {count}
+                  {MACRO_THEME_LABELS[m]} · {count}
                 </button>
               );
             })}
