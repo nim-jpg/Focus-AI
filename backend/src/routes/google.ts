@@ -373,6 +373,11 @@ googleRouter.get("/events", async (req, res) => {
         // True if this event came from the user's primary calendar — used
         // by the Focus-only view filter on the schedule.
         calendarPrimary: c.primary ?? false,
+        // Description + location surface to the iOS lane card so it can
+        // extract a 📞 venue phone line (added by location enrichment) and
+        // show a "Call" button alongside the pencil.
+        description: ev.description ?? null,
+        location: ev.location ?? null,
       })),
     );
 
