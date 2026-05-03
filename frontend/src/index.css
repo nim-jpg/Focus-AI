@@ -35,6 +35,96 @@
   }
 }
 
+/* ─── Dark theme — desktop ──────────────────────────────────────────────
+   The desktop is built almost entirely with hardcoded Tailwind utility
+   classes (bg-white, text-slate-900, border-slate-200 etc.). Rather than
+   refactor every component to dark: variants, this layer maps the most
+   common utilities to their dark equivalents when the user toggles to
+   dark mode (data-theme="dark" on <html>).
+
+   This is opinionated: utilities like bg-emerald-50 stay as-is because
+   they're meaningful states (success / warning / etc.) rather than
+   surface colours. Only neutral-palette utilities flip.
+
+   The iOS shell's data-theme on .ios-root is independent — it has its
+   own scoped vars (see IosShell.tsx). */
+[data-theme="dark"] body {
+  background: #0B0E13;
+  color: #F5F5F7;
+}
+[data-theme="dark"] .bg-white { background-color: #16181F !important; }
+[data-theme="dark"] .bg-slate-50 { background-color: #0F1218 !important; }
+[data-theme="dark"] .bg-slate-100 { background-color: #1C1F27 !important; }
+[data-theme="dark"] .bg-slate-200 { background-color: #1F2329 !important; }
+[data-theme="dark"] .bg-slate-50\/40,
+[data-theme="dark"] .bg-slate-50\/50,
+[data-theme="dark"] .bg-slate-50\/60,
+[data-theme="dark"] .bg-slate-50\/80,
+[data-theme="dark"] .bg-white\/80 { background-color: rgba(22, 24, 31, 0.8) !important; }
+
+[data-theme="dark"] .text-slate-900 { color: #F5F5F7 !important; }
+[data-theme="dark"] .text-slate-800 { color: #E5E7EB !important; }
+[data-theme="dark"] .text-slate-700 { color: #D1D5DB !important; }
+[data-theme="dark"] .text-slate-600 { color: #B0B6C2 !important; }
+[data-theme="dark"] .text-slate-500 { color: #8089A0 !important; }
+[data-theme="dark"] .text-slate-400 { color: #6B7280 !important; }
+[data-theme="dark"] .text-slate-300 { color: #4B5563 !important; }
+
+[data-theme="dark"] .border-slate-200 { border-color: rgba(255, 255, 255, 0.08) !important; }
+[data-theme="dark"] .border-slate-300 { border-color: rgba(255, 255, 255, 0.14) !important; }
+[data-theme="dark"] .border-slate-100 { border-color: rgba(255, 255, 255, 0.06) !important; }
+[data-theme="dark"] .border-slate-200\/70,
+[data-theme="dark"] .border-slate-200\/80 { border-color: rgba(255, 255, 255, 0.10) !important; }
+
+[data-theme="dark"] .placeholder\:text-slate-400::placeholder { color: #6B7280 !important; }
+
+/* Soft accent backgrounds — keep their semantic colour but boost contrast
+   against dark surfaces so they don't disappear. */
+[data-theme="dark"] .bg-emerald-50 { background-color: rgba(16, 185, 129, 0.14) !important; }
+[data-theme="dark"] .bg-emerald-50\/40 { background-color: rgba(16, 185, 129, 0.08) !important; }
+[data-theme="dark"] .bg-amber-50 { background-color: rgba(245, 158, 11, 0.14) !important; }
+[data-theme="dark"] .bg-amber-50\/40,
+[data-theme="dark"] .bg-amber-50\/50 { background-color: rgba(245, 158, 11, 0.08) !important; }
+[data-theme="dark"] .bg-violet-50 { background-color: rgba(167, 139, 250, 0.14) !important; }
+[data-theme="dark"] .bg-rose-50 { background-color: rgba(244, 63, 94, 0.14) !important; }
+[data-theme="dark"] .bg-sky-50 { background-color: rgba(14, 165, 233, 0.14) !important; }
+[data-theme="dark"] .bg-indigo-100 { background-color: rgba(99, 102, 241, 0.18) !important; }
+[data-theme="dark"] .bg-orange-100 { background-color: rgba(249, 115, 22, 0.18) !important; }
+
+/* Buttons (.btn-* defined below) flip to dark surface variants. */
+[data-theme="dark"] .btn-secondary {
+  background-color: #1C1F27 !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  color: #E5E7EB !important;
+}
+[data-theme="dark"] .btn-secondary:hover {
+  background-color: #232730 !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  color: #F5F5F7 !important;
+}
+[data-theme="dark"] .input {
+  background-color: #16181F !important;
+  border-color: rgba(255, 255, 255, 0.10) !important;
+  color: #F5F5F7 !important;
+}
+[data-theme="dark"] .card {
+  background-color: #16181F !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.02) !important;
+}
+
+/* The Focus3 brand title uses a slate-900→slate-700 gradient — needs
+   inverting in dark mode so it reads as white→slate. */
+[data-theme="dark"] .from-slate-900 { --tw-gradient-from: #F5F5F7 var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(245, 245, 247, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+[data-theme="dark"] .to-slate-700 { --tw-gradient-to: #B0B6C2 var(--tw-gradient-to-position) !important; }
+
+/* Strong-bg buttons (slate-900) are already dark — invert to white surface
+   so they pop on the new dark background. */
+[data-theme="dark"] .bg-slate-900 {
+  background-color: #FFFFFF !important;
+  color: #0B0E13 !important;
+}
+
 @layer components {
   .btn {
     /* Touch target floor — Apple HIG says 44pt, Material says 48dp.
