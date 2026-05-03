@@ -4510,6 +4510,15 @@ function LaneCard({
   // Centred / fixed cards default to the right edge.
   const trackSide: "left" | "right" = align === "right" ? "left" : "right";
 
+  // Proportional card height — scales with the event's duration so a 90-
+  // minute meeting visibly takes ~3× the vertical space of a 30-minute
+  // task. Makes gaps in the day plan obvious and helps the user feel
+  // "today is full" vs "lots of room". Capped at 56-260 px so 5-min
+  // micro-tasks remain legible and 4-hour blocks don't dominate.
+  const proportionalHeight = Math.min(
+    260,
+    Math.max(56, Math.round(durationMin * 1.6)),
+  );
   return (
     <div
       className={`relative rounded-xl transition-shadow duration-200 ${liveClass}`}
@@ -4519,6 +4528,7 @@ function LaneCard({
           : `linear-gradient(135deg, ${accent}22, ${accent}0A), var(--ios-surface)`,
         border: cardBorder,
         opacity: cardOpacity,
+        minHeight: proportionalHeight,
         // Bottom padding leaves room for the protruding ±5 duration chip.
         paddingBottom: !item.fixed && item.task && item.source !== "foundation" ? 14 : 0,
         // Side padding leaves room for the vertical shift track.
@@ -4578,8 +4588,30 @@ function LaneCard({
               // the location-enrichment writer added it. Falls back to
               // null when no recognisable phone is in the text.
               const phone = extractVenuePhone(item.event.description);
+              const location = item.event.location?.trim();
               return (
                 <>
+                  {location && (
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[4px]"
+                      style={{
+                        background: "rgba(99, 102, 241, 0.18)",
+                        border: "1px solid rgba(99, 102, 241, 0.45)",
+                        color: "#A5B4FC",
+                      }}
+                      title={`Open in Maps · ${location}`}
+                      aria-label={`Directions to ${location}`}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                        <circle cx="12" cy="10" r="3" />
+                      </svg>
+                    </a>
+                  )}
                   {phone && (
                     <a
                       href={`tel:${phone.replace(/\s+/g, "")}`}
@@ -4700,6 +4732,23 @@ function LaneCard({
           </div>
         )}
       </div>
+
+      {/* End-time pill — bottom-right of the card. Pairs with the start
+          time at the top so a glance gives both bookends of the event.
+          Subtle to keep the visual hierarchy on title + tick. */}
+      <span
+        className="absolute bottom-1 right-2 text-[10px] font-bold tabular-nums"
+        style={{
+          color: "var(--ios-text-muted)",
+          letterSpacing: "0.02em",
+          // Sit above the duration chip on movables, slightly raised.
+          marginBottom:
+            !item.fixed && item.task && item.source !== "foundation" ? 4 : 0,
+        }}
+        title={`Ends at ${fmtTime(item.end)}`}
+      >
+        → {fmtTime(item.end)}
+      </span>
 
       {/* Vertical shift track — design C. Top half = move start earlier
           (card visually rises on the timeline). Bottom half = move
