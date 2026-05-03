@@ -1974,9 +1974,18 @@ function HyperFocus(p: HyperFocusProps) {
     [targetDay, p.tasks, p.foundations, events, p.prefs],
   );
 
+  // Last auto-reschedule outcome — drives a banner above the timeline so
+  // the user knows what happened. Without this, clicking Auto Schedule
+  // when nothing can fit fails silently.
+  const [autoOutcome, setAutoOutcome] = useState<{
+    placed: number;
+    unplaced: Array<{ taskId: string; title: string; reason: string }>;
+    at: number;
+  } | null>(null);
+
   function handleAutoReschedule() {
     const now = new Date();
-    const { updates } = autoReschedule({
+    const { updates, unplaced } = autoReschedule({
       day: targetDay,
       from: now,
       prefs: p.prefs,
@@ -1986,6 +1995,32 @@ function HyperFocus(p: HyperFocusProps) {
     for (const u of updates) {
       p.onSetScheduledFor(u.taskId, u.newScheduledForIso);
     }
+    setAutoOutcome({
+      placed: updates.length,
+      unplaced: unplaced.map((u) => ({
+        taskId: u.taskId,
+        title:
+          p.tasks.find((t) => t.id === u.taskId)?.title ??
+          unscheduled.find((s) => s.task.id === u.taskId)?.title ??
+          "(unknown)",
+        reason: u.reason,
+      })),
+      at: Date.now(),
+    });
+  }
+
+  /** Push an unplaced task forward by N days at the start of the
+   *  working day. Used by the auto-schedule outcome banner ("3 didn't
+   *  fit — push to tomorrow"). */
+  function pushTaskByDays(taskId: string, days: number) {
+    const target = new Date();
+    target.setDate(target.getDate() + days);
+    const { h, m } = (() => {
+      const s = (p.prefs.workingHoursStart ?? "09:00").match(/^(\d{1,2}):(\d{2})$/);
+      return s ? { h: parseInt(s[1], 10), m: parseInt(s[2], 10) } : { h: 9, m: 0 };
+    })();
+    target.setHours(h, m, 0, 0);
+    p.onSetScheduledFor(taskId, target.toISOString());
   }
 
   function handleAdjustTime(item: DayItem, deltaMin: number) {
@@ -2053,22 +2088,34 @@ function HyperFocus(p: HyperFocusProps) {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(9, 0, 0, 0);
+    handleDeferToDate(t, tomorrow.toISOString());
+  }
+
+  /** Generic "push this task to a specific date" — same routing logic as
+   *  handleSnoozeTomorrow but with a caller-supplied target. Recurring
+   *  patterns snooze through to the day before the target so the natural
+   *  next instance lands on / after that date; one-offs move scheduledFor
+   *  (or dueDate). Used by the DeferSheet's "specific day" picker. */
+  function handleDeferToDate(t: Task, targetIso: string) {
     const isRecurring = t.recurrence && t.recurrence !== "none";
     if (isRecurring) {
-      const endOfToday = new Date();
-      endOfToday.setHours(23, 59, 59, 999);
-      p.onSnooze(t.id, endOfToday.toISOString());
+      // Snooze until the day BEFORE the target so the recurrence engine
+      // emits the next instance on the chosen day. (snoozedUntil is
+      // exclusive — task wakes up the moment now() passes it.)
+      const target = new Date(targetIso);
+      const wakeAt = new Date(target);
+      wakeAt.setDate(wakeAt.getDate() - 1);
+      wakeAt.setHours(23, 59, 59, 999);
+      p.onSnooze(t.id, wakeAt.toISOString());
       return;
     }
-    // One-off: move it forward; clear any old snooze so the moved
-    // instance appears on tomorrow's plan, not hidden.
     const patch: Partial<Task> = { snoozedUntil: undefined };
     if (t.scheduledFor) {
-      patch.scheduledFor = tomorrow.toISOString();
+      patch.scheduledFor = targetIso;
     } else if (t.dueDate) {
-      patch.dueDate = tomorrow.toISOString();
+      patch.dueDate = targetIso;
     } else {
-      patch.scheduledFor = tomorrow.toISOString();
+      patch.scheduledFor = targetIso;
     }
     p.onUpdateTask(t.id, patch);
   }
@@ -2218,6 +2265,9 @@ function HyperFocus(p: HyperFocusProps) {
             .map((pt) => pt.task)}
           onAdjust={handleAdjustTime}
           onAutoReschedule={handleAutoReschedule}
+          autoOutcome={autoOutcome}
+          onPushUnplaced={pushTaskByDays}
+          onDismissAutoOutcome={() => setAutoOutcome(null)}
           onComplete={(taskId) => p.onComplete(taskId)}
           onReschedule={handleReschedule}
           onExtendDuration={handleExtendDuration}
@@ -2296,6 +2346,12 @@ function HyperFocus(p: HyperFocusProps) {
           onClose={() => setDeferingItem(null)}
           onSnoozeTomorrow={() => {
             handleSnoozeTomorrow(deferingItem);
+            setDeferingItem(null);
+          }}
+          onSnoozeUntilDate={(iso) => {
+            // Calendar events skip the day picker (they show only the
+            // mute option), so item.task is set here.
+            if (deferingItem.task) handleDeferToDate(deferingItem.task, iso);
             setDeferingItem(null);
           }}
           onRemove={() => {
@@ -2599,16 +2655,48 @@ function DeferSheet({
   item,
   onClose,
   onSnoozeTomorrow,
+  onSnoozeUntilDate,
   onRemove,
 }: {
   item: DayItem;
   onClose: () => void;
   onSnoozeTomorrow: () => void;
+  /** Push the task to a specific weekday picked by the user. ISO is the
+   *  resolved date — caller decides whether that's snoozedUntil or
+   *  scheduledFor based on task type, mirroring onSnoozeTomorrow. */
+  onSnoozeUntilDate: (iso: string) => void;
   onRemove: () => void;
 }) {
   const isCalendar = item.source === "calendar";
   const t = item.task;
   const isRecurring = !!(t?.recurrence && t.recurrence !== "none");
+  const [showDayPicker, setShowDayPicker] = useState(false);
+
+  // Build the next 7 day options starting tomorrow. Today gets dropped
+  // because the user is deferring AWAY from today. Each option resolves
+  // to a 09:00 local timestamp (or the working-hours-start if you'd
+  // prefer — the parent decides the time of day for now).
+  const dayOptions = useMemo(() => {
+    const out: Array<{ label: string; iso: string }> = [];
+    const base = new Date();
+    base.setHours(9, 0, 0, 0);
+    for (let i = 1; i <= 7; i++) {
+      const d = new Date(base);
+      d.setDate(d.getDate() + i);
+      const isTomorrow = i === 1;
+      const weekday = d.toLocaleDateString(undefined, { weekday: "long" });
+      const dateNum = d.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      });
+      out.push({
+        label: `${isTomorrow ? "Tomorrow" : weekday} · ${dateNum}`,
+        iso: d.toISOString(),
+      });
+    }
+    return out;
+  }, []);
+
   return (
     <div
       className="ios-sheet-backdrop fixed inset-0 z-[55] flex items-end"
@@ -2641,35 +2729,81 @@ function DeferSheet({
             {item.title}
           </div>
         </div>
-        <SheetButton
-          variant="primary"
-          onClick={onSnoozeTomorrow}
-          title={
-            isCalendar
-              ? "Mute on calendar"
-              : isRecurring
-                ? "Defer today (back tomorrow)"
-                : "Defer to tomorrow"
-          }
-          subtitle={
-            isCalendar
-              ? "Hides the event everywhere; un-mute on Desktop"
-              : isRecurring
-                ? "Daily / weekly pattern keeps going as normal"
-                : "Moves the same task forward — no duplicates"
-          }
-        />
-        <SheetButton
-          variant="secondary"
-          onClick={onRemove}
-          title={isCalendar ? "Ignore event" : "Ignore task"}
-          subtitle={
-            isCalendar
-              ? "Hides this event in Focus3. Permanent delete must happen in Google Calendar."
-              : "Hides this task. Permanent delete is on Desktop only."
-          }
-        />
-        <SheetButton variant="cancel" onClick={onClose} title="Cancel" />
+        {!showDayPicker ? (
+          <>
+            <SheetButton
+              variant="primary"
+              onClick={onSnoozeTomorrow}
+              title={
+                isCalendar
+                  ? "Mute on calendar"
+                  : isRecurring
+                    ? "Defer today (back tomorrow)"
+                    : "Defer to tomorrow"
+              }
+              subtitle={
+                isCalendar
+                  ? "Hides the event everywhere; un-mute on Desktop"
+                  : isRecurring
+                    ? "Daily / weekly pattern keeps going as normal"
+                    : "Moves the same task forward — no duplicates"
+              }
+            />
+            {!isCalendar && (
+              <SheetButton
+                variant="secondary"
+                onClick={() => setShowDayPicker(true)}
+                title="Defer to a specific day"
+                subtitle="Pick Tuesday, Wednesday, … up to a week away"
+              />
+            )}
+            <SheetButton
+              variant="secondary"
+              onClick={onRemove}
+              title={isCalendar ? "Ignore event" : "Ignore task"}
+              subtitle={
+                isCalendar
+                  ? "Hides this event in Focus3. Permanent delete must happen in Google Calendar."
+                  : "Hides this task. Permanent delete is on Desktop only."
+              }
+            />
+            <SheetButton variant="cancel" onClick={onClose} title="Cancel" />
+          </>
+        ) : (
+          <>
+            <div
+              className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em]"
+              style={{ color: "var(--ios-text-secondary)" }}
+            >
+              Pick a day
+            </div>
+            <div className="mb-2 space-y-1.5">
+              {dayOptions.map((opt) => (
+                <button
+                  key={opt.iso}
+                  type="button"
+                  onClick={() => onSnoozeUntilDate(opt.iso)}
+                  className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left"
+                  style={{
+                    background: "var(--ios-surface-elev)",
+                    border: "1px solid var(--ios-border)",
+                    color: "var(--ios-text)",
+                  }}
+                >
+                  <span className="text-[14px] font-semibold">{opt.label}</span>
+                  <span className="text-[11px]" style={{ color: "var(--ios-text-muted)" }}>
+                    9:00
+                  </span>
+                </button>
+              ))}
+            </div>
+            <SheetButton
+              variant="cancel"
+              onClick={() => setShowDayPicker(false)}
+              title="Back"
+            />
+          </>
+        )}
       </div>
     </div>
   );
@@ -3029,6 +3163,9 @@ function DayRiver({
   slotCandidates,
   onAdjust,
   onAutoReschedule,
+  autoOutcome,
+  onPushUnplaced,
+  onDismissAutoOutcome,
   onComplete,
   onReschedule,
   onExtendDuration,
@@ -3044,6 +3181,18 @@ function DayRiver({
   slotCandidates: Task[];
   onAdjust: (item: DayItem, deltaMin: number) => void;
   onAutoReschedule: () => void;
+  /** Most-recent Auto-Schedule outcome — drives the feedback banner so
+   *  users know what got placed and what couldn't fit. */
+  autoOutcome:
+    | {
+        placed: number;
+        unplaced: Array<{ taskId: string; title: string; reason: string }>;
+      }
+    | null;
+  /** Push an unplaced task forward by N days. Used by the banner's
+   *  "Push to tomorrow / next week" actions. */
+  onPushUnplaced: (taskId: string, days: number) => void;
+  onDismissAutoOutcome: () => void;
   onComplete: (taskId: string) => void;
   onReschedule: (item: DayItem) => void;
   onExtendDuration: (item: DayItem, deltaMin: number) => void;
@@ -3182,6 +3331,95 @@ function DayRiver({
           </button>
         )}
       </div>
+
+      {autoOutcome && (
+        <div
+          className="mt-3 rounded-xl p-2.5"
+          style={{
+            background:
+              autoOutcome.unplaced.length === 0
+                ? "rgba(16, 185, 129, 0.10)"
+                : "rgba(245, 158, 11, 0.10)",
+            border:
+              autoOutcome.unplaced.length === 0
+                ? "1px solid rgba(16, 185, 129, 0.28)"
+                : "1px solid rgba(245, 158, 11, 0.28)",
+          }}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <div
+                className="text-[12px] font-bold"
+                style={{
+                  color:
+                    autoOutcome.unplaced.length === 0
+                      ? "var(--ios-success)"
+                      : "var(--ios-warning)",
+                }}
+              >
+                {autoOutcome.placed > 0
+                  ? `Placed ${autoOutcome.placed} task${autoOutcome.placed === 1 ? "" : "s"}`
+                  : autoOutcome.unplaced.length > 0
+                    ? "Couldn't slot anything today"
+                    : "Nothing to slot"}
+                {autoOutcome.unplaced.length > 0
+                  ? ` · ${autoOutcome.unplaced.length} didn't fit`
+                  : ""}
+              </div>
+              {autoOutcome.unplaced.length > 0 && (
+                <ul className="mt-1.5 space-y-1">
+                  {autoOutcome.unplaced.map((u) => (
+                    <li
+                      key={u.taskId}
+                      className="flex items-center justify-between gap-2 rounded-md px-2 py-1"
+                      style={{
+                        background: "var(--ios-surface)",
+                        border: "1px solid var(--ios-border)",
+                      }}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div
+                          className="truncate text-[12px] font-medium"
+                          style={{ color: "var(--ios-text)" }}
+                        >
+                          {u.title}
+                        </div>
+                        <div
+                          className="text-[10px]"
+                          style={{ color: "var(--ios-text-muted)" }}
+                        >
+                          {u.reason}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onPushUnplaced(u.taskId, 1)}
+                        className="flex-none rounded-md px-2 py-0.5 text-[10px] font-semibold"
+                        style={{
+                          background: "var(--ios-accent-soft)",
+                          color: "var(--ios-accent)",
+                          border: "1px solid rgba(167, 139, 250, 0.4)",
+                        }}
+                      >
+                        → Tomorrow
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={onDismissAutoOutcome}
+              className="flex-none text-[11px]"
+              style={{ color: "var(--ios-text-muted)" }}
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {unscheduled.length > 0 && (
         <div
