@@ -1084,11 +1084,8 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               <span aria-hidden>⛓️‍💥</span>
             </button>
           )}
-          <ModeSwitch
-            mode={prefs.mode}
-            userType={prefs.userType}
-            onChange={(mode) => setPrefs({ mode })}
-          />
+          {/* Mode switch (Both / Projects / Personal) moved out of this
+              row; now sits on the right of the tabs row beneath. */}
           {/* Theme toggle — sun/moon icon, mirrors the iOS shell control.
               Persists on prefs so the choice follows the user across
               surfaces. Currently only the iOS shell honours the theme
@@ -1156,10 +1153,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         </div>
       </header>
 
-      {/* Tabs LEFT, all action links RIGHT, single row sharing the
-          underline. Tab nav on its own line above is gone — the user
-          wants the underlined nav row to ALSO carry the action cluster
-          on its right edge so the header is one visual unit. */}
+      {/* Row 1 — Tabs LEFT · Mode switch (Both/Projects/Personal) RIGHT */}
       <nav className="flex flex-wrap items-center gap-x-1 gap-y-2 border-b border-slate-200/70 pb-1.5">
         {TAB_DEFS.map((t) => {
           const active = view === t.key;
@@ -1184,11 +1178,19 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             </button>
           );
         })}
-
-        {/* Action links all on the RIGHT — content creation chips first
-            (Brain dump · Scan · PDF · +Task), divider, then the AI /
-            Google chips. */}
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <ModeSwitch
+            mode={prefs.mode}
+            userType={prefs.userType}
+            onChange={(mode) => setPrefs({ mode })}
+          />
+        </div>
+      </nav>
+
+      {/* Row 2 — Content-creation actions LEFT (Brain dump / Scan / PDF
+          / +Task) · AI + Google RIGHT (Smart organise · Sync). */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800"
@@ -1225,12 +1227,8 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           >
             + <span className="hidden sm:inline">Task</span>
           </button>
-
-          <span
-            aria-hidden
-            className="hidden h-5 w-px bg-slate-200 sm:inline-block"
-          />
-
+        </div>
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <SmartActionsBar
             tasks={tasks}
             goals={goals}
@@ -1251,7 +1249,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             aiBusy={loading}
           />
         </div>
-      </nav>
+      </div>
 
       {calendarMsg && (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
