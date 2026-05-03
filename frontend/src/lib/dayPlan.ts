@@ -276,7 +276,63 @@ export function collectDayItems(args: {
   // Sort by start, lanes assigned downstream
   items.sort((a, b) => a.start.getTime() - b.start.getTime());
   unscheduled.sort((a, b) => b.estimatedMinutes - a.estimatedMinutes);
-  return { items, unscheduled };
+
+  // ─── Deduplicate same-activity items ─────────────────────────────────
+  // The same real-world thing can flow in from THREE sources at once:
+  //   • a Google calendar event ("Weight training, 19:00–20:00")
+  //   • a foundation task with specificTime 19:00 ("Weight training")
+  //   • a session entry from a multi-session weekly target
+  //     ("Weight training · session 3")
+  // Without dedup the day plan shows three lanes for one workout. Fold
+  // them: when a calendar event and a task/session/foundation overlap in
+  // time AND share titles (one is a substring of the other after
+  // normalising), keep the calendar event (it's the booked truth) and
+  // drop the rest. Falls back to keeping the task if no calendar event
+  // is present but a foundation + session both exist for the same thing.
+  const norm = (s: string): string =>
+    s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const isSimilarTitle = (a: string, b: string): boolean => {
+    const na = norm(a);
+    const nb = norm(b);
+    if (!na || !nb) return false;
+    if (na === nb) return true;
+    // Strip "session N" suffix so "weight training" matches
+    // "weight training session 3".
+    const strip = (s: string) => s.replace(/\bsession\s+\d+\b/g, "").trim();
+    const sa = strip(na);
+    const sb = strip(nb);
+    if (!sa || !sb) return false;
+    return sa === sb || sa.includes(sb) || sb.includes(sa);
+  };
+  const overlaps = (a: DayItem, b: DayItem): boolean =>
+    a.start.getTime() < b.end.getTime() && b.start.getTime() < a.end.getTime();
+
+  // Priority for "winner" when collapsing a cluster:
+  // calendar > task (real scheduledFor) > session > foundation.
+  const sourceRank: Record<DayItem["source"], number> = {
+    calendar: 0,
+    task: 1,
+    session: 2,
+    foundation: 3,
+  };
+  const dropIds = new Set<string>();
+  for (let i = 0; i < items.length; i++) {
+    if (dropIds.has(items[i].id)) continue;
+    for (let j = i + 1; j < items.length; j++) {
+      if (dropIds.has(items[j].id)) continue;
+      if (!overlaps(items[i], items[j])) continue;
+      if (!isSimilarTitle(items[i].title, items[j].title)) continue;
+      // Keep the higher-rank one (lower number); drop the other.
+      const winner = sourceRank[items[i].source] <= sourceRank[items[j].source]
+        ? items[i]
+        : items[j];
+      const loser = winner === items[i] ? items[j] : items[i];
+      dropIds.add(loser.id);
+    }
+  }
+  const deduped = items.filter((it) => !dropIds.has(it.id));
+
+  return { items: deduped, unscheduled };
 }
 
 /**
@@ -350,6 +406,13 @@ export function autoReschedule(args: {
       })),
     };
   }
+
+  // Round cursor UP to the next 15-min boundary so placements land on
+  // tidy quarter-hours (14:30 not 14:23). Trivial UX win — nothing in the
+  // calendar reads cleanly when slots start at random minutes.
+  const cursorMs = cursor.getTime();
+  const fifteen = 15 * 60_000;
+  cursor = new Date(Math.ceil(cursorMs / fifteen) * fifteen);
 
   // Build "pending" list. Crucially we do NOT pull overdue items into this
   // pool — the user's intent is to actually tick those off, not have them
