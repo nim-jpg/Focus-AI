@@ -100,14 +100,57 @@ html[data-theme="dark"] #root {
    against dark surfaces so they don't disappear. */
 [data-theme="dark"] .bg-emerald-50 { background-color: rgba(16, 185, 129, 0.14) !important; }
 [data-theme="dark"] .bg-emerald-50\/40 { background-color: rgba(16, 185, 129, 0.08) !important; }
+[data-theme="dark"] .bg-emerald-100 { background-color: rgba(16, 185, 129, 0.20) !important; }
 [data-theme="dark"] .bg-amber-50 { background-color: rgba(245, 158, 11, 0.14) !important; }
 [data-theme="dark"] .bg-amber-50\/40,
 [data-theme="dark"] .bg-amber-50\/50 { background-color: rgba(245, 158, 11, 0.08) !important; }
+[data-theme="dark"] .bg-amber-100 { background-color: rgba(245, 158, 11, 0.20) !important; }
 [data-theme="dark"] .bg-violet-50 { background-color: rgba(167, 139, 250, 0.14) !important; }
+[data-theme="dark"] .bg-violet-100 { background-color: rgba(167, 139, 250, 0.20) !important; }
 [data-theme="dark"] .bg-rose-50 { background-color: rgba(244, 63, 94, 0.14) !important; }
+[data-theme="dark"] .bg-rose-100 { background-color: rgba(244, 63, 94, 0.20) !important; }
 [data-theme="dark"] .bg-sky-50 { background-color: rgba(14, 165, 233, 0.14) !important; }
+[data-theme="dark"] .bg-sky-100 { background-color: rgba(14, 165, 233, 0.20) !important; }
 [data-theme="dark"] .bg-indigo-100 { background-color: rgba(99, 102, 241, 0.18) !important; }
 [data-theme="dark"] .bg-orange-100 { background-color: rgba(249, 115, 22, 0.18) !important; }
+
+/* Coloured text on tinted backgrounds — the dark backgrounds above pair
+   with TINT-300 / TINT-400 light text so the chip reads against the
+   dark canvas. Without these overrides the text-*-700 / -800 classes
+   stay near-black and disappear into their own tinted background. */
+[data-theme="dark"] .text-emerald-700,
+[data-theme="dark"] .text-emerald-800 { color: #6EE7B7 !important; }
+[data-theme="dark"] .text-amber-700,
+[data-theme="dark"] .text-amber-800 { color: #FCD34D !important; }
+[data-theme="dark"] .text-violet-700,
+[data-theme="dark"] .text-violet-800 { color: #C4B5FD !important; }
+[data-theme="dark"] .text-rose-700,
+[data-theme="dark"] .text-rose-800 { color: #FCA5A5 !important; }
+[data-theme="dark"] .text-sky-700,
+[data-theme="dark"] .text-sky-800 { color: #7DD3FC !important; }
+[data-theme="dark"] .text-indigo-700,
+[data-theme="dark"] .text-indigo-800 { color: #A5B4FC !important; }
+[data-theme="dark"] .text-red-600,
+[data-theme="dark"] .text-red-700 { color: #FCA5A5 !important; }
+
+/* Coloured borders — soften so the chip outline holds without screaming. */
+[data-theme="dark"] .border-emerald-200,
+[data-theme="dark"] .border-emerald-300 { border-color: rgba(16, 185, 129, 0.40) !important; }
+[data-theme="dark"] .border-amber-200,
+[data-theme="dark"] .border-amber-300 { border-color: rgba(245, 158, 11, 0.40) !important; }
+[data-theme="dark"] .border-violet-200,
+[data-theme="dark"] .border-violet-300 { border-color: rgba(167, 139, 250, 0.40) !important; }
+[data-theme="dark"] .border-rose-200,
+[data-theme="dark"] .border-rose-300 { border-color: rgba(244, 63, 94, 0.40) !important; }
+[data-theme="dark"] .border-sky-200,
+[data-theme="dark"] .border-sky-300 { border-color: rgba(14, 165, 233, 0.40) !important; }
+
+/* Hover variants on tinted chips — keep the contrast ratio after hover. */
+[data-theme="dark"] .hover\:bg-emerald-100:hover { background-color: rgba(16, 185, 129, 0.28) !important; }
+[data-theme="dark"] .hover\:bg-violet-100:hover { background-color: rgba(167, 139, 250, 0.28) !important; }
+[data-theme="dark"] .hover\:bg-amber-100:hover { background-color: rgba(245, 158, 11, 0.28) !important; }
+[data-theme="dark"] .hover\:bg-rose-100:hover { background-color: rgba(244, 63, 94, 0.28) !important; }
+[data-theme="dark"] .hover\:bg-sky-100:hover { background-color: rgba(14, 165, 233, 0.28) !important; }
 
 /* Buttons (.btn-* defined below) flip to Spotify-style dark variants —
    #282828 for elevated/interactive surfaces. */
