@@ -12,8 +12,7 @@ import {
 } from "@/types/task";
 import type { NewGoalInput } from "@/lib/useGoals";
 import { ThemeBadge } from "./ThemeBadge";
-import { suggestGoalTasks, type GoalTaskMatch } from "@/lib/suggestGoalTasks";
-import { planThemeBucketLinks, resolveGoalMacroThemes } from "@/lib/themeRouter";
+import { resolveGoalMacroThemes } from "@/lib/themeRouter";
 
 interface Props {
   goals: Goal[];
@@ -66,10 +65,6 @@ function relativeDays(iso?: string): string {
   return `quiet for ${Math.floor(days / 30)}mo`;
 }
 
-interface AppliedMatch extends GoalTaskMatch {
-  goalId: string;
-}
-
 export function Goals({
   goals,
   tasks,
@@ -79,7 +74,6 @@ export function Goals({
   onUpdate,
   onRemove,
   onAddTaskForGoal,
-  onLinkTaskToGoal,
   onUnlinkTaskFromGoal,
   compact = false,
 }: Props) {
@@ -102,83 +96,10 @@ export function Goals({
       else next.add(id);
       return next;
     });
-  // Global match-to-goals AI run state.
-  const [matchBusy, setMatchBusy] = useState(false);
-  const [matchError, setMatchError] = useState<string | null>(null);
-  const [appliedMatches, setAppliedMatches] = useState<AppliedMatch[] | null>(
-    null,
-  );
-
-  const runMatchAll = async () => {
-    if (!onLinkTaskToGoal) return;
-    setMatchBusy(true);
-    setMatchError(null);
-    setAppliedMatches(null);
-    const applied: AppliedMatch[] = [];
-    let goalsConsidered = 0;
-    try {
-      // ─── Pass 1: deterministic theme-bucket + keyword routing ──────
-      // Same logic the "Suggested for your goals" panel uses. Catches
-      // the obvious cases (exam → school, gym → fitness, tax → finance,
-      // etc.) WITHOUT an AI round-trip. Cuts API cost + latency, and
-      // means the Match button does the right thing even if Anthropic
-      // is unreachable.
-      const planned = planThemeBucketLinks(tasks, goals);
-      const themedTaskIds = new Set<string>();
-      for (const link of planned) {
-        onLinkTaskToGoal(link.taskId, link.goalId);
-        const task = tasks.find((t) => t.id === link.taskId);
-        if (task) {
-          applied.push({
-            taskId: link.taskId,
-            goalId: link.goalId,
-            confidence: "high",
-            reason: link.reason,
-          });
-          themedTaskIds.add(link.taskId);
-        }
-      }
-
-      // ─── Pass 2: AI semantic match for the genuinely-fuzzy cases ──
-      // Skip tasks already auto-linked above; only ask the model about
-      // tasks whose theme didn't map cleanly to any goal. Process goals
-      // sequentially — keeps API volume modest and shares one tasks
-      // snapshot across calls.
-      for (const g of goals) {
-        const candidates = tasks.filter(
-          (t) =>
-            t.status !== "completed" &&
-            !(t.goalIds ?? []).includes(g.id) &&
-            !themedTaskIds.has(t.id) &&
-            !t.calendarEventId, // appointments stay out of goal buckets
-        );
-        if (candidates.length === 0) continue;
-        goalsConsidered += 1;
-        const matches = await suggestGoalTasks(g, candidates);
-        for (const m of matches) {
-          // Auto-link every match the model returns. User can unlink
-          // anything that doesn't fit from the result banner.
-          onLinkTaskToGoal(m.taskId, g.id);
-          applied.push({ ...m, goalId: g.id });
-        }
-      }
-      setAppliedMatches(applied);
-      if (applied.length === 0 && goalsConsidered === 0 && planned.length === 0) {
-        setMatchError(
-          "Every open task is already linked to a goal — nothing to match.",
-        );
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "AI unavailable";
-      console.error("[Goals] match failed:", err);
-      // Theme-bucket links may have already applied successfully even if
-      // the AI pass fell over. Show what landed.
-      if (applied.length > 0) setAppliedMatches(applied);
-      setMatchError(`${msg} — kept ${applied.length} keyword match${applied.length === 1 ? "" : "es"}`);
-    } finally {
-      setMatchBusy(false);
-    }
-  };
+  // Match-to-goals lives in the centralised SmartActionsBar (top of
+  // page, "AI · Smart organise"). The local match state + runMatchAll
+  // function used to live here; deleted along with the now-redundant
+  // "✨ Match tasks to goals" button.
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -241,96 +162,14 @@ export function Goals({
           >
             {open ? "Cancel" : "Add goal"}
           </button>
-          {onLinkTaskToGoal && goals.length > 0 && (
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => void runMatchAll()}
-              disabled={matchBusy}
-              title="Ask Claude to scan all open tasks and link the ones that ladder to your goals"
-            >
-              {matchBusy ? "Matching…" : "✨ Match tasks to goals"}
-            </button>
-          )}
+          {/* "✨ Match tasks to goals" used to live here. Now centralised
+              in the header bar (SmartActionsBar → AI · Smart organise),
+              which runs Top-3 re-rank + theme-bucket + AI matcher in
+              one click. */}
         </div>
       </div>
 
-      {/* Result banner from the global AI match action. Shows what was
-          auto-linked so the user can scan and selectively unlink anything
-          that doesn't fit. */}
-      {(appliedMatches !== null || matchError) && (
-        <div className="card mb-3">
-          <div className="mb-1 flex items-center justify-between gap-2">
-            <p className="text-sm font-medium text-slate-700">
-              {matchError
-                ? "Match failed"
-                : appliedMatches && appliedMatches.length > 0
-                ? `Auto-linked ${appliedMatches.length} task${
-                    appliedMatches.length === 1 ? "" : "s"
-                  }`
-                : "No new matches found"}
-            </p>
-            <button
-              type="button"
-              className="text-xs text-slate-400 hover:text-slate-700"
-              onClick={() => {
-                setAppliedMatches(null);
-                setMatchError(null);
-              }}
-            >
-              dismiss
-            </button>
-          </div>
-          {matchError && (
-            <p className="text-xs text-amber-700">{matchError}</p>
-          )}
-          {appliedMatches && appliedMatches.length > 0 && (
-            <ul className="space-y-1.5">
-              {appliedMatches.map((m, idx) => {
-                const t = tasks.find((x) => x.id === m.taskId);
-                const g = goals.find((x) => x.id === m.goalId);
-                if (!t || !g) return null;
-                const stillLinked = (t.goalIds ?? []).includes(m.goalId);
-                return (
-                  <li
-                    key={`${m.goalId}:${m.taskId}:${idx}`}
-                    className="flex items-start gap-2 text-xs"
-                  >
-                    <span className="mt-0.5 inline-block w-12 flex-none rounded-full bg-slate-100 px-1.5 py-0.5 text-center text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                      {m.confidence}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-slate-700">
-                        <span className="font-medium">{t.title}</span>
-                        <span className="mx-1 text-slate-400">→</span>
-                        <span className="text-slate-600">{g.title}</span>
-                      </p>
-                      <p className="text-[11px] text-slate-500">{m.reason}</p>
-                    </div>
-                    {onUnlinkTaskFromGoal && stillLinked && (
-                      <button
-                        type="button"
-                        className="flex-none rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600 hover:border-red-400 hover:text-red-700"
-                        onClick={() =>
-                          onUnlinkTaskFromGoal(m.taskId, m.goalId)
-                        }
-                        title="Remove this auto-link"
-                      >
-                        ✕ unlink
-                      </button>
-                    )}
-                    {onUnlinkTaskFromGoal && !stillLinked && (
-                      <span className="flex-none text-[11px] italic text-slate-400">
-                        unlinked
-                      </span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      )}
+      {/* Result banner moved to the SmartActionsBar in the header. */}
 
       {open && (
         <form onSubmit={handleSubmit} className="card mb-3 space-y-3">

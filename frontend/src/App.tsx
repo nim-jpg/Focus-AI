@@ -3,6 +3,7 @@ import { TaskFormModal } from "@/components/TaskFormModal";
 import { TaskList } from "@/components/TaskList";
 import { SuggestedGoalLinks } from "@/components/SuggestedGoalLinks";
 import { UnmappedTasks } from "@/components/UnmappedTasks";
+import { SmartActionsBar } from "@/components/SmartActionsBar";
 import { TopThree } from "@/components/TopThree";
 import { SlippedTasks, findSlippedTasks } from "@/components/SlippedTasks";
 import { ModeSwitch } from "@/components/ModeSwitch";
@@ -54,7 +55,6 @@ import {
   type AutoSyncResult,
   type GoogleStatus,
 } from "@/lib/googleCalendar";
-import { SyncFromGoogleButton } from "@/components/SyncFromGoogleButton";
 import { IosShell } from "@/components/ios/IosShell";
 import type { PrioritizedTask, Task } from "@/types/task";
 
@@ -1180,6 +1180,25 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           );
         })}
         <div className="ml-auto flex flex-wrap items-center gap-1.5 pr-1">
+          <SmartActionsBar
+            tasks={tasks}
+            goals={goals}
+            onAiRerank={handleAiRefresh}
+            onLinkTaskToGoal={(taskId, goalId) => {
+              const t = tasks.find((x) => x.id === taskId);
+              if (!t) return;
+              const cur = t.goalIds ?? [];
+              if (cur.includes(goalId)) return;
+              updateTask(taskId, { goalIds: [...cur, goalId] });
+            }}
+            onAutoSync={handleAutoSync}
+            onSkipEvent={(eventId) => {
+              const cur = prefs.enrichmentSkippedEventIds ?? [];
+              if (cur.includes(eventId)) return;
+              setPrefs({ enrichmentSkippedEventIds: [...cur, eventId] });
+            }}
+            aiBusy={loading}
+          />
           <button
             type="button"
             className="btn-secondary text-xs"
@@ -1306,28 +1325,15 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               <div className="flex items-center gap-3">
                 <span className="text-xs text-slate-500">
                   {todayDoneCount}/{todayActionable} done today
+                  {aiStaleCount > 0 && (
+                    <span
+                      className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800"
+                      title={`${aiStaleCount} task${aiStaleCount === 1 ? "" : "s"} edited since the last AI rank — run Smart organise (top right) to refresh.`}
+                    >
+                      {aiStaleCount} stale
+                    </span>
+                  )}
                 </span>
-                <button
-                  type="button"
-                  className={`btn-secondary ${aiStaleCount > 0 ? "ring-2 ring-amber-400" : ""}`}
-                  onClick={handleAiRefresh}
-                  disabled={loading || tasks.length === 0}
-                  title={
-                    aiStaleCount > 0
-                      ? `${aiStaleCount} task${aiStaleCount === 1 ? "" : "s"} edited since the last AI rank — click to re-rank just those`
-                      : aiCache.size > 0
-                        ? "Ask Claude to rank any new or changed tasks (existing ranks are preserved)"
-                        : "Ask Claude to rank your tasks"
-                  }
-                >
-                  {loading
-                    ? "Asking Claude…"
-                    : aiStaleCount > 0
-                      ? `Re-rank Top 3 · ${aiStaleCount} stale`
-                      : source === "claude" && aiCache.size > 0
-                        ? "Re-rank Top 3"
-                        : "Re-rank Top 3 with AI"}
-                </button>
               </div>
             </div>
             {aiError && (
@@ -1350,20 +1356,9 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             />
           </section>
 
-          {/* One-click sync: pulls task-like Google events into the task
-              list, writes back enriched addresses, then re-runs AI rank so
-              the new tasks land in their right tier immediately. Hidden
-              when calendar isn't connected — user has nothing to sync. */}
-          {googleStatus?.connected && (
-            <SyncFromGoogleButton
-              onAutoSync={handleAutoSync}
-              onSkipEvent={(eventId) => {
-                const cur = prefs.enrichmentSkippedEventIds ?? [];
-                if (cur.includes(eventId)) return;
-                setPrefs({ enrichmentSkippedEventIds: [...cur, eventId] });
-              }}
-            />
-          )}
+          {/* Calendar sync now lives in the centralised header bar
+              (SmartActionsBar → Google · Sync). The redundant inline
+              button used to live here. */}
 
           <WeekSchedule
             tasks={tasks}
@@ -1482,19 +1477,9 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
 
       {view === "tasks" && (
         <section className="space-y-4">
-          {/* Sync from Google here too — same surface as Today, but the
-              user often manages tasks while looking at the full list and
-              shouldn't have to jump tabs to pull in calendar items. */}
-          {googleStatus?.connected && (
-            <SyncFromGoogleButton
-              onAutoSync={handleAutoSync}
-              onSkipEvent={(eventId) => {
-                const cur = prefs.enrichmentSkippedEventIds ?? [];
-                if (cur.includes(eventId)) return;
-                setPrefs({ enrichmentSkippedEventIds: [...cur, eventId] });
-              }}
-            />
-          )}
+          {/* Sync from Google now centralised in the header bar
+              (SmartActionsBar → Google · Sync). Removed the duplicate
+              inline button that used to sit here. */}
           <h2 className="mb-3 text-lg font-semibold">All tasks</h2>
           <TaskList
             tasks={tasks}

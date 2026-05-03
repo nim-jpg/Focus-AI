@@ -130,8 +130,6 @@ export function TaskList({
   mode = "both",
   userType,
   ignoredEventIds = [],
-  onRefreshAi,
-  aiBusy = false,
   aiRefreshTick = 0,
   onUpdateTask,
 }: Props) {
@@ -265,21 +263,10 @@ export function TaskList({
               clear filters
             </button>
           )}
-          {onRefreshAi && (
-            <button
-              type="button"
-              className="btn-secondary text-xs"
-              onClick={onRefreshAi}
-              disabled={aiBusy || tasks.length === 0}
-              title={
-                aiTierById && aiTierById.size > 0
-                  ? "Re-rank any new or changed tasks (existing ranks preserved)"
-                  : "Ask Claude to rank your tasks"
-              }
-            >
-              {aiBusy ? "Asking Claude…" : "Refresh AI"}
-            </button>
-          )}
+          {/* "Refresh AI" used to live here. Centralised in the
+              SmartActionsBar at the top of the page (AI · Smart
+              organise) — runs Top-3 re-rank + goal matching + theme
+              bucketing in one click. */}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex flex-wrap gap-1.5">
