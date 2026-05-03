@@ -901,6 +901,15 @@ ${JSON.stringify(
     }> = [];
     const now = new Date().toISOString();
     let imported = 0;
+    // Capture the imported tasks' display info so the frontend can show
+    // a "here's what just came in" preview popup before the user hits
+    // refresh — they should know exactly what landed in their list.
+    const importedTasks: Array<{
+      title: string;
+      theme: string;
+      dueDate?: string;
+      calendarName?: string;
+    }> = [];
     for (const ev of candidates) {
       const d = decisionById.get(ev.id);
       if (!d || !d.isTask) continue;
@@ -932,6 +941,12 @@ ${JSON.stringify(
         user_id: req.userId!,
         payload: taskPayload,
         updated_at: now,
+      });
+      importedTasks.push({
+        title: ev.summary,
+        theme,
+        dueDate: ev.start ?? undefined,
+        calendarName: ev.calendarName,
       });
       imported += 1;
     }
@@ -1026,6 +1041,7 @@ ${JSON.stringify(
       scanned: totalScanned,
       calendars: writable.length,
       imported,
+      importedTasks,
       enrichedAuto,
       enrichmentNeedsReview,
     });

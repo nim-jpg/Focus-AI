@@ -226,10 +226,18 @@ export interface AutoSyncReviewItem {
   confidence: "medium" | "low";
 }
 
+export interface AutoSyncImportedTask {
+  title: string;
+  theme: string;
+  dueDate?: string;
+  calendarName?: string;
+}
+
 export interface AutoSyncResult {
   scanned: number;
   calendars: number;
   imported: number;
+  importedTasks?: AutoSyncImportedTask[];
   enrichedAuto: number;
   enrichmentNeedsReview: AutoSyncReviewItem[];
 }
