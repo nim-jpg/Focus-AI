@@ -1155,59 +1155,41 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         </div>
       </header>
 
-      {/* Single header row — actions LEFT, tabs CENTRED.
-          Three-column grid layout so the tabs sit dead-centre regardless
-          of how wide the action cluster grows. The right column is an
-          invisible spacer that mirrors the left column's footprint, so
-          the centre column truly centres on the page (a flexbox
-          ml-auto trick would push tabs off-centre toward whichever
-          side has more content). On narrow viewports the grid
-          collapses to one column and everything stacks. */}
-      <nav className="grid grid-cols-1 items-center gap-x-2 gap-y-2 border-b border-slate-200/70 pb-1.5 md:grid-cols-[1fr_auto_1fr]">
-        {/* LEFT: action cluster, grouped by purpose with thin dividers */}
-        <div className="flex flex-wrap items-center gap-1.5 md:justify-self-start">
-          {/* Primary CTA — loud, leftmost so the eye lands on it first */}
-          <button
-            type="button"
-            className="btn-primary text-xs"
-            onClick={startNew}
-            title="Add a single task"
-          >
-            + <span className="hidden sm:inline">Task</span>
-          </button>
+      {/* Two-row header.
+          Row 1: tabs (Today / Tasks / Insights / Goals) on their own line.
+          Row 2: file actions on the LEFT (Brain dump, Scan, PDF, +Task)
+                 and AI / Google chips on the RIGHT (the high-impact
+                 categorisation + sync actions, kept out of the way of
+                 the everyday content-creation buttons). */}
+      <nav className="flex items-center gap-1 border-b border-slate-200/70">
+        {TAB_DEFS.map((t) => {
+          const active = view === t.key;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setView(t.key)}
+              className={`relative px-3 py-2.5 text-sm font-medium transition-colors ${
+                active
+                  ? "text-slate-900"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              {t.label}
+              {active && (
+                <span
+                  aria-hidden
+                  className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-slate-900 via-slate-700 to-slate-900"
+                />
+              )}
+            </button>
+          );
+        })}
+      </nav>
 
-          <span
-            aria-hidden
-            className="hidden h-5 w-px bg-slate-200 sm:inline-block"
-          />
-
-          {/* AI + Google — the two high-impact actions */}
-          <SmartActionsBar
-            tasks={tasks}
-            goals={goals}
-            onAiRerank={handleAiRefresh}
-            onLinkTaskToGoal={(taskId, goalId) => {
-              const t = tasks.find((x) => x.id === taskId);
-              if (!t) return;
-              const cur = t.goalIds ?? [];
-              if (cur.includes(goalId)) return;
-              updateTask(taskId, { goalIds: [...cur, goalId] });
-            }}
-            onAutoSync={handleAutoSync}
-            onSkipEvent={(eventId) => {
-              const cur = prefs.enrichmentSkippedEventIds ?? [];
-              if (cur.includes(eventId)) return;
-              setPrefs({ enrichmentSkippedEventIds: [...cur, eventId] });
-            }}
-            aiBusy={loading}
-          />
-
-          <span
-            aria-hidden
-            className="hidden h-5 w-px bg-slate-200 sm:inline-block"
-          />
-
-          {/* Import / export — quieter ghost buttons */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        {/* LEFT: content-creation actions (paste, scan, export, +task) */}
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800"
@@ -1236,40 +1218,41 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           >
             📄<span className="hidden sm:inline"> PDF</span>
           </button>
+          <button
+            type="button"
+            className="btn-primary text-xs"
+            onClick={startNew}
+            title="Add a single task"
+          >
+            + <span className="hidden sm:inline">Task</span>
+          </button>
         </div>
 
-        {/* CENTRE: tab nav. justify-self-center pins the tab cluster to
-            the middle of its grid column. */}
-        <div className="flex items-center gap-1 md:justify-self-center">
-          {TAB_DEFS.map((t) => {
-            const active = view === t.key;
-            return (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setView(t.key)}
-                className={`relative px-3 py-2.5 text-sm font-medium transition-colors ${
-                  active
-                    ? "text-slate-900"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                {t.label}
-                {active && (
-                  <span
-                    aria-hidden
-                    className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-slate-900 via-slate-700 to-slate-900"
-                  />
-                )}
-              </button>
-            );
-          })}
+        {/* RIGHT: AI Smart organise + Google Sync — pushed to the right
+            with ml-auto so they sit visually opposite the content-
+            creation cluster. */}
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <SmartActionsBar
+            tasks={tasks}
+            goals={goals}
+            onAiRerank={handleAiRefresh}
+            onLinkTaskToGoal={(taskId, goalId) => {
+              const t = tasks.find((x) => x.id === taskId);
+              if (!t) return;
+              const cur = t.goalIds ?? [];
+              if (cur.includes(goalId)) return;
+              updateTask(taskId, { goalIds: [...cur, goalId] });
+            }}
+            onAutoSync={handleAutoSync}
+            onSkipEvent={(eventId) => {
+              const cur = prefs.enrichmentSkippedEventIds ?? [];
+              if (cur.includes(eventId)) return;
+              setPrefs({ enrichmentSkippedEventIds: [...cur, eventId] });
+            }}
+            aiBusy={loading}
+          />
         </div>
-
-        {/* RIGHT: empty balance column on wide viewports so the centre
-            stays centred. Hidden on narrow widths (single-column grid). */}
-        <div className="hidden md:block" aria-hidden />
-      </nav>
+      </div>
 
       {calendarMsg && (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
