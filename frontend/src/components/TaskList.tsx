@@ -319,15 +319,26 @@ export function TaskList({
                 task.status === "completed" ? "opacity-60" : ""
               }`}
             >
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={task.status === "completed"}
-                onChange={() => onToggle(task.id)}
-                aria-label={`Mark ${task.title} ${
-                  task.status === "completed" ? "incomplete" : "complete"
-                }`}
-              />
+              {/* Bigger, clearer checkbox with cursor pointer + tooltip
+                  so users see they're marking the task complete. */}
+              <label
+                className="mt-0.5 inline-flex cursor-pointer items-center"
+                title={
+                  task.status === "completed"
+                    ? "Mark not done"
+                    : "Mark done"
+                }
+              >
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 cursor-pointer accent-emerald-600"
+                  checked={task.status === "completed"}
+                  onChange={() => onToggle(task.id)}
+                  aria-label={`Mark ${task.title} ${
+                    task.status === "completed" ? "incomplete" : "complete"
+                  }`}
+                />
+              </label>
 
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2">

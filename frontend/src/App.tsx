@@ -991,6 +991,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           until.setDate(until.getDate() + 1);
           updateTask(id, { snoozedUntil: until.toISOString() });
         }}
+        onUpdatePrefs={setPrefs}
         onAddGoal={addGoal}
         onUpdateGoal={updateGoal}
         onRemoveGoal={removeGoal}
