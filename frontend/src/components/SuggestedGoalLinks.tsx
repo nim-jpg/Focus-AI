@@ -3,6 +3,7 @@ import type { Goal, Task } from "@/types/task";
 import { MACRO_THEME_LABELS } from "@/types/task";
 import { ThemeBadge } from "./ThemeBadge";
 import { inferMacroThemes, pickGoalForTask } from "@/lib/themeRouter";
+import { isFoundation } from "@/lib/recurrence";
 
 /**
  * Auto-suggested goal links — surfaces the bucket the user keeps asking
@@ -59,6 +60,9 @@ export function SuggestedGoalLinks({
       if (task.status === "completed") continue;
       // Skip appointments — already in the calendar, not "work to bucket".
       if (task.calendarEventId) continue;
+      // Skip foundations — daily personal habits (meds, creams, walks)
+      // belong on the Foundation rail, not in the Goals tab.
+      if (isFoundation(task)) continue;
       if ((task.goalIds ?? []).length > 0) continue;
       if (dismissed.has(task.id)) continue;
       if (

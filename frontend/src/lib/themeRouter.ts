@@ -1,4 +1,5 @@
 import type { Goal, MacroTheme, Task, Theme } from "@/types/task";
+import { isFoundation } from "./recurrence";
 
 /**
  * Theme → macro-theme fallback. The legacy single-Theme enum (work,
@@ -379,6 +380,12 @@ export function planThemeBucketLinks(
   for (const task of tasks) {
     if (task.status === "completed") continue;
     if (task.calendarEventId) continue;
+    // Foundations are recurring personal habits (take tablets, apply
+    // creams, daily walks). They live in the Foundation rail, not in
+    // goal buckets. Excluding them keeps the Goals tab scoped to
+    // OUTCOME-driven work — the things that move you toward "qualify
+    // for ACA" or "complete GCSEs", not the daily maintenance loop.
+    if (isFoundation(task)) continue;
     if ((task.goalIds ?? []).length > 0) continue;
     if (task.snoozedUntil && new Date(task.snoozedUntil).getTime() > now)
       continue;

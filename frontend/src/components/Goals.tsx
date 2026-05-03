@@ -6,13 +6,14 @@ import {
   THEMES,
   type Goal,
   type GoalHorizon,
+  type MacroTheme,
   type Task,
   type Theme,
 } from "@/types/task";
 import type { NewGoalInput } from "@/lib/useGoals";
 import { ThemeBadge } from "./ThemeBadge";
 import { suggestGoalTasks, type GoalTaskMatch } from "@/lib/suggestGoalTasks";
-import { planThemeBucketLinks } from "@/lib/themeRouter";
+import { planThemeBucketLinks, resolveGoalMacroThemes } from "@/lib/themeRouter";
 
 interface Props {
   goals: Goal[];
@@ -88,11 +89,12 @@ export function Goals({
   // reveal notes + linked tasks for the goal you're focusing on. Keeps the
   // page scannable when you have 10+ goals.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // Theme filter — pills at the top let the user narrow to a bucket
-  // (Stress / Health / Career / etc.). null = no filter, all goals show.
-  // Themes here use the existing Task themes (work/fitness/finance/...)
-  // so the filter is consistent with how tasks self-classify.
-  const [themeFilter, setThemeFilter] = useState<Theme | null>(null);
+  // Macro filter — pills filter goals by life-bucket (Money / Learning /
+  // Stress / Health / Career / Family / Creative / Admin). Independent
+  // axis from the Theme enum on tasks; goals get tagged into one or
+  // more macros via macroThemes (or auto-resolved from title + theme).
+  // null = show every goal.
+  const [macroFilter, setMacroFilter] = useState<MacroTheme | null>(null);
   const toggleExpanded = (id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -186,19 +188,23 @@ export function Goals({
     setOpen(false);
   };
 
-  // Theme filter restricts the visible goals — useful when the list grows
-  // beyond a screen's worth and the user wants to drill into one bucket.
-  // Counts shown on the pills reflect ALL goals (so the filter doesn't
-  // hide the option to re-enter a now-empty bucket).
-  const themeCounts = useMemo(() => {
-    const map = new Map<Theme, number>();
+  // Macro counts: how many goals belong to each macro bucket. A goal
+  // can sit in multiple buckets (debt-payoff = Money + Stress), so the
+  // counts here CAN sum to more than goals.length — that's intentional.
+  const macroCounts = useMemo(() => {
+    const map = new Map<MacroTheme, number>();
     for (const g of goals) {
-      map.set(g.theme, (map.get(g.theme) ?? 0) + 1);
+      const macros = resolveGoalMacroThemes(g);
+      for (const m of macros) {
+        map.set(m, (map.get(m) ?? 0) + 1);
+      }
     }
     return map;
   }, [goals]);
-  const visibleGoals = themeFilter
-    ? goals.filter((g) => g.theme === themeFilter)
+  const visibleGoals = macroFilter
+    ? goals.filter((g) =>
+        resolveGoalMacroThemes(g).includes(macroFilter),
+      )
     : goals;
 
   const grouped = HORIZON_ORDER.map((horizon) => ({
@@ -430,40 +436,41 @@ export function Goals({
         </form>
       )}
 
-      {/* Theme bucket pills — top-level filter chips. Only shown when
-          there are 2+ goal themes to switch between, so single-theme
-          users don't see redundant chrome. The "All" pill clears the
-          filter and shows every goal grouped by horizon. */}
-      {themeCounts.size >= 2 && (
+      {/* Macro filter pills — top-level filter chips by life bucket
+          (Money / Learning / Stress / Health / Career / Family / Creative
+          / Admin). Each goal can live in multiple buckets so the totals
+          can exceed goals.length. Hidden when only 0-1 macros have any
+          goals (single-bucket user doesn't need redundant chrome). */}
+      {macroCounts.size >= 2 && (
         <div className="mb-3 flex flex-wrap gap-1.5">
           <button
             type="button"
-            onClick={() => setThemeFilter(null)}
+            onClick={() => setMacroFilter(null)}
             className={`rounded-full border px-2.5 py-1 text-xs ${
-              themeFilter === null
+              macroFilter === null
                 ? "border-slate-900 bg-gradient-to-b from-slate-800 to-slate-900 text-white shadow-sm"
                 : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
             }`}
           >
             All · {goals.length}
           </button>
-          {THEMES.map((th) => {
-            const count = themeCounts.get(th) ?? 0;
+          {MACRO_THEMES.filter((m) => m !== "events").map((m) => {
+            const count = macroCounts.get(m) ?? 0;
             if (count === 0) return null;
-            const active = themeFilter === th;
+            const active = macroFilter === m;
             return (
               <button
-                key={th}
+                key={m}
                 type="button"
-                onClick={() => setThemeFilter(active ? null : th)}
+                onClick={() => setMacroFilter(active ? null : m)}
                 className={`rounded-full border px-2.5 py-1 text-xs ${
                   active
                     ? "border-slate-900 bg-gradient-to-b from-slate-800 to-slate-900 text-white shadow-sm"
                     : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
                 }`}
-                title={`Filter to ${th} goals`}
+                title={`Filter to ${MACRO_THEME_LABELS[m]} goals`}
               >
-                {th} · {count}
+                {MACRO_THEME_LABELS[m]} · {count}
               </button>
             );
           })}
@@ -479,7 +486,7 @@ export function Goals({
           No goals in this theme yet. Click a different pill above, or
           <button
             type="button"
-            onClick={() => setThemeFilter(null)}
+            onClick={() => setMacroFilter(null)}
             className="ml-1 text-slate-700 underline"
           >
             show all
