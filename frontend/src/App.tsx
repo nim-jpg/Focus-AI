@@ -1060,7 +1060,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               className="inline-flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-900 hover:underline"
               title="Connected — open Google Calendar in a new tab. To disconnect, see Settings."
             >
-              Calendar
+              calendar link
               <span aria-hidden>🔗</span>
             </a>
           ) : (
@@ -1080,7 +1080,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
                   : "Click to connect Google Calendar"
               }
             >
-              Calendar
+              calendar link
               <span aria-hidden>⛓️‍💥</span>
             </button>
           )}
@@ -1153,8 +1153,11 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         </div>
       </header>
 
-      {/* Row 1 — Tabs LEFT · Mode switch (Both/Projects/Personal) RIGHT */}
-      <nav className="flex flex-wrap items-center gap-x-1 gap-y-2 border-b border-slate-200/70 pb-1.5">
+      {/* Header rows wrapper — tight 8px gap between row 1 (tabs +
+          adders) and row 2 (mode + AI/Google), overriding the parent
+          space-y-6/8 that's used for the bigger content blocks. */}
+      <div className="flex flex-col gap-2">
+      <nav className="flex flex-wrap items-center gap-x-1 gap-y-1.5 border-b border-slate-200/70 pb-1">
         {TAB_DEFS.map((t) => {
           const active = view === t.key;
           return (
@@ -1162,7 +1165,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
               key={t.key}
               type="button"
               onClick={() => setView(t.key)}
-              className={`relative px-3 py-2.5 text-sm font-medium transition-colors ${
+              className={`relative px-3 py-2 text-sm font-medium transition-colors ${
                 active
                   ? "text-slate-900"
                   : "text-slate-500 hover:text-slate-800"
@@ -1179,18 +1182,6 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           );
         })}
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
-          <ModeSwitch
-            mode={prefs.mode}
-            userType={prefs.userType}
-            onChange={(mode) => setPrefs({ mode })}
-          />
-        </div>
-      </nav>
-
-      {/* Row 2 — Content-creation actions LEFT (Brain dump / Scan / PDF
-          / +Task) · AI + Google RIGHT (Smart organise · Sync). */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800"
@@ -1217,7 +1208,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             title="Download a 7-day Top Three planner as PDF"
             disabled={tasks.length === 0}
           >
-            📄<span className="hidden sm:inline"> PDF</span>
+            📄<span className="hidden sm:inline"> Export PDF</span>
           </button>
           <button
             type="button"
@@ -1227,6 +1218,19 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           >
             + <span className="hidden sm:inline">Task</span>
           </button>
+        </div>
+      </nav>
+
+      {/* Row 2 — Mode switch (Both / Projects / Personal) LEFT · AI +
+          Google chips RIGHT. Tightened with mt-0 (no extra gap above
+          the row 1 underline). */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <ModeSwitch
+            mode={prefs.mode}
+            userType={prefs.userType}
+            onChange={(mode) => setPrefs({ mode })}
+          />
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <SmartActionsBar
@@ -1249,6 +1253,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             aiBusy={loading}
           />
         </div>
+      </div>
       </div>
 
       {calendarMsg && (
