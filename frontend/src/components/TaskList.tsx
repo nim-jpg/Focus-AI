@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { THEMES, type Task, type Theme, type UserType } from "@/types/task";
 import { ThemeBadge } from "./ThemeBadge";
 import { isInWorkMode } from "@/lib/modeFilter";
+import { lookupCompany } from "@/lib/companiesHouse";
 
 interface Props {
   tasks: Task[];
@@ -27,6 +28,9 @@ interface Props {
    *  TaskList auto-switches its sort to AI rank so the user immediately
    *  sees the new ranking applied. */
   aiRefreshTick?: number;
+  /** Used by the "Look up deadline" button on Companies-House tasks
+   *  missing a dueDate — applies the fetched nextDue date. */
+  onUpdateTask?: (id: string, patch: Partial<Task>) => void;
 }
 
 type StatusFilter = "open" | "all" | "completed" | "snoozed";
@@ -44,6 +48,57 @@ const THEME_LABELS: Record<Theme, string> = {
   development: "Dev",
   household: "Household",
 };
+
+/** Inline "Look up deadline" button for Companies-House tasks that came in
+ *  without a dueDate (the AI didn't fill one when the task was created).
+ *  One click hits Companies House, picks the soonest of the confirmation-
+ *  statement / accounts nextDue dates, and applies it via onUpdateTask. */
+function LookupDeadlineButton({
+  number,
+  onApply,
+}: {
+  number: string;
+  onApply: (iso: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={async (e) => {
+        e.stopPropagation();
+        setBusy(true);
+        setError(null);
+        try {
+          const result = await lookupCompany({ number });
+          // Pick the soonest upcoming deadline of the two filings.
+          const candidates: string[] = [];
+          if (result.confirmationStatement?.nextDue) {
+            candidates.push(result.confirmationStatement.nextDue);
+          }
+          if (result.accounts?.nextDue) {
+            candidates.push(result.accounts.nextDue);
+          }
+          if (candidates.length === 0) {
+            setError("No deadline returned");
+            return;
+          }
+          candidates.sort();
+          onApply(new Date(candidates[0]).toISOString());
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Lookup failed");
+        } finally {
+          setBusy(false);
+        }
+      }}
+      className="ml-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 hover:bg-amber-200 disabled:opacity-50"
+      title={`Fetch this company's filing deadlines from Companies House and set the earliest as the due date`}
+    >
+      {busy ? "looking up…" : error ? `! ${error}` : "Look up deadline"}
+    </button>
+  );
+}
 
 function formatDue(iso?: string, includeTime = false): string {
   if (!iso) return "—";
@@ -78,6 +133,7 @@ export function TaskList({
   onRefreshAi,
   aiBusy = false,
   aiRefreshTick = 0,
+  onUpdateTask,
 }: Props) {
   const ignoredEventIdSet = useMemo(
     () => new Set(ignoredEventIds),
@@ -396,7 +452,16 @@ export function TaskList({
                   ) : (
                     <>
                       {task.calendarEventId ? "When " : "Due "}
-                      {formatDue(task.dueDate, Boolean(task.calendarEventId))} ·{" "}
+                      {formatDue(task.dueDate, Boolean(task.calendarEventId))}
+                      {task.companyHouseNumber && !task.dueDate && onUpdateTask && (
+                        <LookupDeadlineButton
+                          number={task.companyHouseNumber}
+                          onApply={(iso) =>
+                            onUpdateTask(task.id, { dueDate: iso })
+                          }
+                        />
+                      )}
+                      {" · "}
                       {task.urgency} urgency · {task.estimatedMinutes ?? 30} min ·{" "}
                       {task.recurrence}
                     </>

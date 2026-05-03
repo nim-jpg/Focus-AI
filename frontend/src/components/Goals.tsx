@@ -80,6 +80,17 @@ export function Goals({
 }: Props) {
   const [draft, setDraft] = useState<NewGoalInput>(blank);
   const [open, setOpen] = useState(false);
+  // Goals are compact by default — title, theme, count, activity. Click to
+  // reveal notes + linked tasks for the goal you're focusing on. Keeps the
+  // page scannable when you have 10+ goals.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpanded = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   // Global match-to-goals AI run state.
   const [matchBusy, setMatchBusy] = useState(false);
   const [matchError, setMatchError] = useState<string | null>(null);
@@ -349,10 +360,13 @@ export function Goals({
                     : Infinity;
                   const stalePastWeek = ms > 7 * 24 * 60 * 60 * 1000;
                   const stalePastMonth = ms > 30 * 24 * 60 * 60 * 1000;
+                  const isExpanded = expanded.has(g.id);
+                  const hasDetails =
+                    Boolean(g.notes) || linkedTasks.length > 0;
                   return (
                     <li
                       key={g.id}
-                      className={`card flex items-start justify-between gap-3 ${
+                      className={`rounded-xl border border-slate-200/80 bg-white px-3 py-2 shadow-sm shadow-slate-200/50 ${
                         stalePastMonth
                           ? "border-l-4 border-l-red-400"
                           : stalePastWeek
@@ -360,25 +374,48 @@ export function Goals({
                           : ""
                       }`}
                     >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium">{g.title}</span>
+                      <div className="flex items-center justify-between gap-3">
+                        <button
+                          type="button"
+                          onClick={() => hasDetails && toggleExpanded(g.id)}
+                          className={`flex min-w-0 flex-1 items-center gap-2 text-left ${
+                            hasDetails ? "cursor-pointer" : "cursor-default"
+                          }`}
+                          aria-expanded={isExpanded}
+                          aria-label={
+                            hasDetails
+                              ? `${isExpanded ? "Collapse" : "Expand"} ${g.title}`
+                              : g.title
+                          }
+                          disabled={!hasDetails}
+                        >
+                          {hasDetails && (
+                            <span
+                              className={`flex-none text-[10px] text-slate-400 transition-transform ${
+                                isExpanded ? "rotate-90" : ""
+                              }`}
+                              aria-hidden
+                            >
+                              ▶
+                            </span>
+                          )}
+                          <span className="truncate text-sm font-medium">
+                            {g.title}
+                          </span>
                           <ThemeBadge theme={g.theme} />
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                            {count} open {count === 1 ? "task" : "tasks"}
+                          <span className="flex-none rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">
+                            {count}
                           </span>
+                          {done30 > 0 && (
+                            <span
+                              className="flex-none rounded-full bg-emerald-100 px-1.5 py-0.5 text-[11px] text-emerald-800"
+                              title="Tasks linked to this goal completed in the last 30 days"
+                            >
+                              {done30}/30d
+                            </span>
+                          )}
                           <span
-                            className={`rounded-full px-2 py-0.5 text-xs ${
-                              done30 > 0
-                                ? "bg-emerald-100 text-emerald-800"
-                                : "bg-slate-100 text-slate-500"
-                            }`}
-                            title="Tasks linked to this goal completed in the last 30 days"
-                          >
-                            {done30} done in 30d
-                          </span>
-                          <span
-                            className={`text-xs ${
+                            className={`flex-none text-[11px] ${
                               stalePastMonth
                                 ? "font-semibold text-red-700"
                                 : stalePastWeek
@@ -394,70 +431,82 @@ export function Goals({
                             {stalePastWeek ? "⚠ " : ""}
                             {activityLabel}
                           </span>
-                        </div>
-                        {g.notes && (
-                          <p className="mt-1 text-sm text-slate-600">{g.notes}</p>
-                        )}
-                        {/* Linked tasks with one-click unlink — lets the
-                            user prune anything the AI mis-matched. */}
-                        {linkedTasks.length > 0 && (
-                          <ul className="mt-2 flex flex-wrap gap-1.5">
-                            {linkedTasks.map((t) => (
-                              <li key={t.id}>
-                                <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
-                                  <span className="max-w-[16rem] truncate">
-                                    {t.title}
-                                  </span>
-                                  {onUnlinkTaskFromGoal && (
-                                    <button
-                                      type="button"
-                                      className="text-slate-400 hover:text-red-600"
-                                      onClick={() =>
-                                        onUnlinkTaskFromGoal(t.id, g.id)
-                                      }
-                                      title="Unlink from this goal"
-                                      aria-label={`Unlink ${t.title}`}
-                                    >
-                                      ✕
-                                    </button>
-                                  )}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-1 text-xs">
-                        {onAddTaskForGoal && (
+                        </button>
+                        <div className="flex flex-none items-center gap-2 text-[11px]">
+                          {onAddTaskForGoal && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onAddTaskForGoal(g.id);
+                              }}
+                              className="text-emerald-700 hover:text-emerald-900"
+                              title="Add a new task linked to this goal"
+                            >
+                              + Task
+                            </button>
+                          )}
                           <button
                             type="button"
-                            onClick={() => onAddTaskForGoal(g.id)}
-                            className="text-emerald-700 hover:text-emerald-900"
-                            title="Add a new task linked to this goal"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const next = window.prompt(
+                                "Edit goal title",
+                                g.title,
+                              );
+                              if (next && next.trim())
+                                onUpdate(g.id, { title: next.trim() });
+                            }}
+                            className="text-slate-500 hover:text-slate-900"
                           >
-                            + Task
+                            Rename
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const next = window.prompt("Edit goal title", g.title);
-                            if (next && next.trim()) onUpdate(g.id, { title: next.trim() });
-                          }}
-                          className="text-slate-500 hover:text-slate-900"
-                        >
-                          Rename
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (confirm(`Delete goal "${g.title}"?`)) onRemove(g.id);
-                          }}
-                          className="text-slate-400 hover:text-red-600"
-                        >
-                          Delete
-                        </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm(`Delete goal "${g.title}"?`))
+                                onRemove(g.id);
+                            }}
+                            className="text-slate-400 hover:text-red-600"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </div>
+                      {isExpanded && hasDetails && (
+                        <div className="mt-2 border-t border-slate-100 pt-2">
+                          {g.notes && (
+                            <p className="text-sm text-slate-600">{g.notes}</p>
+                          )}
+                          {linkedTasks.length > 0 && (
+                            <ul className="mt-2 flex flex-wrap gap-1.5">
+                              {linkedTasks.map((t) => (
+                                <li key={t.id}>
+                                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                                    <span className="max-w-[16rem] truncate">
+                                      {t.title}
+                                    </span>
+                                    {onUnlinkTaskFromGoal && (
+                                      <button
+                                        type="button"
+                                        className="text-slate-400 hover:text-red-600"
+                                        onClick={() =>
+                                          onUnlinkTaskFromGoal(t.id, g.id)
+                                        }
+                                        title="Unlink from this goal"
+                                        aria-label={`Unlink ${t.title}`}
+                                      >
+                                        ✕
+                                      </button>
+                                    )}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
                     </li>
                   );
                 })}

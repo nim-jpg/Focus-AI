@@ -1508,6 +1508,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             onRefreshAi={handleAiRefresh}
             aiBusy={loading}
             aiRefreshTick={aiRefreshTick}
+            onUpdateTask={updateTask}
           />
         </section>
       )}

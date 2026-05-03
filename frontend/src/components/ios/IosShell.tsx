@@ -98,6 +98,15 @@ export function IosShell(props: IosShellProps) {
     title: string;
     at: number;
   } | null>(null);
+  // Most-recent defer (down-arrow on a Goals row). Captures the BEFORE
+  // patch so Undo can restore exactly what changed — usually
+  // snoozedUntil for recurring, scheduledFor / dueDate for one-offs.
+  const [recentlyDeferred, setRecentlyDeferred] = useState<{
+    taskId: string;
+    title: string;
+    before: Partial<Task>;
+    at: number;
+  } | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -112,6 +121,13 @@ export function IosShell(props: IosShellProps) {
     const timer = setTimeout(() => setRecentlyCompleted(null), 9000);
     return () => clearTimeout(timer);
   }, [recentlyCompleted]);
+
+  // Auto-dismiss the post-defer toast after 9 seconds (matches Done toast).
+  useEffect(() => {
+    if (!recentlyDeferred) return;
+    const timer = setTimeout(() => setRecentlyDeferred(null), 9000);
+    return () => clearTimeout(timer);
+  }, [recentlyDeferred]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -229,20 +245,36 @@ export function IosShell(props: IosShellProps) {
             />
           )}
           {tab === "goals" && (
-            <GoalsTab {...props} onAskComplete={(id) => {
-              const task = props.tasks.find((t) => t.id === id);
-              props.onToggleTask(id);
-              // Surface a non-blocking note + follow-up toast for first-time
-              // completions (skip if the task was already completed and we're
-              // un-ticking).
-              if (task && task.status !== "completed") {
-                setRecentlyCompleted({
+            <GoalsTab
+              {...props}
+              onAskComplete={(id) => {
+                const task = props.tasks.find((t) => t.id === id);
+                props.onToggleTask(id);
+                // Surface a non-blocking note + follow-up toast for first-time
+                // completions (skip if the task was already completed and we're
+                // un-ticking).
+                if (task && task.status !== "completed") {
+                  setRecentlyCompleted({
+                    taskId: id,
+                    title: task.title,
+                    at: Date.now(),
+                  });
+                }
+              }}
+              onAfterDefer={(id, before) => {
+                // Down-arrow defer: surface a "Deferred — undo" toast so the
+                // user always has a way back when a recurring task vanishes
+                // for the day or a one-off jumps forward.
+                const task = props.tasks.find((t) => t.id === id);
+                if (!task) return;
+                setRecentlyDeferred({
                   taskId: id,
                   title: task.title,
+                  before,
                   at: Date.now(),
                 });
-              }
-            }} />
+              }}
+            />
           )}
         </div>
       </main>
@@ -388,11 +420,41 @@ export function IosShell(props: IosShellProps) {
         />
       )}
 
+      {recentlyDeferred && (
+        <DeferredToast
+          title={recentlyDeferred.title}
+          onClose={() => setRecentlyDeferred(null)}
+          onUndo={() => {
+            // Restore exactly the fields we changed at defer-time.
+            props.onUpdateTask(recentlyDeferred.taskId, recentlyDeferred.before);
+            setRecentlyDeferred(null);
+          }}
+        />
+      )}
+
       {recentlyCompleted && (
         <CompletedToast
           taskId={recentlyCompleted.taskId}
           title={recentlyCompleted.title}
           onClose={() => setRecentlyCompleted(null)}
+          onUndo={() => {
+            // Un-tick: flips status back to open. The toggle handler is
+            // idempotent on status so calling onToggleTask again reverses
+            // the previous tick. Also clears any resolution side-effects
+            // the user may have saved via Note before clicking Undo.
+            const t = props.tasks.find((x) => x.id === recentlyCompleted.taskId);
+            if (t && t.status === "completed") {
+              props.onToggleTask(recentlyCompleted.taskId);
+              if (t.resolution || t.resolutionNote || t.resolutionAt) {
+                props.onUpdateTask(recentlyCompleted.taskId, {
+                  resolution: undefined,
+                  resolutionNote: undefined,
+                  resolutionAt: undefined,
+                });
+              }
+            }
+            setRecentlyCompleted(null);
+          }}
           onSaveNote={(note) => {
             const t = props.tasks.find((x) => x.id === recentlyCompleted.taskId);
             if (t) {
@@ -1251,7 +1313,14 @@ function QuickTray() {
  * "+ New" tab opens NewGoalForm (modal) — title + horizon. The new
  * goal becomes the selected tab afterwards.
  */
-function GoalsTab(p: IosShellProps & { onAskComplete: (id: string) => void }) {
+function GoalsTab(
+  p: IosShellProps & {
+    onAskComplete: (id: string) => void;
+    /** Fires AFTER a defer applies. `before` carries the fields that
+     *  changed in their pre-defer state so the parent can offer Undo. */
+    onAfterDefer?: (id: string, before: Partial<Task>) => void;
+  },
+) {
   const deferTaskToTomorrow = (taskId: string) => {
     const task = p.tasks.find((t) => t.id === taskId);
     if (!task) return;
@@ -1262,14 +1331,25 @@ function GoalsTab(p: IosShellProps & { onAskComplete: (id: string) => void }) {
     if (isRecurring) {
       const endOfToday = new Date();
       endOfToday.setHours(23, 59, 59, 999);
+      const before: Partial<Task> = { snoozedUntil: task.snoozedUntil };
       p.onSnooze(task.id, endOfToday.toISOString());
+      p.onAfterDefer?.(task.id, before);
       return;
     }
     const patch: Partial<Task> = { snoozedUntil: undefined };
-    if (task.scheduledFor) patch.scheduledFor = tomorrow.toISOString();
-    else if (task.dueDate) patch.dueDate = tomorrow.toISOString();
-    else patch.scheduledFor = tomorrow.toISOString();
+    const before: Partial<Task> = { snoozedUntil: task.snoozedUntil };
+    if (task.scheduledFor) {
+      before.scheduledFor = task.scheduledFor;
+      patch.scheduledFor = tomorrow.toISOString();
+    } else if (task.dueDate) {
+      before.dueDate = task.dueDate;
+      patch.dueDate = tomorrow.toISOString();
+    } else {
+      before.scheduledFor = task.scheduledFor;
+      patch.scheduledFor = tomorrow.toISOString();
+    }
     p.onUpdateTask(task.id, patch);
+    p.onAfterDefer?.(task.id, before);
   };
 
   // Selected tab: "all" | goal id | "none" (uncategorised)
@@ -2243,15 +2323,93 @@ function HyperFocus(p: HyperFocusProps) {
  * task.resolutionNote) or spawn a follow-up task pre-filled with the
  * original's context. Auto-dismisses; explicit close clears.
  */
+/**
+ * Slim toast that appears after a Goals defer (down-arrow). Same vertical
+ * slot as CompletedToast — we only ever show one at a time, and the post-
+ * defer flow rarely overlaps a tick. Single Undo button + dismiss.
+ */
+function DeferredToast({
+  title,
+  onClose,
+  onUndo,
+}: {
+  title: string;
+  onClose: () => void;
+  onUndo: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-x-0 z-[55] flex justify-center px-4"
+      style={{
+        bottom: "calc(env(safe-area-inset-bottom, 0) + 88px)",
+        pointerEvents: "none",
+      }}
+    >
+      <div
+        className="ios-sheet pointer-events-auto w-full max-w-md rounded-2xl px-3 py-2.5"
+        style={{
+          background: "var(--ios-surface-elev)",
+          border: "1px solid var(--ios-border-strong)",
+          boxShadow: "0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04)",
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className="flex h-7 w-7 flex-none items-center justify-center rounded-full"
+            style={{ background: "var(--ios-accent-soft)", color: "var(--ios-accent)" }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-bold leading-tight" style={{ color: "var(--ios-text)" }}>
+              Deferred to tomorrow ·{" "}
+              <span style={{ color: "var(--ios-text-secondary)" }}>{title}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onUndo}
+            className="flex-none rounded-md px-2 py-1 text-[11px] font-semibold"
+            style={{
+              background: "var(--ios-surface)",
+              color: "var(--ios-text)",
+              border: "1px solid var(--ios-border-strong)",
+            }}
+            title="Restore — keep on today's list"
+          >
+            ↶ Undo
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-none rounded-md px-1.5 py-1 text-[11px]"
+            style={{ color: "var(--ios-text-muted)" }}
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CompletedToast({
   title,
   onClose,
+  onUndo,
   onSaveNote,
   onAddFollowUp,
 }: {
   taskId: string;
   title: string;
   onClose: () => void;
+  /** Reverts the tick — most-recent-action undo. Replaces the toast in
+   *  user attention before they Note / Follow-up since "I didn't mean to
+   *  tick that" is the most common follow-on intent. */
+  onUndo: () => void;
   onSaveNote: (note: string) => void;
   onAddFollowUp: (title: string) => void;
 }) {
@@ -2289,6 +2447,19 @@ function CompletedToast({
                 Done · <span style={{ color: "var(--ios-text-secondary)" }}>{title}</span>
               </div>
             </div>
+            <button
+              type="button"
+              onClick={onUndo}
+              className="flex-none rounded-md px-2 py-1 text-[11px] font-semibold"
+              style={{
+                background: "var(--ios-surface)",
+                color: "var(--ios-text)",
+                border: "1px solid var(--ios-border-strong)",
+              }}
+              title="Untick — restore as open"
+            >
+              ↶ Undo
+            </button>
             <button
               type="button"
               onClick={() => setMode("note")}
@@ -3608,6 +3779,15 @@ function ShiftTrack({
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firedLongRef = useRef(false);
 
+  // Drag-handle state — refs (not state) to avoid re-binding handlers and
+  // breaking pointer capture. Each pointer move computes a snapped 15-min
+  // delta and only fires onShift when crossing a new boundary, so the
+  // cascade engine sees discrete jumps rather than per-pixel noise.
+  const dragStartYRef = useRef(0);
+  const dragLastDelta15Ref = useRef(0);
+  const draggingRef = useRef(false);
+  const [dragHover, setDragHover] = useState(false);
+
   function bind(deltaShort: number, deltaLong: number) {
     return {
       onPointerDown: (e: React.PointerEvent) => {
@@ -3642,6 +3822,51 @@ function ShiftTrack({
     };
   }
 
+  // 1 pixel ≈ 0.5 minute → ~30px to cross one 15-min boundary. Comfortable
+  // drag distance on phone + desktop without being twitchy.
+  const PX_PER_MIN = 0.5;
+
+  const dragBindings = {
+    onPointerDown: (e: React.PointerEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // Some browsers throw if capture fails — we just lose precision,
+        // not behaviour.
+      }
+      dragStartYRef.current = e.clientY;
+      dragLastDelta15Ref.current = 0;
+      draggingRef.current = true;
+      setDragHover(true);
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      if (!draggingRef.current) return;
+      const deltaPx = e.clientY - dragStartYRef.current;
+      const deltaMin = deltaPx * PX_PER_MIN;
+      const delta15 = Math.round(deltaMin / 15) * 15;
+      if (delta15 !== dragLastDelta15Ref.current) {
+        const stepDelta = delta15 - dragLastDelta15Ref.current;
+        onShift(stepDelta);
+        dragLastDelta15Ref.current = delta15;
+      }
+    },
+    onPointerUp: (e: React.PointerEvent) => {
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        /* noop */
+      }
+      draggingRef.current = false;
+      setDragHover(false);
+    },
+    onPointerCancel: () => {
+      draggingRef.current = false;
+      setDragHover(false);
+    },
+  };
+
   return (
     <div
       className="pointer-events-none absolute bottom-3 top-1.5 flex flex-col"
@@ -3667,10 +3892,31 @@ function ShiftTrack({
           <path d="M6 15l6-6 6 6" />
         </svg>
       </button>
-      <span
-        className="mx-auto h-[1px] w-2/3"
-        style={{ background: "rgba(255,255,255,0.10)" }}
-      />
+      {/* Drag handle — center grab zone. Press + drag up/down to slide
+          the item earlier / later, snapped to 15-min boundaries. Distinct
+          from the tap-target arrows so they don't fire while dragging. */}
+      <div
+        {...dragBindings}
+        className="pointer-events-auto flex h-[18px] cursor-grab items-center justify-center active:cursor-grabbing"
+        style={{
+          color: dragHover ? "var(--ios-text)" : "var(--ios-text-muted)",
+          background: dragHover
+            ? "rgba(255, 255, 255, 0.12)"
+            : "rgba(255, 255, 255, 0.04)",
+          touchAction: "none",
+        }}
+        aria-label="Drag to move (snaps to 15 min)"
+        title="Drag up = earlier · drag down = later"
+      >
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+          <circle cx="9" cy="6" r="1.4" />
+          <circle cx="15" cy="6" r="1.4" />
+          <circle cx="9" cy="12" r="1.4" />
+          <circle cx="15" cy="12" r="1.4" />
+          <circle cx="9" cy="18" r="1.4" />
+          <circle cx="15" cy="18" r="1.4" />
+        </svg>
+      </div>
       <button
         type="button"
         {...bind(15, 60)}
