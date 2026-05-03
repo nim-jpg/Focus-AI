@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   GOAL_HORIZONS,
   THEMES,
@@ -10,6 +10,7 @@ import {
 import type { NewGoalInput } from "@/lib/useGoals";
 import { ThemeBadge } from "./ThemeBadge";
 import { suggestGoalTasks, type GoalTaskMatch } from "@/lib/suggestGoalTasks";
+import { planThemeBucketLinks } from "@/lib/themeRouter";
 
 interface Props {
   goals: Goal[];
@@ -84,6 +85,11 @@ export function Goals({
   // reveal notes + linked tasks for the goal you're focusing on. Keeps the
   // page scannable when you have 10+ goals.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Theme filter — pills at the top let the user narrow to a bucket
+  // (Stress / Health / Career / etc.). null = no filter, all goals show.
+  // Themes here use the existing Task themes (work/fitness/finance/...)
+  // so the filter is consistent with how tasks self-classify.
+  const [themeFilter, setThemeFilter] = useState<Theme | null>(null);
   const toggleExpanded = (id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -106,34 +112,64 @@ export function Goals({
     const applied: AppliedMatch[] = [];
     let goalsConsidered = 0;
     try {
-      // Process goals sequentially to keep request volume modest and to
-      // share the same `tasks` snapshot across calls.
+      // ─── Pass 1: deterministic theme-bucket + keyword routing ──────
+      // Same logic the "Suggested for your goals" panel uses. Catches
+      // the obvious cases (exam → school, gym → fitness, tax → finance,
+      // etc.) WITHOUT an AI round-trip. Cuts API cost + latency, and
+      // means the Match button does the right thing even if Anthropic
+      // is unreachable.
+      const planned = planThemeBucketLinks(tasks, goals);
+      const themedTaskIds = new Set<string>();
+      for (const link of planned) {
+        onLinkTaskToGoal(link.taskId, link.goalId);
+        const task = tasks.find((t) => t.id === link.taskId);
+        if (task) {
+          applied.push({
+            taskId: link.taskId,
+            goalId: link.goalId,
+            confidence: "high",
+            reason: link.reason,
+          });
+          themedTaskIds.add(link.taskId);
+        }
+      }
+
+      // ─── Pass 2: AI semantic match for the genuinely-fuzzy cases ──
+      // Skip tasks already auto-linked above; only ask the model about
+      // tasks whose theme didn't map cleanly to any goal. Process goals
+      // sequentially — keeps API volume modest and shares one tasks
+      // snapshot across calls.
       for (const g of goals) {
         const candidates = tasks.filter(
           (t) =>
-            t.status !== "completed" && !(t.goalIds ?? []).includes(g.id),
+            t.status !== "completed" &&
+            !(t.goalIds ?? []).includes(g.id) &&
+            !themedTaskIds.has(t.id) &&
+            !t.calendarEventId, // appointments stay out of goal buckets
         );
         if (candidates.length === 0) continue;
         goalsConsidered += 1;
         const matches = await suggestGoalTasks(g, candidates);
         for (const m of matches) {
-          // Auto-link every match the model returns (any confidence). The
-          // user can unlink anything they don't want from the result banner
-          // or the per-goal chips below.
+          // Auto-link every match the model returns. User can unlink
+          // anything that doesn't fit from the result banner.
           onLinkTaskToGoal(m.taskId, g.id);
           applied.push({ ...m, goalId: g.id });
         }
       }
       setAppliedMatches(applied);
-      if (applied.length === 0 && goalsConsidered === 0) {
+      if (applied.length === 0 && goalsConsidered === 0 && planned.length === 0) {
         setMatchError(
-          "Every open task is already linked to every goal — nothing to match.",
+          "Every open task is already linked to a goal — nothing to match.",
         );
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "AI unavailable";
       console.error("[Goals] match failed:", err);
-      setMatchError(msg);
+      // Theme-bucket links may have already applied successfully even if
+      // the AI pass fell over. Show what landed.
+      if (applied.length > 0) setAppliedMatches(applied);
+      setMatchError(`${msg} — kept ${applied.length} keyword match${applied.length === 1 ? "" : "es"}`);
     } finally {
       setMatchBusy(false);
     }
@@ -147,9 +183,24 @@ export function Goals({
     setOpen(false);
   };
 
+  // Theme filter restricts the visible goals — useful when the list grows
+  // beyond a screen's worth and the user wants to drill into one bucket.
+  // Counts shown on the pills reflect ALL goals (so the filter doesn't
+  // hide the option to re-enter a now-empty bucket).
+  const themeCounts = useMemo(() => {
+    const map = new Map<Theme, number>();
+    for (const g of goals) {
+      map.set(g.theme, (map.get(g.theme) ?? 0) + 1);
+    }
+    return map;
+  }, [goals]);
+  const visibleGoals = themeFilter
+    ? goals.filter((g) => g.theme === themeFilter)
+    : goals;
+
   const grouped = HORIZON_ORDER.map((horizon) => ({
     horizon,
-    items: goals.filter((g) => g.horizon === horizon),
+    items: visibleGoals.filter((g) => g.horizon === horizon),
   })).filter((g) => g.items.length > 0);
 
   // Tasks linked to each goal — used so each goal card can show its current
@@ -337,9 +388,61 @@ export function Goals({
         </form>
       )}
 
+      {/* Theme bucket pills — top-level filter chips. Only shown when
+          there are 2+ goal themes to switch between, so single-theme
+          users don't see redundant chrome. The "All" pill clears the
+          filter and shows every goal grouped by horizon. */}
+      {themeCounts.size >= 2 && (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => setThemeFilter(null)}
+            className={`rounded-full border px-2.5 py-1 text-xs ${
+              themeFilter === null
+                ? "border-slate-900 bg-gradient-to-b from-slate-800 to-slate-900 text-white shadow-sm"
+                : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+            }`}
+          >
+            All · {goals.length}
+          </button>
+          {THEMES.map((th) => {
+            const count = themeCounts.get(th) ?? 0;
+            if (count === 0) return null;
+            const active = themeFilter === th;
+            return (
+              <button
+                key={th}
+                type="button"
+                onClick={() => setThemeFilter(active ? null : th)}
+                className={`rounded-full border px-2.5 py-1 text-xs ${
+                  active
+                    ? "border-slate-900 bg-gradient-to-b from-slate-800 to-slate-900 text-white shadow-sm"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+                }`}
+                title={`Filter to ${th} goals`}
+              >
+                {th} · {count}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {goals.length === 0 ? (
         <div className="card text-center text-sm text-slate-500">
           No goals yet. Add one to start laddering tasks toward something bigger.
+        </div>
+      ) : visibleGoals.length === 0 ? (
+        <div className="card text-center text-sm text-slate-500">
+          No goals in this theme yet. Click a different pill above, or
+          <button
+            type="button"
+            onClick={() => setThemeFilter(null)}
+            className="ml-1 text-slate-700 underline"
+          >
+            show all
+          </button>
+          .
         </div>
       ) : (
         <div className="space-y-3">

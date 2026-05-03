@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import type { Goal, Task, Theme } from "@/types/task";
+import type { Goal, Task } from "@/types/task";
 import { ThemeBadge } from "./ThemeBadge";
+import { inferTaskTheme, pickGoalForTask } from "@/lib/themeRouter";
 
 /**
  * Auto-suggested goal links — surfaces the bucket the user keeps asking
@@ -38,22 +39,6 @@ interface Props {
   onDismiss: (taskId: string) => void;
 }
 
-/** Lightweight keyword router. The user explicitly asked for "exam" to
- *  route to education/school. Add more entries here over time as user
- *  feedback identifies common pairings — every entry here gracefully
- *  degrades when no goal of the target theme exists, so it's safe to
- *  expand. */
-function inferTheme(task: Task): Theme {
-  const title = task.title.toLowerCase();
-  if (/\bexam(s)?\b/.test(title)) return "school";
-  if (/\bcourse(s)?\b|\bstudy\b|\brevision\b/.test(title)) return "school";
-  if (/\bgym\b|\bworkout\b|\brun\b|\btraining session\b/.test(title))
-    return "fitness";
-  if (/\bbill(s)?\b|\binvoice(s)?\b|\btax\b|\bpayroll\b/.test(title))
-    return "finance";
-  return task.theme;
-}
-
 export function SuggestedGoalLinks({
   tasks,
   goals,
@@ -68,27 +53,13 @@ export function SuggestedGoalLinks({
 
   const suggestions = useMemo<Suggestion[]>(() => {
     if (goals.length === 0) return [];
-    // Group goals by theme so we can pick the most-recently-active one
-    // per theme as the suggestion target. Falls back to the first goal
-    // of the theme if none has activity.
-    const goalsByTheme = new Map<Theme, Goal[]>();
-    for (const g of goals) {
-      const arr = goalsByTheme.get(g.theme) ?? [];
-      arr.push(g);
-      goalsByTheme.set(g.theme, arr);
-    }
-
     const out: Suggestion[] = [];
     for (const task of tasks) {
       if (task.status === "completed") continue;
-      // Skip appointments — they're booked in the user's calendar so
-      // they're already "managed". Top-Three filtering does the same.
+      // Skip appointments — already in the calendar, not "work to bucket".
       if (task.calendarEventId) continue;
-      // Already linked to ANY goal? Don't suggest another.
       if ((task.goalIds ?? []).length > 0) continue;
       if (dismissed.has(task.id)) continue;
-      // Snoozed tasks aren't "active work" right now — skip until they
-      // wake up, otherwise the suggestion list fills with deferred junk.
       if (
         task.snoozedUntil &&
         new Date(task.snoozedUntil).getTime() > Date.now()
@@ -96,20 +67,14 @@ export function SuggestedGoalLinks({
         continue;
       }
 
-      const inferredTheme = inferTheme(task);
-      const candidates = goalsByTheme.get(inferredTheme) ?? [];
-      if (candidates.length === 0) continue;
-      // Prefer the most recently updated goal of the matching theme.
-      const goal = [...candidates].sort(
-        (a, b) =>
-          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-      )[0];
+      const goal = pickGoalForTask(task, goals);
+      if (!goal) continue;
 
+      const inferredTheme = inferTaskTheme(task);
       const reason =
         inferredTheme !== task.theme
           ? `${task.theme} → keyword routes to ${inferredTheme}`
           : `theme: ${inferredTheme}`;
-
       out.push({ task, goal, reason });
     }
     return out;
