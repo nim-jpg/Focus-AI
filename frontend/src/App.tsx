@@ -1321,10 +1321,10 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
                   {loading
                     ? "Asking Claude…"
                     : aiStaleCount > 0
-                      ? `Refresh AI · ${aiStaleCount} stale`
+                      ? `Re-rank Top 3 · ${aiStaleCount} stale`
                       : source === "claude" && aiCache.size > 0
-                        ? "Refresh AI (incremental)"
-                        : "Refresh with AI"}
+                        ? "Re-rank Top 3"
+                        : "Re-rank Top 3 with AI"}
                 </button>
               </div>
             </div>
@@ -1479,7 +1479,20 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
       )}
 
       {view === "tasks" && (
-        <section>
+        <section className="space-y-4">
+          {/* Sync from Google here too — same surface as Today, but the
+              user often manages tasks while looking at the full list and
+              shouldn't have to jump tabs to pull in calendar items. */}
+          {googleStatus?.connected && (
+            <SyncFromGoogleButton
+              onAutoSync={handleAutoSync}
+              onSkipEvent={(eventId) => {
+                const cur = prefs.enrichmentSkippedEventIds ?? [];
+                if (cur.includes(eventId)) return;
+                setPrefs({ enrichmentSkippedEventIds: [...cur, eventId] });
+              }}
+            />
+          )}
           <h2 className="mb-3 text-lg font-semibold">All tasks</h2>
           <TaskList
             tasks={tasks}
