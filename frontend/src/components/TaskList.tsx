@@ -114,7 +114,16 @@ export function TaskList({
         return false;
       }
       if (selectedThemes.size > 0 && !selectedThemes.has(t.theme)) return false;
-      if (statusFilter === "open" && t.status === "completed") return false;
+      if (statusFilter === "open") {
+        if (t.status === "completed") return false;
+        // Deferred / ignored (snoozedUntil in the future) hide from the
+        // default "open" view — they're still in the system but not
+        // cluttering the list. Switch the status filter to "snoozed" to
+        // see them.
+        if (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > now) {
+          return false;
+        }
+      }
       if (statusFilter === "completed" && t.status !== "completed") return false;
       if (statusFilter === "snoozed") {
         if (!t.snoozedUntil) return false;
@@ -310,15 +319,26 @@ export function TaskList({
                 task.status === "completed" ? "opacity-60" : ""
               }`}
             >
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={task.status === "completed"}
-                onChange={() => onToggle(task.id)}
-                aria-label={`Mark ${task.title} ${
-                  task.status === "completed" ? "incomplete" : "complete"
-                }`}
-              />
+              {/* Bigger, clearer checkbox with cursor pointer + tooltip
+                  so users see they're marking the task complete. */}
+              <label
+                className="mt-0.5 inline-flex cursor-pointer items-center"
+                title={
+                  task.status === "completed"
+                    ? "Mark not done"
+                    : "Mark done"
+                }
+              >
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 cursor-pointer accent-emerald-600"
+                  checked={task.status === "completed"}
+                  onChange={() => onToggle(task.id)}
+                  aria-label={`Mark ${task.title} ${
+                    task.status === "completed" ? "incomplete" : "complete"
+                  }`}
+                />
+              </label>
 
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -426,16 +446,19 @@ export function TaskList({
                     </button>
                   )}
                 {task.calendarEventId ? (
-                  // Imported tasks can't be deleted from Focus3 — the
-                  // source of truth is Google. Direct the user there.
+                  // Calendar-derived tasks can't be deleted from Focus3 —
+                  // delete the source event in Google and the task drops
+                  // on next sync. Show a struck-through "Delete" so the
+                  // affordance is visible-but-unavailable, with the hover
+                  // hint explaining what to do.
                   <a
                     href="https://calendar.google.com/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-slate-400 hover:text-slate-700"
-                    title="This task is linked to a Google Calendar event. Delete it in Google Calendar — Focus3 will drop the task on the next sync."
+                    className="text-slate-400 line-through hover:text-slate-600"
+                    title="Delete this event in Google Calendar first — Focus3 drops the task on the next sync."
                   >
-                    Open in Google
+                    Delete
                   </a>
                 ) : (
                   <button

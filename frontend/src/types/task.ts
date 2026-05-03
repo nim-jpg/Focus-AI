@@ -278,6 +278,9 @@ export interface UserPrefs {
    *  views. Defaults off — the desktop layout still loads. Reuses the
    *  same data hooks + backend. Toggle from Settings. */
   iosLayout?: boolean;
+  /** UI theme. "dark" (default on iOS shell) or "light". Persisted in
+   *  prefs so it follows the user across devices. */
+  theme?: "dark" | "light";
   /** What the user wants the prioritisation engine to bias toward — pick
    *  1-3. Empty (default) keeps the engine neutral and leans on the existing
    *  signals (deadlines, avoidance, blockers, goals). When set, tasks

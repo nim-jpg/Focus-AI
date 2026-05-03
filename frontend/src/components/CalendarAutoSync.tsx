@@ -110,6 +110,44 @@ export function CalendarAutoSync({ onSyncComplete }: Props) {
             </div>
           </div>
 
+          {result.imported > 0 && result.importedTasks && result.importedTasks.length > 0 && (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50/50 p-2">
+              <p className="text-xs font-medium text-emerald-900">
+                Imported {result.imported} task{result.imported === 1 ? "" : "s"} from your calendar
+              </p>
+              <ul className="mt-1.5 space-y-1">
+                {result.importedTasks.map((it, i) => (
+                  <li
+                    key={i}
+                    className="rounded border border-emerald-200 bg-white px-2 py-1 text-[11px]"
+                  >
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-medium text-slate-800">{it.title}</span>
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-slate-600">
+                        {it.theme}
+                      </span>
+                      {it.dueDate && (
+                        <span className="text-slate-500">
+                          · {new Date(it.dueDate).toLocaleString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      )}
+                      {it.calendarName && (
+                        <span className="text-[10px] text-slate-400">
+                          · {it.calendarName}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {result.enrichmentNeedsReview.length > 0 && (
             <div className="rounded-md border border-amber-200 bg-amber-50/50 p-2">
               <p className="text-xs font-medium text-amber-900">

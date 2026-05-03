@@ -49,6 +49,8 @@ interface IosShellProps {
   onUpdateTask: (id: string, patch: Partial<Task>) => void;
   /** Mute a Google calendar event (adds to prefs.ignoredEventIds). */
   onMuteEvent: (eventId: string) => void;
+  /** Update arbitrary user prefs — used by the theme toggle. */
+  onUpdatePrefs: (patch: Partial<UserPrefs>) => void;
   onAddGoal: (input: Omit<Goal, "id" | "createdAt" | "updatedAt" | "source">) => void;
   onUpdateGoal: (id: string, patch: Partial<Goal>) => void;
   onRemoveGoal: (id: string) => void;
@@ -104,7 +106,10 @@ export function IosShell(props: IosShellProps) {
   }, [tab]);
 
   return (
-    <div className="ios-root flex h-screen flex-col">
+    <div
+      className="ios-root flex h-screen flex-col"
+      data-theme={props.prefs.theme === "light" ? "light" : "dark"}
+    >
       <header
         className="sticky top-0 z-20 transition-all"
         style={{
@@ -138,6 +143,35 @@ export function IosShell(props: IosShellProps) {
           </div>
           <div className="flex flex-none items-center gap-2">
             <HyperLaunchButton onClick={() => setHyperState("countdown")} />
+            <button
+              type="button"
+              onClick={() =>
+                props.onUpdatePrefs({
+                  theme: props.prefs.theme === "light" ? "dark" : "light",
+                })
+              }
+              className="flex h-8 w-8 items-center justify-center rounded-md"
+              style={{
+                color: "var(--ios-text-secondary)",
+                background: "var(--ios-surface)",
+                border: "1px solid var(--ios-border)",
+              }}
+              title={props.prefs.theme === "light" ? "Switch to dark" : "Switch to light"}
+              aria-label="Toggle theme"
+            >
+              {props.prefs.theme === "light" ? (
+                /* Moon */
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+              ) : (
+                /* Sun */
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+                </svg>
+              )}
+            </button>
             <button
               type="button"
               onClick={props.onExitIosLayout}
@@ -313,6 +347,7 @@ export function IosShell(props: IosShellProps) {
 
       <style>{`
         .ios-root {
+          /* Dark theme — default. Light theme overrides via [data-theme="light"]. */
           --ios-bg: #0B0E13;
           --ios-bg-elev: #0F1218;
           --ios-surface: #16181F;
@@ -331,6 +366,24 @@ export function IosShell(props: IosShellProps) {
           --ios-danger: #EF4444;
           background: var(--ios-bg);
           color: var(--ios-text);
+        }
+        .ios-root[data-theme="light"] {
+          --ios-bg: #F5F6FA;
+          --ios-bg-elev: #FFFFFF;
+          --ios-surface: #FFFFFF;
+          --ios-surface-elev: #F1F3F8;
+          --ios-text: #0F172A;
+          --ios-text-secondary: #475569;
+          --ios-text-muted: #64748B;
+          --ios-border: rgba(15, 23, 42, 0.08);
+          --ios-border-strong: rgba(15, 23, 42, 0.18);
+          --ios-accent: #6D28D9;
+          --ios-accent-soft: rgba(124, 58, 237, 0.10);
+          --ios-accent-grad-from: #7C3AED;
+          --ios-accent-grad-to: #EC4899;
+          --ios-success: #059669;
+          --ios-warning: #D97706;
+          --ios-danger: #DC2626;
         }
         .ios-fade-in { animation: iosFade 220ms cubic-bezier(0.32, 0.72, 0, 1); }
         .ios-sheet { animation: iosSheet 280ms cubic-bezier(0.32, 0.72, 0, 1); }
@@ -2459,6 +2512,19 @@ function DayRiver({
                   </Fragment>
                 );
               })}
+              {/* End-of-day annotation, bottom-right. Shows when the last
+                  scheduled item finishes so the user knows where their
+                  day "lands". */}
+              {groups.length > 0 && (
+                <div
+                  className="mt-3 flex items-center justify-end pr-1 text-[11px]"
+                  style={{ color: "var(--ios-text-muted)" }}
+                >
+                  <span>
+                    Day ends · <span style={{ color: "var(--ios-text-secondary)" }}>{fmtTime(groups[groups.length - 1].end)}</span>
+                  </span>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -2634,16 +2700,20 @@ function RiverSpine() {
  *  "Nh gap" pill if the spread is meaningful (>30 min). */
 function RiverConnector({ from, to }: { from: Date; to: Date }) {
   const gapMin = Math.max(0, Math.round((to.getTime() - from.getTime()) / 60_000));
-  const tight = gapMin < 30;
   const big = gapMin >= 120;
+  // Every gap gets a label now — even tight 5-minute ones — so the
+  // user can see exactly how much breathing room sits between items.
   const label =
     gapMin >= 60
       ? `${Math.round(gapMin / 60)}h gap`
-      : gapMin >= 30
+      : gapMin > 0
         ? `${gapMin}m gap`
         : null;
   return (
-    <div className="relative flex items-center justify-center" style={{ height: tight ? 12 : big ? 28 : 20 }}>
+    <div
+      className="relative flex items-center justify-center"
+      style={{ height: big ? 28 : 20 }}
+    >
       {label && (
         <span
           className="relative z-10 rounded-md px-2 py-0.5 text-[10px] font-medium"
