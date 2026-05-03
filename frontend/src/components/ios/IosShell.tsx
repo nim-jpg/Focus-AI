@@ -1,5 +1,5 @@
 import { Fragment, forwardRef, useEffect, useMemo, useRef, useState } from "react";
-import type { Goal, PrioritizedTask, Task, UserPrefs } from "@/types/task";
+import type { Goal, PrioritizedTask, Task, Theme, UserPrefs } from "@/types/task";
 import { prioritize } from "@/lib/prioritize";
 import { fetchEvents, type CalendarEvent } from "@/lib/googleCalendar";
 import { inferTaskKind, isActionable, kindGlyph, kindLabel } from "@/lib/taskKind";
@@ -52,7 +52,9 @@ interface IosShellProps {
   onMuteEvent: (eventId: string) => void;
   /** Update arbitrary user prefs — used by the theme toggle. */
   onUpdatePrefs: (patch: Partial<UserPrefs>) => void;
-  onAddGoal: (input: Omit<Goal, "id" | "createdAt" | "updatedAt" | "source">) => void;
+  /** Returns the freshly-created Goal so callers (e.g. the goal-picker
+   *  sheet's "+ New goal" path) can immediately link a task to it. */
+  onAddGoal: (input: Omit<Goal, "id" | "createdAt" | "updatedAt" | "source">) => Goal;
   onUpdateGoal: (id: string, patch: Partial<Goal>) => void;
   onRemoveGoal: (id: string) => void;
   onAddTask: () => void;
@@ -260,19 +262,6 @@ export function IosShell(props: IosShellProps) {
                     at: Date.now(),
                   });
                 }
-              }}
-              onAfterDefer={(id, before) => {
-                // Down-arrow defer: surface a "Deferred — undo" toast so the
-                // user always has a way back when a recurring task vanishes
-                // for the day or a one-off jumps forward.
-                const task = props.tasks.find((t) => t.id === id);
-                if (!task) return;
-                setRecentlyDeferred({
-                  taskId: id,
-                  title: task.title,
-                  before,
-                  at: Date.now(),
-                });
               }}
             />
           )}
@@ -755,7 +744,35 @@ function FocusTab(p: IosShellProps & { onAskComplete: (taskId: string) => void }
         </section>
       )}
 
-      <QuickTray />
+      {/* Quick Log used to live inline at the bottom of the Focus tab,
+          so it scrolled away. The user wants it pinned: render an empty
+          spacer here so the page-content height accounts for the
+          fixed-position tray below — no overlap with the last task. */}
+      <div aria-hidden style={{ height: 96 }} />
+      <FixedQuickTray enabled={p.prefs.quickLogItems} />
+    </div>
+  );
+}
+
+/** Quick Log fixed above the FAB nav. Positioned at bottom + 88px (the
+ *  FAB nav height) so it sits exactly between content and the tab bar.
+ *  Has its own blurred surface so it reads against scrolling content. */
+function FixedQuickTray({ enabled }: { enabled?: string[] }) {
+  return (
+    <div
+      className="fixed inset-x-0 z-20 px-5 pt-2"
+      style={{
+        bottom: "calc(env(safe-area-inset-bottom, 0) + 88px)",
+        background:
+          "linear-gradient(to top, rgba(15, 18, 24, 0.95) 60%, rgba(15, 18, 24, 0))",
+        backdropFilter: "saturate(180%) blur(18px)",
+        WebkitBackdropFilter: "saturate(180%) blur(18px)",
+        pointerEvents: "none",
+      }}
+    >
+      <div className="mx-auto max-w-md" style={{ pointerEvents: "auto" }}>
+        <QuickTray enabled={enabled} />
+      </div>
     </div>
   );
 }
@@ -1162,15 +1179,36 @@ function StretchRow({
 }
 
 // ─── QUICK TRAY ──────────────────────────────────────────────────────
-type QuickIconKey = "water" | "coffee" | "snack" | "step" | "med";
+// Extended catalogue of trackables; the user picks which to show via
+// prefs.quickLogItems (Settings → Quick Log). Default set keeps it neutral
+// (water + walk) so users tracking different things — vices, hydration,
+// movement — opt INTO what's surfaced rather than seeing a "Med" prompt
+// out of the box. Walk hooks into device step count later; for now it's
+// a tap counter same as the rest.
+type QuickIconKey =
+  | "water"
+  | "coffee"
+  | "snack"
+  | "step"
+  | "med"
+  | "smoke"
+  | "drink"
+  | "sugar"
+  | "screen";
 
-const QUICK_ITEMS: { key: QuickIconKey; label: string }[] = [
+const QUICK_CATALOGUE: { key: QuickIconKey; label: string }[] = [
   { key: "water", label: "Water" },
+  { key: "step", label: "Walk" },
   { key: "coffee", label: "Coffee" },
   { key: "snack", label: "Snack" },
-  { key: "step", label: "Walk" },
+  { key: "smoke", label: "Smoke" },
+  { key: "drink", label: "Drink" },
+  { key: "sugar", label: "Sugar" },
+  { key: "screen", label: "Screen" },
   { key: "med", label: "Med" },
 ];
+
+const DEFAULT_QUICK_KEYS: QuickIconKey[] = ["water", "step"];
 
 /** Outline SVG icons for the Quick log — replacing the previous emoji.
  *  Single colour, 1.6 stroke, 18×18, scaled by parent. Designed to read
@@ -1224,6 +1262,39 @@ function QuickIcon({ kind }: { kind: QuickIconKey }) {
           <path d="M9.5 7l5 9" transform="rotate(-30 12 12)" />
         </svg>
       );
+    case "smoke":
+      return (
+        <svg {...common}>
+          {/* cigarette */}
+          <rect x="3" y="13" width="14" height="3" rx="0.5" />
+          <path d="M14 13v3" />
+          <path d="M19 9c0-1.5-1-2-1-3.5" />
+        </svg>
+      );
+    case "drink":
+      return (
+        <svg {...common}>
+          {/* wine glass */}
+          <path d="M7 4h10c0 4-2 7-5 7s-5-3-5-7Z" />
+          <path d="M12 11v8M9 19h6" />
+        </svg>
+      );
+    case "sugar":
+      return (
+        <svg {...common}>
+          {/* sugar cube */}
+          <rect x="5" y="5" width="14" height="14" rx="2" />
+          <path d="M9 9l6 6M15 9l-6 6" />
+        </svg>
+      );
+    case "screen":
+      return (
+        <svg {...common}>
+          {/* phone */}
+          <rect x="7" y="3" width="10" height="18" rx="2" />
+          <path d="M11 18h2" />
+        </svg>
+      );
   }
 }
 
@@ -1251,7 +1322,7 @@ function writeQuick(state: Record<string, number>) {
   }
 }
 
-function QuickTray() {
+function QuickTray({ enabled }: { enabled?: string[] } = {}) {
   const [counts, setCounts] = useState<Record<string, number>>(() => readQuick());
 
   function bump(key: string) {
@@ -1262,6 +1333,15 @@ function QuickTray() {
     });
   }
 
+  // Resolve which items to show: explicit prefs.quickLogItems OR sensible
+  // default. Filters the catalogue so the tiles render in catalogue order
+  // (so e.g. "Water" stays leftmost regardless of what else is enabled).
+  const enabledSet = new Set<string>(
+    enabled && enabled.length > 0 ? enabled : DEFAULT_QUICK_KEYS,
+  );
+  const items = QUICK_CATALOGUE.filter((it) => enabledSet.has(it.key));
+  if (items.length === 0) return null;
+
   return (
     <section>
       <h3
@@ -1271,7 +1351,7 @@ function QuickTray() {
         Quick log
       </h3>
       <div className="flex w-full items-center justify-center gap-1">
-        {QUICK_ITEMS.map((item) => (
+        {items.map((item) => (
           <button
             key={item.key}
             type="button"
@@ -1316,41 +1396,8 @@ function QuickTray() {
 function GoalsTab(
   p: IosShellProps & {
     onAskComplete: (id: string) => void;
-    /** Fires AFTER a defer applies. `before` carries the fields that
-     *  changed in their pre-defer state so the parent can offer Undo. */
-    onAfterDefer?: (id: string, before: Partial<Task>) => void;
   },
 ) {
-  const deferTaskToTomorrow = (taskId: string) => {
-    const task = p.tasks.find((t) => t.id === taskId);
-    if (!task) return;
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(9, 0, 0, 0);
-    const isRecurring = task.recurrence && task.recurrence !== "none";
-    if (isRecurring) {
-      const endOfToday = new Date();
-      endOfToday.setHours(23, 59, 59, 999);
-      const before: Partial<Task> = { snoozedUntil: task.snoozedUntil };
-      p.onSnooze(task.id, endOfToday.toISOString());
-      p.onAfterDefer?.(task.id, before);
-      return;
-    }
-    const patch: Partial<Task> = { snoozedUntil: undefined };
-    const before: Partial<Task> = { snoozedUntil: task.snoozedUntil };
-    if (task.scheduledFor) {
-      before.scheduledFor = task.scheduledFor;
-      patch.scheduledFor = tomorrow.toISOString();
-    } else if (task.dueDate) {
-      before.dueDate = task.dueDate;
-      patch.dueDate = tomorrow.toISOString();
-    } else {
-      before.scheduledFor = task.scheduledFor;
-      patch.scheduledFor = tomorrow.toISOString();
-    }
-    p.onUpdateTask(task.id, patch);
-    p.onAfterDefer?.(task.id, before);
-  };
 
   // Selected tab: "all" | goal id | "none" (uncategorised)
   type Tab = "all" | "none" | string; // a goal id
@@ -1453,7 +1500,6 @@ function GoalsTab(
               goal={p.goals.find((g) => (t.goalIds ?? []).includes(g.id))}
               onComplete={() => p.onAskComplete(t.id)}
               onEdit={() => p.onEditTask(t.id)}
-              onDefer={() => deferTaskToTomorrow(t.id)}
               onMove={() => setMovingTaskId(t.id)}
             />
           ))}
@@ -1476,6 +1522,18 @@ function GoalsTab(
           goals={p.goals}
           onClose={() => setMovingTaskId(null)}
           onMove={(goalId) => handleMoveTask(movingTaskId, goalId)}
+          onCreateAndAssign={(title, theme) => {
+            // Synchronously create the goal (default 1y horizon — user
+            // can re-tier it later in Desktop Goals view) and assign
+            // the in-progress task to it.
+            const fresh = p.onAddGoal({
+              title,
+              horizon: "1y",
+              theme,
+              notes: "",
+            });
+            handleMoveTask(movingTaskId, fresh.id);
+          }}
         />
       )}
     </div>
@@ -1687,13 +1745,19 @@ function MoveToGoalSheet({
   goals,
   onClose,
   onMove,
+  onCreateAndAssign,
 }: {
   task: Task;
   goals: Goal[];
   onClose: () => void;
   onMove: (goalId: string | null) => void;
+  /** Create a new goal AND assign this task to it in one atomic step.
+   *  Theme inherits from the task — goals naturally bucket by theme so
+   *  this keeps the new goal aligned with the task's category. */
+  onCreateAndAssign: (title: string, theme: Theme) => void;
 }) {
   const currentGoalIds = new Set(task.goalIds ?? []);
+  const [newGoalTitle, setNewGoalTitle] = useState("");
   return (
     <div
       className="ios-sheet-backdrop fixed inset-0 z-40 flex items-end"
@@ -1714,18 +1778,64 @@ function MoveToGoalSheet({
         <div className="mx-auto mb-3 h-1 w-10 rounded-full" style={{ background: "var(--ios-border-strong)" }} />
         <div className="mb-3 px-1">
           <div className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--ios-text-secondary)" }}>
-            Move task
+            Set goal
           </div>
           <div className="mt-0.5 text-[15px] font-bold leading-snug" style={{ color: "var(--ios-text)" }}>
             {task.title}
           </div>
         </div>
+
+        {/* Inline "add new goal" — type a title, hit Enter (or +) and the
+            goal is created with the task's theme + assigned in one step. */}
+        <div
+          className="mb-3 flex items-center gap-2 rounded-md px-3 py-2"
+          style={{
+            background: "var(--ios-surface-elev)",
+            border: "1px dashed var(--ios-border-strong)",
+          }}
+        >
+          <span className="text-[14px]" style={{ color: "var(--ios-text-muted)" }}>+</span>
+          <input
+            type="text"
+            value={newGoalTitle}
+            onChange={(e) => setNewGoalTitle(e.target.value)}
+            placeholder={`New goal (theme: ${task.theme})`}
+            className="min-w-0 flex-1 bg-transparent text-[14px] outline-none"
+            style={{ color: "var(--ios-text)" }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && newGoalTitle.trim()) {
+                onCreateAndAssign(newGoalTitle.trim(), task.theme);
+              }
+            }}
+          />
+          <button
+            type="button"
+            disabled={!newGoalTitle.trim()}
+            onClick={() => {
+              if (newGoalTitle.trim()) {
+                onCreateAndAssign(newGoalTitle.trim(), task.theme);
+              }
+            }}
+            className="flex-none rounded-md px-2 py-1 text-[11px] font-bold disabled:opacity-30"
+            style={{
+              background: "var(--ios-accent-soft)",
+              color: "var(--ios-accent)",
+              border: "1px solid rgba(167, 139, 250, 0.4)",
+            }}
+          >
+            Add
+          </button>
+        </div>
+
         {goals.length === 0 ? (
-          <div className="px-1 py-3 text-center text-[12px]" style={{ color: "var(--ios-text-muted)" }}>
-            No goals yet — tap + New on the tab bar to create one.
+          <div className="px-1 py-2 text-center text-[12px]" style={{ color: "var(--ios-text-muted)" }}>
+            No existing goals — type a title above to create your first one.
           </div>
         ) : (
           <div className="mb-2 space-y-1">
+            <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--ios-text-muted)" }}>
+              Or pick existing
+            </div>
             {goals.map((g) => {
               const selected = currentGoalIds.has(g.id);
               return (
@@ -1759,24 +1869,29 @@ function MoveToGoalSheet({
 }
 
 /**
- * GoalTaskRow — bigger fonts, full-width row with goal pill, defer + tick
- * + ⋯ menu on the right. The ⋯ opens MoveToGoalSheet for cross-goal
- * assignment. Title is 16px so the row reads like a real list item rather
- * than a chip.
+ * GoalTaskRow — bigger fonts, full-width row with goal pill, "set goal" +
+ * tick on the right.
+ *
+ * The down-chevron used to defer (which made the item disappear with no
+ * obvious reason). It now opens the goal-picker sheet — the more useful
+ * action on the Goals tab where the user is actively organising. Defer
+ * behaviour is still reachable from elsewhere (Hyper Focus, manual edit).
+ *
+ * Tick gets the standard CompletedToast with Undo so an accidental tap
+ * is recoverable. Title is 16px so the row reads like a real list item.
  */
 function GoalTaskRow({
   task,
   goal,
   onComplete,
   onEdit,
-  onDefer,
   onMove,
 }: {
   task: Task;
   goal?: Goal;
   onComplete: () => void;
   onEdit: () => void;
-  onDefer: () => void;
+  /** Open goal-picker sheet — pick existing or create new. */
   onMove: () => void;
 }) {
   const done = task.status === "completed";
@@ -1827,39 +1942,23 @@ function GoalTaskRow({
             e.stopPropagation();
             onMove();
           }}
-          className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-md"
+          className="flex h-[22px] flex-none items-center justify-center gap-1 rounded-md px-1.5"
           style={{
             background: "var(--ios-surface-elev)",
             border: "1px solid var(--ios-border)",
             color: "var(--ios-text-secondary)",
           }}
-          title="Move to goal"
-          aria-label="Move to goal"
+          title="Set goal — pick existing or add new"
+          aria-label="Set goal"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-            <circle cx="5" cy="12" r="1.5" />
-            <circle cx="12" cy="12" r="1.5" />
-            <circle cx="19" cy="12" r="1.5" />
+          {/* Target icon — concentric circles. Reads as 'aim / goal'
+              rather than the old chevron which suggested defer. */}
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <circle cx="12" cy="12" r="6" />
+            <circle cx="12" cy="12" r="2" />
           </svg>
-        </button>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDefer();
-          }}
-          className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-md"
-          style={{
-            background: "var(--ios-surface-elev)",
-            border: "1px solid var(--ios-border)",
-            color: "var(--ios-text-secondary)",
-          }}
-          title="Defer to tomorrow"
-          aria-label="Defer to tomorrow"
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M6 9l6 6 6-6" />
-          </svg>
+          <span className="text-[10px] font-semibold">Goal</span>
         </button>
         <button
           type="button"
@@ -2337,7 +2436,7 @@ function HyperFocus(p: HyperFocusProps) {
           WebkitBackdropFilter: "saturate(180%) blur(18px)",
         }}
       >
-        <QuickTray />
+        <QuickTray enabled={p.prefs.quickLogItems} />
       </div>
 
       {deferingItem && (

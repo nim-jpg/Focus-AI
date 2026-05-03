@@ -412,6 +412,16 @@ export function prioritize(
     if (t.calendarEventId && ignoredEventIds.has(t.calendarEventId)) {
       return false;
     }
+    // Calendar-derived appointments (anything booked in the user's
+    // Google Calendar) should NEVER compete for Top-Three slots — the
+    // user already knows about them because they're sitting in the
+    // calendar. Top Three is for the work that needs deliberate focus,
+    // not for surfacing "you have a 2pm meeting". Note: once the user
+    // explicitly schedules a Focus3 task TO their calendar, the task
+    // also picks up calendarEventId — that's the desired behaviour
+    // because at that point it's also "a thing on the calendar". The
+    // user's own to-dos stay in Top Three until they're scheduled.
+    if (t.calendarEventId) return false;
     // Hard 6-month cutoff applies to ANY task whose dueDate is more than
     // 6 months out — including recurring ones. "File annual accounts" with
     // recurrence=yearly and a 2027 dueDate was previously slipping through

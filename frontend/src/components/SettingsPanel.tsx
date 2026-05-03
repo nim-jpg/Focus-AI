@@ -156,6 +156,56 @@ export function SettingsPanel({
             </p>
           </section>
 
+          {/* Quick Log — pick which daily-tally tiles appear in the iOS
+              bottom tray. Defaults to a neutral set (water + walk) so we
+              don't surface "Med" or drinking prompts to users who don't
+              care to track those. */}
+          <section>
+            <h4 className="text-sm font-semibold text-slate-700">Quick Log</h4>
+            <p className="mt-1 text-xs text-slate-500">
+              Pick the daily counts you want surfaced in the bottom tray of
+              the iOS layout. Hydration, movement, vices — whatever you're
+              tracking. Defaults to Water + Walk if nothing's picked.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {(
+                [
+                  { key: "water", label: "Water" },
+                  { key: "step", label: "Walk" },
+                  { key: "coffee", label: "Coffee" },
+                  { key: "snack", label: "Snack" },
+                  { key: "smoke", label: "Smoke" },
+                  { key: "drink", label: "Drink" },
+                  { key: "sugar", label: "Sugar" },
+                  { key: "screen", label: "Screen" },
+                  { key: "med", label: "Med" },
+                ] as const
+              ).map((opt) => {
+                const current = prefs.quickLogItems ?? ["water", "step"];
+                const active = current.includes(opt.key);
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => {
+                      const next = active
+                        ? current.filter((k) => k !== opt.key)
+                        : [...current, opt.key];
+                      onChange({ quickLogItems: next });
+                    }}
+                    className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                      active
+                        ? "border-slate-900 bg-gradient-to-b from-slate-800 to-slate-900 text-white shadow-sm shadow-slate-900/20"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
           {/* Priority focus — drives the prioritisation matrix + Top Three */}
           <section>
             <h4 className="text-sm font-semibold text-slate-700">
