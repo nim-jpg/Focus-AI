@@ -1405,6 +1405,20 @@ function GoalsTab(
   const [tab, setTab] = useState<Tab>("all");
   const [showNewGoal, setShowNewGoal] = useState(false);
   const [movingTaskId, setMovingTaskId] = useState<string | null>(null);
+  // Theme bucket filter — top-level pill row above the per-goal tab bar.
+  // null = all themes show. Filtering by theme constrains BOTH the goal
+  // tabs (only goals of this theme appear) and the All/None defaults
+  // (tasks are filtered to ones whose theme matches).
+  const [themeFilter, setThemeFilter] = useState<Theme | null>(null);
+
+  const themeCounts = useMemo(() => {
+    const m = new Map<Theme, number>();
+    for (const g of p.goals) m.set(g.theme, (m.get(g.theme) ?? 0) + 1);
+    return m;
+  }, [p.goals]);
+  const visibleGoals = themeFilter
+    ? p.goals.filter((g) => g.theme === themeFilter)
+    : p.goals;
 
   const ignoredEvents = useMemo(
     () => new Set(p.prefs.ignoredEventIds ?? []),
@@ -1439,16 +1453,21 @@ function GoalsTab(
   };
 
   const tasksForTab = useMemo(() => {
-    if (tab === "all") return sortByPriority(visibleTasks);
+    // Theme filter narrows the task list to ones whose theme matches —
+    // applied BEFORE the All / None / per-goal slice so the counts
+    // beneath stay coherent.
+    let pool = visibleTasks;
+    if (themeFilter) {
+      pool = pool.filter((t) => t.theme === themeFilter);
+    }
+    if (tab === "all") return sortByPriority(pool);
     if (tab === "none") {
       return sortByPriority(
-        visibleTasks.filter((t) => (t.goalIds ?? []).length === 0),
+        pool.filter((t) => (t.goalIds ?? []).length === 0),
       );
     }
-    return sortByPriority(
-      visibleTasks.filter((t) => (t.goalIds ?? []).includes(tab)),
-    );
-  }, [tab, visibleTasks]);
+    return sortByPriority(pool.filter((t) => (t.goalIds ?? []).includes(tab)));
+  }, [tab, visibleTasks, themeFilter]);
 
   const counts = useMemo(() => {
     const byGoal = new Map<string, number>();
@@ -1471,9 +1490,58 @@ function GoalsTab(
 
   return (
     <div className="space-y-3 pt-2">
+      {/* Theme bucket pills — top-level filter row above the per-goal
+          tab bar. Only renders when there are 2+ goal themes; single-
+          theme users don't need redundant chrome. */}
+      {themeCounts.size >= 2 && (
+        <div className="-mx-1 flex flex-nowrap gap-1.5 overflow-x-auto pb-1">
+          <button
+            type="button"
+            onClick={() => setThemeFilter(null)}
+            className="flex-none whitespace-nowrap rounded-full px-3 py-1 text-[12px] font-semibold"
+            style={{
+              background:
+                themeFilter === null
+                  ? "var(--ios-text)"
+                  : "var(--ios-surface-elev)",
+              color:
+                themeFilter === null
+                  ? "var(--ios-bg)"
+                  : "var(--ios-text-secondary)",
+              border: `1px solid ${themeFilter === null ? "var(--ios-text)" : "var(--ios-border)"}`,
+            }}
+          >
+            All · {p.goals.length}
+          </button>
+          {Array.from(themeCounts.entries())
+            .sort((a, b) => b[1] - a[1])
+            .map(([th, count]) => {
+              const active = themeFilter === th;
+              return (
+                <button
+                  key={th}
+                  type="button"
+                  onClick={() => setThemeFilter(active ? null : th)}
+                  className="flex-none whitespace-nowrap rounded-full px-3 py-1 text-[12px] font-semibold"
+                  style={{
+                    background: active
+                      ? "var(--ios-text)"
+                      : "var(--ios-surface-elev)",
+                    color: active
+                      ? "var(--ios-bg)"
+                      : "var(--ios-text-secondary)",
+                    border: `1px solid ${active ? "var(--ios-text)" : "var(--ios-border)"}`,
+                  }}
+                >
+                  {th} · {count}
+                </button>
+              );
+            })}
+        </div>
+      )}
       <GoalsTabBar
         tab={tab}
-        goals={p.goals}
+        goals={visibleGoals}
         counts={counts}
         onSelect={setTab}
         onNew={() => setShowNewGoal(true)}
