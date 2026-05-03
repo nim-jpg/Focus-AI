@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import {
   GOAL_HORIZONS,
+  MACRO_THEMES,
+  MACRO_THEME_LABELS,
   THEMES,
   type Goal,
   type GoalHorizon,
@@ -49,6 +51,7 @@ const blank: NewGoalInput = {
   horizon: "1y",
   theme: "personal",
   notes: "",
+  macroThemes: [],
 };
 
 function relativeDays(iso?: string): string {
@@ -368,6 +371,45 @@ export function Goals({
                 ))}
               </select>
             </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-700">
+              Macro themes{" "}
+              <span className="text-slate-400">
+                (which life-buckets this goal lives in — multi-select)
+              </span>
+            </label>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {MACRO_THEMES.filter((m) => m !== "events").map((mt) => {
+                const active = (draft.macroThemes ?? []).includes(mt);
+                return (
+                  <button
+                    key={mt}
+                    type="button"
+                    onClick={() => {
+                      const cur = draft.macroThemes ?? [];
+                      const next = active
+                        ? cur.filter((m) => m !== mt)
+                        : [...cur, mt];
+                      setDraft({ ...draft, macroThemes: next });
+                    }}
+                    className={`rounded-full border px-2.5 py-1 text-xs ${
+                      active
+                        ? "border-slate-900 bg-gradient-to-b from-slate-800 to-slate-900 text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+                    }`}
+                    title={MACRO_THEME_LABELS[mt]}
+                  >
+                    {MACRO_THEME_LABELS[mt]}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Leave empty and we'll auto-detect from the goal title — e.g.
+              "Education" picks up Learning. Multi-select for goals that
+              cross buckets (a debt-payoff goal is Money + Stress).
+            </p>
           </div>
           <div>
             <label className="text-xs font-medium text-slate-700">

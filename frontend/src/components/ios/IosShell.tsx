@@ -5,6 +5,7 @@ import { fetchEvents, type CalendarEvent } from "@/lib/googleCalendar";
 import { inferTaskKind, isActionable, kindGlyph, kindLabel } from "@/lib/taskKind";
 import { wasCompletedToday } from "@/lib/recurrence";
 import { SuggestedGoalLinks } from "@/components/SuggestedGoalLinks";
+import { UnmappedTasks } from "@/components/UnmappedTasks";
 import {
   autoReschedule,
   cascadeShift,
@@ -1552,6 +1553,23 @@ function GoalsTab(
           to bucket. Calendar appointments are excluded inside the
           component (already-known-about). */}
       <SuggestedGoalLinks
+        tasks={p.tasks}
+        goals={p.goals}
+        dismissedTaskIds={p.prefs.dismissedGoalSuggestions ?? []}
+        onLink={(taskId, goalId) => {
+          const t = p.tasks.find((x) => x.id === taskId);
+          if (!t) return;
+          const cur = t.goalIds ?? [];
+          if (cur.includes(goalId)) return;
+          p.onUpdateTask(taskId, { goalIds: [...cur, goalId] });
+        }}
+        onDismiss={(taskId) => {
+          const cur = p.prefs.dismissedGoalSuggestions ?? [];
+          if (cur.includes(taskId)) return;
+          p.onUpdatePrefs({ dismissedGoalSuggestions: [...cur, taskId] });
+        }}
+      />
+      <UnmappedTasks
         tasks={p.tasks}
         goals={p.goals}
         dismissedTaskIds={p.prefs.dismissedGoalSuggestions ?? []}
