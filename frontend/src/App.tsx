@@ -278,6 +278,18 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
     return () => clearInterval(id);
   }, [tasks, prefs.notificationsEnabled]);
 
+  // Theme — write data-theme on <html> so the dark-mode override block in
+  // index.css can flip the desktop palette (and browser color-scheme adjusts
+  // form controls + scrollbars). Defaults to light when no pref is set so
+  // existing users don't get an unexpected dark surprise; explicit "dark"
+  // flips. The iOS shell scopes its own theme on .ios-root[data-theme=...]
+  // independently.
+  useEffect(() => {
+    const theme = prefs.theme === "dark" ? "dark" : "light";
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+  }, [prefs.theme]);
+
   useEffect(() => {
     fetchGoogleStatus().then(setGoogleStatus).catch(() => setGoogleStatus(null));
     // If we just returned from the OAuth round-trip, surface a confirmation.
