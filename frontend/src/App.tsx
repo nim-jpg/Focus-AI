@@ -1074,6 +1074,51 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             userType={prefs.userType}
             onChange={(mode) => setPrefs({ mode })}
           />
+          {/* Theme toggle — sun/moon icon, mirrors the iOS shell control.
+              Persists on prefs so the choice follows the user across
+              surfaces. Currently only the iOS shell honours the theme
+              fully; the desktop layout tracks it for future work. */}
+          <button
+            type="button"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:border-slate-400 hover:text-slate-900"
+            onClick={() =>
+              setPrefs({
+                theme: prefs.theme === "light" ? "dark" : "light",
+              })
+            }
+            title={
+              prefs.theme === "light"
+                ? "Switch to dark theme"
+                : "Switch to light theme"
+            }
+            aria-label="Toggle theme"
+          >
+            {prefs.theme === "light" ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+              </svg>
+            )}
+          </button>
+          {/* Mobile button — flips the iosLayout pref so the page renders
+              the iOS shell. Mirrors the "Desktop" pill on the mobile
+              header so the round-trip is symmetric. */}
+          <button
+            type="button"
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-violet-300 bg-violet-50 px-2 text-xs font-semibold text-violet-700 hover:border-violet-500 hover:bg-violet-100"
+            onClick={() => setPrefs({ iosLayout: true })}
+            title="Switch to the iOS view"
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="6" y="2" width="12" height="20" rx="2" />
+              <path d="M11 18h2" />
+            </svg>
+            Mobile
+          </button>
           <button
             type="button"
             className="text-xs text-slate-500 hover:text-slate-900"
