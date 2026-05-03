@@ -90,6 +90,14 @@ export function IosShell(props: IosShellProps) {
   // user a moment to land in their seat before the day plan takes over.
   const [hyperState, setHyperState] = useState<"closed" | "countdown" | "open">("closed");
   const [completingId, setCompletingId] = useState<string | null>(null);
+  // Most-recent completion — drives the post-tick "Add note · Add follow-up"
+  // toast that floats above the FAB nav. Auto-dismisses after 9s; explicit
+  // close clears it. Doesn't BLOCK the tick — completion fires immediately.
+  const [recentlyCompleted, setRecentlyCompleted] = useState<{
+    taskId: string;
+    title: string;
+    at: number;
+  } | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -97,6 +105,13 @@ export function IosShell(props: IosShellProps) {
     () => (completingId ? props.tasks.find((t) => t.id === completingId) : null),
     [completingId, props.tasks],
   );
+
+  // Auto-dismiss the post-tick toast after 9 seconds.
+  useEffect(() => {
+    if (!recentlyCompleted) return;
+    const timer = setTimeout(() => setRecentlyCompleted(null), 9000);
+    return () => clearTimeout(timer);
+  }, [recentlyCompleted]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -197,11 +212,37 @@ export function IosShell(props: IosShellProps) {
           {tab === "focus" && (
             <FocusTab
               {...props}
-              onAskComplete={(id) => props.onToggleTask(id)}
+              onAskComplete={(id) => {
+              const task = props.tasks.find((t) => t.id === id);
+              props.onToggleTask(id);
+              // Surface a non-blocking note + follow-up toast for first-time
+              // completions (skip if the task was already completed and we're
+              // un-ticking).
+              if (task && task.status !== "completed") {
+                setRecentlyCompleted({
+                  taskId: id,
+                  title: task.title,
+                  at: Date.now(),
+                });
+              }
+            }}
             />
           )}
           {tab === "goals" && (
-            <GoalsTab {...props} onAskComplete={(id) => props.onToggleTask(id)} />
+            <GoalsTab {...props} onAskComplete={(id) => {
+              const task = props.tasks.find((t) => t.id === id);
+              props.onToggleTask(id);
+              // Surface a non-blocking note + follow-up toast for first-time
+              // completions (skip if the task was already completed and we're
+              // un-ticking).
+              if (task && task.status !== "completed") {
+                setRecentlyCompleted({
+                  taskId: id,
+                  title: task.title,
+                  at: Date.now(),
+                });
+              }
+            }} />
           )}
         </div>
       </main>
@@ -344,6 +385,52 @@ export function IosShell(props: IosShellProps) {
           onMuteEvent={props.onMuteEvent}
           onSchedule={props.onSchedule}
           onClose={() => setHyperState("closed")}
+        />
+      )}
+
+      {recentlyCompleted && (
+        <CompletedToast
+          taskId={recentlyCompleted.taskId}
+          title={recentlyCompleted.title}
+          onClose={() => setRecentlyCompleted(null)}
+          onSaveNote={(note) => {
+            const t = props.tasks.find((x) => x.id === recentlyCompleted.taskId);
+            if (t) {
+              props.onUpdateTask(t.id, {
+                resolution: "achieved",
+                resolutionNote: note,
+                resolutionAt: new Date().toISOString(),
+              });
+            }
+            setRecentlyCompleted(null);
+          }}
+          onAddFollowUp={(followUpTitle) => {
+            const original = props.tasks.find((x) => x.id === recentlyCompleted.taskId);
+            // Use onAddTask via the onUpdateTask path… we don't have direct
+            // addTask access here. Reuse the brain-dump entry by setting a
+            // marker; for a focused MVP, just open the new-task form pre-
+            // filled. Simpler: call onAddTask if available — fall back to
+            // a no-op + warn.
+            if (props.onAddTask) {
+              // Stash the prefill in localStorage so the next NewTask
+              // form picks it up. Lightweight; no plumbing required.
+              try {
+                localStorage.setItem(
+                  "focus3:newTaskPrefill",
+                  JSON.stringify({
+                    title: followUpTitle,
+                    followUpToTaskId: original?.id,
+                    goalIds: original?.goalIds,
+                    theme: original?.theme,
+                  }),
+                );
+              } catch {
+                /* noop */
+              }
+              props.onAddTask();
+            }
+            setRecentlyCompleted(null);
+          }}
         />
       )}
 
@@ -2149,6 +2236,194 @@ function HyperFocus(p: HyperFocusProps) {
  *
  * Cancel by tapping the backdrop or the explicit Cancel button.
  */
+/**
+ * Post-tick toast — non-blocking. Slides up from the bottom over the FAB
+ * nav after a task is marked complete. Offers two follow-on actions
+ * without standing in the way: add a quick note (saved to
+ * task.resolutionNote) or spawn a follow-up task pre-filled with the
+ * original's context. Auto-dismisses; explicit close clears.
+ */
+function CompletedToast({
+  title,
+  onClose,
+  onSaveNote,
+  onAddFollowUp,
+}: {
+  taskId: string;
+  title: string;
+  onClose: () => void;
+  onSaveNote: (note: string) => void;
+  onAddFollowUp: (title: string) => void;
+}) {
+  const [mode, setMode] = useState<"idle" | "note" | "followup">("idle");
+  const [text, setText] = useState("");
+
+  return (
+    <div
+      className="fixed inset-x-0 z-[55] flex justify-center px-4"
+      style={{
+        bottom: "calc(env(safe-area-inset-bottom, 0) + 88px)",
+        pointerEvents: "none",
+      }}
+    >
+      <div
+        className="ios-sheet pointer-events-auto w-full max-w-md rounded-2xl px-3 py-2.5"
+        style={{
+          background: "var(--ios-surface-elev)",
+          border: "1px solid var(--ios-border-strong)",
+          boxShadow: "0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04)",
+        }}
+      >
+        {mode === "idle" && (
+          <div className="flex items-center gap-2">
+            <span
+              className="flex h-7 w-7 flex-none items-center justify-center rounded-full"
+              style={{ background: "var(--ios-success)", color: "white" }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12l5 5L20 7" />
+              </svg>
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-bold leading-tight" style={{ color: "var(--ios-text)" }}>
+                Done · <span style={{ color: "var(--ios-text-secondary)" }}>{title}</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMode("note")}
+              className="flex-none rounded-md px-2 py-1 text-[11px] font-semibold"
+              style={{
+                background: "var(--ios-surface)",
+                color: "var(--ios-text-secondary)",
+                border: "1px solid var(--ios-border)",
+              }}
+            >
+              Note
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("followup")}
+              className="flex-none rounded-md px-2 py-1 text-[11px] font-semibold"
+              style={{
+                background: "var(--ios-accent-soft)",
+                color: "var(--ios-accent)",
+                border: "1px solid rgba(167, 139, 250, 0.4)",
+              }}
+            >
+              + Follow-up
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-none rounded-md px-1.5 py-1 text-[11px]"
+              style={{ color: "var(--ios-text-muted)" }}
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {mode === "note" && (
+          <div>
+            <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em]" style={{ color: "var(--ios-text-secondary)" }}>
+              Add a note
+            </div>
+            <input
+              type="text"
+              autoFocus
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="What happened? (optional)"
+              className="mb-2 w-full rounded-md px-3 py-2 text-[13px] outline-none"
+              style={{
+                background: "var(--ios-surface)",
+                color: "var(--ios-text)",
+                border: "1px solid var(--ios-border)",
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onSaveNote(text.trim());
+                if (e.key === "Escape") setMode("idle");
+              }}
+            />
+            <div className="flex justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={() => setMode("idle")}
+                className="rounded-md px-2 py-1 text-[11px]"
+                style={{ color: "var(--ios-text-secondary)" }}
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={() => onSaveNote(text.trim())}
+                className="rounded-md px-2 py-1 text-[11px] font-bold"
+                style={{
+                  background:
+                    "linear-gradient(135deg, var(--ios-accent-grad-from), var(--ios-accent-grad-to))",
+                  color: "white",
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        )}
+
+        {mode === "followup" && (
+          <div>
+            <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em]" style={{ color: "var(--ios-accent)" }}>
+              Follow-up task
+            </div>
+            <input
+              type="text"
+              autoFocus
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder={`Follow-up to "${title.length > 30 ? title.slice(0, 28) + "…" : title}"`}
+              className="mb-2 w-full rounded-md px-3 py-2 text-[13px] outline-none"
+              style={{
+                background: "var(--ios-surface)",
+                color: "var(--ios-text)",
+                border: "1px solid var(--ios-border)",
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && text.trim()) onAddFollowUp(text.trim());
+                if (e.key === "Escape") setMode("idle");
+              }}
+            />
+            <div className="flex justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={() => setMode("idle")}
+                className="rounded-md px-2 py-1 text-[11px]"
+                style={{ color: "var(--ios-text-secondary)" }}
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={() => text.trim() && onAddFollowUp(text.trim())}
+                disabled={!text.trim()}
+                className="rounded-md px-2 py-1 text-[11px] font-bold disabled:opacity-50"
+                style={{
+                  background:
+                    "linear-gradient(135deg, var(--ios-accent-grad-from), var(--ios-accent-grad-to))",
+                  color: "white",
+                }}
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function DeferSheet({
   item,
   onClose,
@@ -2702,18 +2977,37 @@ function DayRiver({
               : `${fixedCount} fixed · ${movableCount} movable${unscheduled.length ? ` · ${unscheduled.length} need a slot` : ""}${overdue ? ` · ${overdue} overdue` : ""}`}
           </p>
         </div>
-        {(unscheduled.length > 0 || overdue > 0) && isToday && (
+        {/* Auto-schedule — ALWAYS visible on today so it's discoverable.
+            Disabled state when nothing actually needs slotting / nudging
+            so the button shows but doesn't fire a no-op. */}
+        {isToday && (
           <button
             type="button"
             onClick={onAutoReschedule}
-            className="absolute right-0 top-0 rounded-md px-3 py-1.5 text-[11px] font-bold"
+            disabled={unscheduled.length === 0 && overdue === 0}
+            className="absolute right-0 top-0 rounded-md px-3 py-1.5 text-[11px] font-bold disabled:cursor-not-allowed"
             style={{
               background:
-                "linear-gradient(135deg, var(--ios-accent-grad-from), var(--ios-accent-grad-to))",
-              color: "white",
+                unscheduled.length === 0 && overdue === 0
+                  ? "var(--ios-surface-elev)"
+                  : "linear-gradient(135deg, var(--ios-accent-grad-from), var(--ios-accent-grad-to))",
+              color:
+                unscheduled.length === 0 && overdue === 0
+                  ? "var(--ios-text-muted)"
+                  : "white",
+              border:
+                unscheduled.length === 0 && overdue === 0
+                  ? "1px solid var(--ios-border)"
+                  : "none",
+              opacity: unscheduled.length === 0 && overdue === 0 ? 0.7 : 1,
             }}
+            title={
+              unscheduled.length === 0 && overdue === 0
+                ? "Nothing to slot — add a task without a time, or mark something done first"
+                : "Slot pending tasks into open gaps"
+            }
           >
-            Auto-reschedule
+            Auto-schedule
           </button>
         )}
       </div>
