@@ -1024,28 +1024,29 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-4 py-6 sm:space-y-8 sm:py-8">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          {/* Brand mark — same Focus3 dot trio from the favicon, sized for
-              the header. Adds visual identity without an image asset. */}
-          <div
-            aria-hidden
-            className="hidden h-9 w-9 flex-none items-center justify-center rounded-xl bg-slate-900 shadow-md shadow-slate-900/20 sm:flex"
-          >
-            <div className="flex gap-0.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        {/* LEFT — brand mark + Focus3 wordmark side-by-side on the same
+            line, motto sits underneath the wordmark (NOT alongside
+            the icon, so the icon and title visually pair as one unit). */}
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex items-center gap-3">
+            <div
+              aria-hidden
+              className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-slate-900 shadow-md shadow-slate-900/20"
+            >
+              <div className="flex gap-0.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
+              </div>
             </div>
-          </div>
-          <div className="min-w-0">
             <h1 className="bg-gradient-to-br from-slate-900 to-slate-700 bg-clip-text text-xl font-bold tracking-tight text-transparent sm:text-2xl">
               Focus3
             </h1>
-            <p className="hidden text-sm text-slate-500 sm:block">
-              Three things, every day. Your non-negotiables, surfaced.
-            </p>
           </div>
+          <p className="text-xs text-slate-500 sm:text-sm">
+            Three things, every day. Your non-negotiables, surfaced.
+          </p>
         </div>
         <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
           {/* Compact calendar status: "Calendar 🔗" connected (click → open
@@ -1155,13 +1156,11 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         </div>
       </header>
 
-      {/* Two-row header.
-          Row 1: tabs (Today / Tasks / Insights / Goals) on their own line.
-          Row 2: file actions on the LEFT (Brain dump, Scan, PDF, +Task)
-                 and AI / Google chips on the RIGHT (the high-impact
-                 categorisation + sync actions, kept out of the way of
-                 the everyday content-creation buttons). */}
-      <nav className="flex items-center gap-1 border-b border-slate-200/70">
+      {/* Tabs LEFT, all action links RIGHT, single row sharing the
+          underline. Tab nav on its own line above is gone — the user
+          wants the underlined nav row to ALSO carry the action cluster
+          on its right edge so the header is one visual unit. */}
+      <nav className="flex flex-wrap items-center gap-x-1 gap-y-2 border-b border-slate-200/70 pb-1.5">
         {TAB_DEFS.map((t) => {
           const active = view === t.key;
           return (
@@ -1185,11 +1184,11 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             </button>
           );
         })}
-      </nav>
 
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        {/* LEFT: content-creation actions (paste, scan, export, +task) */}
-        <div className="flex flex-wrap items-center gap-1.5">
+        {/* Action links all on the RIGHT — content creation chips first
+            (Brain dump · Scan · PDF · +Task), divider, then the AI /
+            Google chips. */}
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800"
@@ -1226,12 +1225,12 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           >
             + <span className="hidden sm:inline">Task</span>
           </button>
-        </div>
 
-        {/* RIGHT: AI Smart organise + Google Sync — pushed to the right
-            with ml-auto so they sit visually opposite the content-
-            creation cluster. */}
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <span
+            aria-hidden
+            className="hidden h-5 w-px bg-slate-200 sm:inline-block"
+          />
+
           <SmartActionsBar
             tasks={tasks}
             goals={goals}
@@ -1252,7 +1251,7 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             aiBusy={loading}
           />
         </div>
-      </div>
+      </nav>
 
       {calendarMsg && (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
