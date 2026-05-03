@@ -1155,37 +1155,32 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         </div>
       </header>
 
-      {/* Single header row — tabs on the left, all actions on the right.
-          Grouped left-to-right by purpose with thin dividers:
-            primary AI/Google → import/export utilities → +Task CTA
-          Wraps gracefully on narrow viewports without forcing a second
-          row of empty space. */}
-      <nav className="flex flex-wrap items-center gap-x-1 gap-y-2 border-b border-slate-200/70 pb-1.5">
-        {TAB_DEFS.map((t) => {
-          const active = view === t.key;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setView(t.key)}
-              className={`relative px-3 py-2.5 text-sm font-medium transition-colors ${
-                active
-                  ? "text-slate-900"
-                  : "text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              {t.label}
-              {active && (
-                <span
-                  aria-hidden
-                  className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-slate-900 via-slate-700 to-slate-900"
-                />
-              )}
-            </button>
-          );
-        })}
+      {/* Single header row — actions LEFT, tabs CENTRED.
+          Three-column grid layout so the tabs sit dead-centre regardless
+          of how wide the action cluster grows. The right column is an
+          invisible spacer that mirrors the left column's footprint, so
+          the centre column truly centres on the page (a flexbox
+          ml-auto trick would push tabs off-centre toward whichever
+          side has more content). On narrow viewports the grid
+          collapses to one column and everything stacks. */}
+      <nav className="grid grid-cols-1 items-center gap-x-2 gap-y-2 border-b border-slate-200/70 pb-1.5 md:grid-cols-[1fr_auto_1fr]">
+        {/* LEFT: action cluster, grouped by purpose with thin dividers */}
+        <div className="flex flex-wrap items-center gap-1.5 md:justify-self-start">
+          {/* Primary CTA — loud, leftmost so the eye lands on it first */}
+          <button
+            type="button"
+            className="btn-primary text-xs"
+            onClick={startNew}
+            title="Add a single task"
+          >
+            + <span className="hidden sm:inline">Task</span>
+          </button>
 
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <span
+            aria-hidden
+            className="hidden h-5 w-px bg-slate-200 sm:inline-block"
+          />
+
           {/* AI + Google — the two high-impact actions */}
           <SmartActionsBar
             tasks={tasks}
@@ -1241,22 +1236,39 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           >
             📄<span className="hidden sm:inline"> PDF</span>
           </button>
-
-          <span
-            aria-hidden
-            className="hidden h-5 w-px bg-slate-200 sm:inline-block"
-          />
-
-          {/* Primary CTA — loud */}
-          <button
-            type="button"
-            className="btn-primary text-xs"
-            onClick={startNew}
-            title="Add a single task"
-          >
-            + <span className="hidden sm:inline">Task</span>
-          </button>
         </div>
+
+        {/* CENTRE: tab nav. justify-self-center pins the tab cluster to
+            the middle of its grid column. */}
+        <div className="flex items-center gap-1 md:justify-self-center">
+          {TAB_DEFS.map((t) => {
+            const active = view === t.key;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setView(t.key)}
+                className={`relative px-3 py-2.5 text-sm font-medium transition-colors ${
+                  active
+                    ? "text-slate-900"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                {t.label}
+                {active && (
+                  <span
+                    aria-hidden
+                    className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-slate-900 via-slate-700 to-slate-900"
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* RIGHT: empty balance column on wide viewports so the centre
+            stays centred. Hidden on narrow widths (single-column grid). */}
+        <div className="hidden md:block" aria-hidden />
       </nav>
 
       {calendarMsg && (
