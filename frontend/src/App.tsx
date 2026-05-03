@@ -1155,7 +1155,12 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
         </div>
       </header>
 
-      <nav className="flex flex-wrap items-center gap-1 border-b border-slate-200/70">
+      {/* Single header row — tabs on the left, all actions on the right.
+          Grouped left-to-right by purpose with thin dividers:
+            primary AI/Google → import/export utilities → +Task CTA
+          Wraps gracefully on narrow viewports without forcing a second
+          row of empty space. */}
+      <nav className="flex flex-wrap items-center gap-x-1 gap-y-2 border-b border-slate-200/70 pb-1.5">
         {TAB_DEFS.map((t) => {
           const active = view === t.key;
           return (
@@ -1179,15 +1184,9 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             </button>
           );
         })}
-      </nav>
 
-      {/* Action bar — two stacked rows on the right side. AI + Google
-          (the high-frequency / high-impact actions) on top so they read
-          first; Export / Scan / Brain dump / +Task underneath as the
-          secondary row. Stacks vertically inside the right column so
-          neither row crowds the other on narrow viewports. */}
-      <div className="flex flex-col items-end gap-1.5">
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          {/* AI + Google — the two high-impact actions */}
           <SmartActionsBar
             tasks={tasks}
             goals={goals}
@@ -1207,22 +1206,24 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
             }}
             aiBusy={loading}
           />
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
+
+          <span
+            aria-hidden
+            className="hidden h-5 w-px bg-slate-200 sm:inline-block"
+          />
+
+          {/* Import / export — quieter ghost buttons */}
           <button
             type="button"
-            className="btn-secondary text-xs"
-            onClick={() => {
-              void exportWeeklyPlanner(tasks, prefs, aiTierMap);
-            }}
-            title="Download a 7-day Top Three planner as PDF"
-            disabled={tasks.length === 0}
+            className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            onClick={() => setShowBrainDump(true)}
+            title="Paste a list and let Claude parse it into tasks"
           >
-            <span className="hidden sm:inline">Export </span>PDF
+            ✨<span className="hidden sm:inline"> Brain dump</span>
           </button>
           <button
             type="button"
-            className="btn-secondary text-xs"
+            className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800"
             onClick={() => setShowPlannerScan(true)}
             title="Scan a marked-up planner photo back into the app"
             disabled={tasks.length === 0}
@@ -1231,22 +1232,32 @@ function AppShell({ auth }: { auth: ReturnType<typeof useAuth> }) {
           </button>
           <button
             type="button"
-            className="btn-secondary text-xs"
-            onClick={() => setShowBrainDump(true)}
-            title="Paste a list and let Claude parse it into tasks"
+            className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            onClick={() => {
+              void exportWeeklyPlanner(tasks, prefs, aiTierMap);
+            }}
+            title="Download a 7-day Top Three planner as PDF"
+            disabled={tasks.length === 0}
           >
-            ✨<span className="hidden sm:inline"> Brain dump</span>
+            📄<span className="hidden sm:inline"> PDF</span>
           </button>
+
+          <span
+            aria-hidden
+            className="hidden h-5 w-px bg-slate-200 sm:inline-block"
+          />
+
+          {/* Primary CTA — loud */}
           <button
             type="button"
-            className="btn-primary"
+            className="btn-primary text-xs"
             onClick={startNew}
             title="Add a single task"
           >
             + <span className="hidden sm:inline">Task</span>
           </button>
         </div>
-      </div>
+      </nav>
 
       {calendarMsg && (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
