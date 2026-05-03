@@ -288,6 +288,11 @@ export interface UserPrefs {
    *  don't accidentally surface "med" / drinking prompts to users
    *  who don't care. */
   quickLogItems?: string[];
+  /** Task ids the user has dismissed from the "Suggested for your
+   *  goals" panel. Suggestions are computed live by matching task
+   *  themes to goal themes; once dismissed, the task no longer appears
+   *  even if it'd still match. The user can re-link manually anytime. */
+  dismissedGoalSuggestions?: string[];
   /** What the user wants the prioritisation engine to bias toward — pick
    *  1-3. Empty (default) keeps the engine neutral and leans on the existing
    *  signals (deadlines, avoidance, blockers, goals). When set, tasks
