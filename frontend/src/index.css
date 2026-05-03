@@ -148,6 +148,35 @@ html[data-theme="dark"] #root {
 [data-theme="dark"] .divide-slate-200 > * + * { border-color: rgba(255, 255, 255, 0.08) !important; }
 [data-theme="dark"] .ring-slate-200 { --tw-ring-color: rgba(255, 255, 255, 0.10) !important; }
 
+/* Tailwind gradient stops use CSS variables (--tw-gradient-from, -via, -to)
+   set by the from-* / via-* / to-* utility classes. Plain bg-* overrides
+   above don't touch them, so a card like
+     bg-gradient-to-br from-rose-50 via-white to-rose-50/30
+   still renders mostly WHITE in dark mode → white text invisible. The
+   Top Three tiles hit this. Map the soft palette stops to dark-tinted
+   versions so the gradient still carries semantic colour but reads
+   against #0B0E13. */
+[data-theme="dark"] .from-rose-50 { --tw-gradient-from: rgba(244, 63, 94, 0.14) var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(244, 63, 94, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+[data-theme="dark"] .from-sky-50 { --tw-gradient-from: rgba(14, 165, 233, 0.14) var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(14, 165, 233, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+[data-theme="dark"] .from-violet-50 { --tw-gradient-from: rgba(167, 139, 250, 0.14) var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(167, 139, 250, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+[data-theme="dark"] .from-slate-50 { --tw-gradient-from: rgba(255, 255, 255, 0.04) var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(255, 255, 255, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+[data-theme="dark"] .from-emerald-50 { --tw-gradient-from: rgba(16, 185, 129, 0.14) var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(16, 185, 129, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+[data-theme="dark"] .from-amber-50 { --tw-gradient-from: rgba(245, 158, 11, 0.14) var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(245, 158, 11, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+[data-theme="dark"] .via-white { --tw-gradient-via: #16181F !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-via), var(--tw-gradient-to) !important; }
+[data-theme="dark"] .to-rose-50\/30 { --tw-gradient-to: rgba(244, 63, 94, 0.05) var(--tw-gradient-to-position) !important; }
+[data-theme="dark"] .to-sky-50\/30 { --tw-gradient-to: rgba(14, 165, 233, 0.05) var(--tw-gradient-to-position) !important; }
+[data-theme="dark"] .to-violet-50\/30 { --tw-gradient-to: rgba(167, 139, 250, 0.05) var(--tw-gradient-to-position) !important; }
+[data-theme="dark"] .to-slate-50\/30 { --tw-gradient-to: rgba(255, 255, 255, 0.02) var(--tw-gradient-to-position) !important; }
+
+/* Top-Three tier accents render the left-edge stripe via inset box-shadow
+   on the card. The gradient override above replaces shadow rules, so we
+   need to keep those inset stripes alive in dark mode by re-asserting
+   them at higher specificity. */
+[data-theme="dark"] .shadow-\[inset_4px_0_0_0_rgb\(244_63_94\)\] { box-shadow: inset 4px 0 0 0 rgb(244 63 94), 0 1px 2px 0 rgba(0, 0, 0, 0.4) !important; }
+[data-theme="dark"] .shadow-\[inset_4px_0_0_0_rgb\(14_165_233\)\] { box-shadow: inset 4px 0 0 0 rgb(14 165 233), 0 1px 2px 0 rgba(0, 0, 0, 0.4) !important; }
+[data-theme="dark"] .shadow-\[inset_4px_0_0_0_rgb\(139_92_246\)\] { box-shadow: inset 4px 0 0 0 rgb(139 92 246), 0 1px 2px 0 rgba(0, 0, 0, 0.4) !important; }
+[data-theme="dark"] .shadow-\[inset_4px_0_0_0_rgb\(100_116_139\)\] { box-shadow: inset 4px 0 0 0 rgb(100 116 139), 0 1px 2px 0 rgba(0, 0, 0, 0.4) !important; }
+
 /* Shadows look terrible on dark — soften them so they don't look like
    bright halos around cards. */
 [data-theme="dark"] .shadow-sm { box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.4) !important; }

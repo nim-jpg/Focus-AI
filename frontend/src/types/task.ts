@@ -281,6 +281,13 @@ export interface UserPrefs {
   /** UI theme. "dark" (default on iOS shell) or "light". Persisted in
    *  prefs so it follows the user across devices. */
   theme?: "dark" | "light";
+  /** Quick-log items to show in the bottom tray. Lets the user pick the
+   *  daily-tally counts that ARE relevant to them — water + walk for
+   *  some, smoking + drinks for others tracking vices. When undefined
+   *  the app uses the default conservative set (water, walk) so we
+   *  don't accidentally surface "med" / drinking prompts to users
+   *  who don't care. */
+  quickLogItems?: string[];
   /** What the user wants the prioritisation engine to bias toward — pick
    *  1-3. Empty (default) keeps the engine neutral and leans on the existing
    *  signals (deadlines, avoidance, blockers, goals). When set, tasks
